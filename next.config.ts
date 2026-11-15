@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["heic-convert"],
   // Isolate local previews from other running Next.js sessions.
   distDir: process.env.NEXT_BUILD_DIR || ".next",
   images: {

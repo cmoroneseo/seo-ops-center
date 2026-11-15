@@ -3,10 +3,12 @@ import type { PagePayload } from '@/lib/approvals-v2/registry';
 import { nodeText, sanitizeDoc, safeUrl, type PageNode } from '@/lib/approvals-v2/page-doc';
 export function PageBody({
   body,
-  images = {}
+  images = {},
+  decorateBlock
 }: {
   body: unknown;
   images?: Record<string, string | null>;
+  decorateBlock?: (node: PageNode, children: ReactNode) => ReactNode;
 }) {
   let doc: PageNode;
   try {
@@ -71,19 +73,25 @@ export function PageBody({
     </tbody> : children);
   }
   return <div id="page-introduction" className="approval-page-body">
-    {doc.content?.map((node, index) => render(node, String(index), true))}
+    {doc.content?.map((node, index) => decorateBlock ? <div key={String(node.attrs?.blockId ?? index)}>{decorateBlock(node, render(node, String(index), true))}</div> : render(node, String(index), true))}
   </div>;
 }
 export function PagePreview({
   payload,
   photoUrl,
   images,
+  decorateBlock,
+  mockupTools,
+  onMockupPin,
   domain = 'Your website'
 }: {
   payload: PagePayload;
   photoUrl?: string | null;
   images?: Record<string, string | null>;
   domain?: string;
+  decorateBlock?: (node: PageNode, children: ReactNode) => ReactNode;
+  mockupTools?: ReactNode;
+  onMockupPin?: () => void;
 }) {
   return <div className="page-review-content space-y-5">
     <section aria-label="Search preview" className="rounded-xl border border-[#E2E3DF] bg-white p-5 text-[#1A1A1A]">
@@ -99,16 +107,16 @@ export function PagePreview({
       <p className="mt-4 rounded-lg bg-[#EEF0F2] p-3 text-sm">🔒 Read-only. Your account manager sets these search details, so they don’t take comments.</p>
     </section>
     {photoUrl && <figure className="overflow-hidden rounded-xl border bg-white">
-      <figcaption className="border-b p-3 text-sm">Mockup image</figcaption>
+      <figcaption className="border-b p-3 text-sm">Mockup image{mockupTools}</figcaption>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={photoUrl} alt={payload.mockupAlt ?? ''} className="max-h-[600px] w-full object-contain" />
+      <img src={photoUrl} alt={payload.mockupAlt ?? ''} className="max-h-[600px] w-full object-contain" onClick={onMockupPin} />
     </figure>}
     <section className="rounded-xl border border-[#E2E3DF] bg-white p-5 text-[#1A1A1A] sm:p-8" aria-label="Page content">
       <h1 className="mb-4 text-3xl font-bold">
         {payload.title}
       </h1>
       {payload.plannedDate && <p className="mb-5 text-[#545A61]">Planned for {payload.plannedDate}</p>}
-      <PageBody body={payload.body} images={images} />
+      <PageBody body={payload.body} images={images} decorateBlock={decorateBlock} />
     </section>
   </div>;
 }

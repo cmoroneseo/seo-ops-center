@@ -4,7 +4,8 @@ import './page-review.css';
 
 import { Check, Clock, Pencil } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { PagePreview } from './PagePreview';
+import { PageComments, type ReviewComment } from './PageComments';
+import type { DraftComment } from '@/lib/approvals-v2/carry';
 import { TypeChip } from './Shared';
 import type { PublicPageItem, PublicPageView } from '@/lib/approvals-v2/public';
 import type { PagePayload } from '@/lib/approvals-v2/registry';
@@ -16,6 +17,8 @@ interface LoadedPage {
     payload: PagePayload;
     outline: OutlineSection[];
   };
+  comments?: ReviewComment[];
+  photoHash?: string;
   photoUrl: string | null;
   images: Record<string, string | null>;
 }
@@ -31,6 +34,21 @@ export function PublicPageReview({
   token: string;
   view: PublicPageView;
 }) {
+  const [drafts, setDrafts] = useState<DraftComment[]>([]);
+  const draftKey = `approval-comments:${token}:${view.items.map(item => item.version.id).join(':')}`;
+  const [draftsReady, setDraftsReady] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(draftKey) ?? '[]');
+      if (Array.isArray(saved)) setDrafts(saved);
+    } catch { /* Storage may be unavailable in private browsing. */ }
+    setDraftsReady(true);
+  }, [draftKey]);
+  useEffect(() => {
+    if (draftsReady) {
+      try { localStorage.setItem(draftKey, JSON.stringify(drafts)); } catch { /* Keep drafts in memory. */ }
+    }
+  }, [drafts, draftKey, draftsReady]);
   const [selected, setSelected] = useState<string | null>(view.items.length === 1 ? view.items[0].id : null);
   const [loaded, setLoaded] = useState<LoadedPage | null>(null);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
@@ -72,7 +90,7 @@ export function PublicPageReview({
       }
     }));
   }
-  const ready = view.items.every(item => item.locked || decisions[item.id] && (decisions[item.id].decision === 'approved' || decisions[item.id].comment.trim()));
+  const ready = view.items.every(item => item.locked || decisions[item.id] && (decisions[item.id].decision === 'approved' || (decisions[item.id].comment.trim() || drafts.some(comment => comment.itemId === item.id))));
   const summary = view.items.map(item => ({
     title: item.version.payload.title,
     choice: decisions[item.id]?.decision ?? item.status,
@@ -93,6 +111,7 @@ export function PublicPageReview({
         versionId: item.version.id,
         ...decisions[item.id]
       })),
+      comments: drafts.map(({ id: _id, previewUrl: _preview, ...comment }) => { void _id; void _preview; return comment; }),
       answers: Object.entries(answers).filter(([, answer]) => answer.trim()).map(([questionId, answer]) => ({
         questionId,
         answer
@@ -124,6 +143,7 @@ export function PublicPageReview({
         };
         throw new Error(messages[result.code] ?? result.error ?? 'Your review could not be sent.');
       }
+      try { localStorage.removeItem(draftKey); } catch { /* Optional storage. */ }
       setSentBy(body.respondentName);
       setStep('done');
       window.scrollTo(0, 0);
@@ -153,6 +173,7 @@ export function PublicPageReview({
         <p className="text-4xl text-[#1B6B34]" aria-hidden="true">✓</p>
         <h1 className="my-4 text-3xl font-bold">Thanks! Your account manager will follow up on any changes.</h1>
         <p>We received your review.</p>
+        <p className="mt-4">Comments {drafts.length} · Image suggestions {drafts.filter(comment => comment.suggestedImageReservationId).length}</p>
         <ul className="my-5 divide-y rounded-xl border">
           {summary.map((row, index) => <li key={index} className="p-4">{row.title} · Version {row.version}<br />{row.choice === 'approved' ? 'Approved' : 'Changes requested'}</li>)}
         </ul>
@@ -163,6 +184,7 @@ export function PublicPageReview({
       </section> : step === 'send' ? <section className="mx-auto max-w-2xl rounded-2xl border bg-white p-6">
         <h1 className="text-3xl font-bold">Send your review</h1>
         <p className="mt-3">Check your decision and notes, then add your name. This review applies to the versions listed below only.</p>
+        <p className="mt-4">Comments {drafts.length} · Image suggestions {drafts.filter(comment => comment.suggestedImageReservationId).length}</p>
         <ul className="my-5 divide-y rounded-xl border">
           {summary.map((row, index) => <li key={index} className="p-4">{row.title} · Version {row.version}<br />{row.choice === 'approved' ? 'Approved' : 'Changes requested'}{decisions[view.items[index].id]?.comment && <p className="mt-2 whitespace-pre-wrap">
             {decisions[view.items[index].id].comment}
@@ -226,9 +248,9 @@ export function PublicPageReview({
           {error && <p role="alert" className="mb-4 text-[#B3261E]">
             {error}
           </p>}
-          {!loaded ? <p role="status">Loading page…</p> : loaded.version.id !== item.version.id ? <p role="alert">This page was updated. Refresh before reviewing it.</p> : <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <PagePreview domain={view.domain} payload={loaded.version.payload} photoUrl={loaded.photoUrl} images={loaded.images} />
-            <aside className="space-y-5 lg:sticky lg:top-5">
+          {!loaded ? <p role="status">Loading page…</p> : loaded.version.id !== item.version.id ? <p role="alert">This page was updated. Refresh before reviewing it.</p> : <div className="min-w-0">
+            <PageComments token={token} itemId={item.id} versionId={loaded.version.id} versionNo={loaded.version.versionNo} domain={view.domain} payload={loaded.version.payload} outline={loaded.version.outline} photoUrl={loaded.photoUrl} photoHash={loaded.photoHash} images={loaded.images} drafts={drafts} onChange={setDrafts} comments={loaded.comments} locked={item.locked}>
+            <div className="space-y-5">
               <nav className="rounded-xl border bg-white p-5" aria-label="Page sections">
                 <h2 className="mb-3 font-bold">On this page</h2>
                 <select aria-label="Jump to section" className="w-full rounded border p-2 lg:hidden" defaultValue="" onChange={event => document.getElementById(event.target.value)?.scrollIntoView({
@@ -253,7 +275,7 @@ export function PublicPageReview({
                 {item.locked ? <p>This decision is locked because the agency already acted on it.</p> : <>
                   <button className={`${button} w-full ${decisions[item.id]?.decision === 'approved' ? 'bg-[#1B6B34] !text-white' : ''}`} aria-pressed={decisions[item.id]?.decision === 'approved'} onClick={() => choose(item, 'approved')}>Approve page</button>
                   <button className={`${button} w-full ${decisions[item.id]?.decision === 'changes_requested' ? 'bg-[#FFF3E0]' : ''}`} aria-pressed={decisions[item.id]?.decision === 'changes_requested'} onClick={() => choose(item, 'changes_requested')}>Request changes</button>
-                  {decisions[item.id]?.decision === 'changes_requested' && <label className="block font-semibold">What needs to change? (required)<textarea required maxLength={4000} value={decisions[item.id].comment} onChange={event => setDecisions(previous => ({
+                  {decisions[item.id]?.decision === 'changes_requested' && <label className="block font-semibold">What needs to change? ({drafts.some(comment => comment.itemId === item.id) ? 'optional page note' : 'required'})<textarea maxLength={4000} value={decisions[item.id].comment} onChange={event => setDecisions(previous => ({
                     ...previous,
                     [item.id]: {
                       ...previous[item.id],
@@ -263,7 +285,8 @@ export function PublicPageReview({
                   <p className="text-sm text-[#545A61]">Your choice won’t be sent until you press Send review.</p>
                 </>}
               </section>
-            </aside>
+            </div>
+            </PageComments>
           </div>}
         </>}
         {view.questions.length > 0 && <section className="mt-6 space-y-4 rounded-xl border bg-white p-5">

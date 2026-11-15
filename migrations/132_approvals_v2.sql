@@ -1144,7 +1144,7 @@ begin
       select * into v_reservation from public.approval_upload_reservations where id=v_reservation_id
         and purpose='image_replacement' and request_id=v_request.id and item_id=(v_c->>'itemId')::uuid
         and version_id=(v_c->>'versionId')::uuid and status='reserved' and expires_at>p_now for update;
-      if not found then raise exception 'invalid image reservation' using errcode='23514'; end if;
+      if not found or not (v_reservation_id = any(v_verified)) or v_reservation.link_id<>v_link.id or v_reservation.preview_key is null then raise exception 'invalid image reservation' using errcode='23514'; end if;
       update public.approval_upload_reservations set status='attached', response_id=(select id from public.approval_responses where submission_id=v_submission_id and item_id=v_reservation.item_id limit 1) where id=v_reservation_id;
       update public.approval_comments set suggestion_status='superseded' where request_id=v_request.id
         and item_id=(v_c->>'itemId')::uuid and coalesce(block_id,'mockup')=coalesce(v_c->>'blockId','mockup')
@@ -1494,7 +1494,7 @@ begin
  select * into c from public.approval_comments where id=p_comment_id for update;
  if not found then return public.gbp_approval_fail('not_found'); end if;
  if not public.gbp_approval_writer(p_actor,c.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
- update public.approval_comments set resolved_at=null,resolved_by=null,resolved_in_version_id=null, suggestion_status=case when suggestion_status in ('accepted','declined') then 'pending' else suggestion_status end,suggestion_decided_at=null,suggestion_decided_by=null,suggestion_reply=null where id=c.id;
+ update public.approval_comments set resolved_at=null,resolved_by=null,resolved_in_version_id=null, suggestion_status=case when suggestion_status='declined' then 'pending' else suggestion_status end,suggestion_decided_at=case when suggestion_status='accepted' then suggestion_decided_at else null end,suggestion_decided_by=case when suggestion_status='accepted' then suggestion_decided_by else null end,suggestion_reply=case when suggestion_status='accepted' then suggestion_reply else null end where id=c.id;
  insert into public.approval_events(organization_id,request_id,actor_id,kind,detail,created_at)
  values(c.organization_id,c.request_id,p_actor,'comment_reopened',jsonb_build_object('commentId',c.id),p_now);
  return jsonb_build_object('ok',true);
@@ -1572,6 +1572,31 @@ begin
  if clean is null then return public.gbp_approval_fail('invalid_request'); end if;
  insert into public.approval_item_versions(organization_id,request_id,item_id,version_no,schema_version,payload,photo_path,source,created_by,outline,change_note)
  values(c.organization_id,c.request_id,c.item_id,v.version_no+1,1,clean->'payload',clean->>'photo','accepted_suggestion',p_actor,v.outline,'Accepted suggestion') returning id into vid;
+ update public.approval_items set current_version_id=vid where id=i.id;
+ update public.approval_comments set suggestion_status='accepted',suggestion_decided_at=p_now,suggestion_decided_by=p_actor,
+ resolved_at=p_now,resolved_by=p_actor,resolved_in_version_id=vid where id=c.id;
+ insert into public.approval_events(organization_id,request_id,item_id,kind,actor_id,created_at) values(c.organization_id,c.request_id,c.item_id,'suggestion_accepted',p_actor,p_now);
+ return jsonb_build_object('ok',true,'versionId',vid);
+exception when check_violation or not_null_violation then return public.gbp_approval_fail('invalid_request');
+end $$;
+-- Accept with a fresh server-computed outline and an optimistic draft guard.
+create or replace function public.accept_approval_suggestion(p_actor uuid,p_comment_id uuid,p_payload jsonb,p_photo text,p_now timestamptz,p_outline jsonb,p_expected_version_id uuid) returns jsonb
+language plpgsql security definer set search_path = pg_catalog, public as $$
+declare c public.approval_comments%rowtype; i public.approval_items%rowtype; v public.approval_item_versions%rowtype; clean jsonb; vid uuid;
+begin
+ select * into c from public.approval_comments where id=p_comment_id;
+ if not found then return public.gbp_approval_fail('not_found'); end if;
+ perform 1 from public.approval_requests where id=c.request_id for update;
+ select * into c from public.approval_comments where id=p_comment_id for update;
+ if not public.gbp_approval_writer(p_actor,c.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
+ if c.suggestion_status is distinct from 'pending' then return public.gbp_approval_fail('invalid_request'); end if;
+ select * into i from public.approval_items where id=c.item_id for update;
+ if i.current_version_id is distinct from p_expected_version_id then return public.gbp_approval_fail('conflict'); end if;
+ select * into v from public.approval_item_versions where id=i.current_version_id;
+ clean := public.approval_clean_item(i.item_type,p_payload,p_photo);
+ if clean is null then return public.gbp_approval_fail('invalid_request'); end if;
+ insert into public.approval_item_versions(organization_id,request_id,item_id,version_no,schema_version,payload,photo_path,source,created_by,outline,change_note)
+ values(c.organization_id,c.request_id,c.item_id,v.version_no+1,1,clean->'payload',clean->>'photo','accepted_suggestion',p_actor,p_outline,'Accepted suggestion') returning id into vid;
  update public.approval_items set current_version_id=vid where id=i.id;
  update public.approval_comments set suggestion_status='accepted',suggestion_decided_at=p_now,suggestion_decided_by=p_actor,
  resolved_at=p_now,resolved_by=p_actor,resolved_in_version_id=vid where id=c.id;

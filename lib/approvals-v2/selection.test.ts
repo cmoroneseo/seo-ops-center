@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { JSDOM } from 'jsdom';
+import { selectionAnchor } from './selection.ts';
+import { normalizePageBody } from './page-body.ts';
+test('DOM selection converts UTF-16 emoji offsets and snaps cross-block ranges to the first block', () => {
+  const dom = new JSDOM('<div id="one">Hello <strong>😀</strong> world</div><p id="two">Second block</p>');
+  const document = dom.window.document;
+  const normalized = normalizePageBody({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello 😀 world' }] }] });
+  const block = normalized.body.content[0];
+  const hash = normalized.outline[0].blocks[0].hash;
+  const range = document.createRange();
+  const emoji = document.querySelector('strong')!.firstChild!;
+  range.setStart(emoji, 0);
+  range.setEnd(emoji, 2);
+  const exact = selectionAnchor(range, document.getElementById('one')!, block, hash);
+  assert.equal(exact.quote, '😀');
+  assert.equal(exact.rangeStart, 6);
+  assert.equal(exact.rangeEnd, 7);
+  range.setEnd(document.getElementById('two')!.firstChild!, 6);
+  const snapped = selectionAnchor(range, document.getElementById('one')!, block, hash);
+  assert.equal(snapped.quote, '😀 world');
+  assert.equal(snapped.rangeEnd, 13);
+  dom.window.close();
+});
+
+test('DOM selection preserves the original quote case and code-point offsets', () => {
+  const text = 'İ 😀 You get a written quote';
+  const dom = new JSDOM(`<div>${text}</div>`);
+  const content = dom.window.document.querySelector('div')!;
+  const normalized = normalizePageBody({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+  const range = dom.window.document.createRange();
+  range.setStart(content.firstChild!, 5);
+  range.setEnd(content.firstChild!, text.length);
+  const selected = selectionAnchor(range, content, normalized.body.content[0], normalized.outline[0].blocks[0].hash);
+  assert.equal(selected.quote, 'You get a written quote');
+  assert.equal(selected.rangeStart, 4);
+  assert.equal(selected.rangeEnd, 27);
+  dom.window.close();
+});
