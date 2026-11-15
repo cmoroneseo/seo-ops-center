@@ -254,7 +254,7 @@ export function PageComments({ token, itemId, versionId, versionNo, payload, out
   });
   return <div ref={root} onLoadCapture={() => refreshLayout(value => value + 1)} onMouseUp={capture} onTouchEnd={() => setTimeout(capture, 100)} className="page-comments-layout">
     <div>
-      {versionNo > 1 && <div className="mb-4 rounded border border-[#0E6670] bg-[#E6F2F3] p-4"><strong>Revision ready</strong><p>Review version {versionNo}. Your earlier comments are kept below.</p></div>}
+      {comments.length > 0 && <div className="mb-4 rounded border border-[#0E6670] bg-[#E6F2F3] p-4"><strong>Revision ready</strong><p>Review version {versionNo}. Your earlier comments are kept below.</p></div>}
       <div className="mb-4 flex gap-3"><a href="#your-comments" className={control} onClick={() => setSheet(true)}>Comments ({entries.length})</a><button className={control} aria-pressed={pin} disabled={locked} onClick={() => setPin(!pin)}>Add pin{pin ? ' · On' : ''}</button></div>
       {pin && <p role="status">Tap a section or image to add a pin. Press Esc to stop.</p>}
       <PagePreview onMockupPin={pin && photoHash ? () => begin({ anchorKind: 'pin', pinTarget: 'mockup', targetHash: photoHash }) : undefined} payload={payload} photoUrl={photoUrl} images={images} domain={domain} decorateBlock={decorate} mockupTools={photoHash ? tools({ anchorKind: 'pin', pinTarget: 'mockup', targetHash: photoHash }, photoUrl) : undefined} />

@@ -49,13 +49,25 @@ test('PAGE comments, superseding replacements, accept next draft only, release, 
     assert.equal(addressed.suggestion_status, 'accepted');
     assert.equal(addressed.resolved_in_version_id, saved.current_version_id);
     assert.equal((await call(db, 'select reopen_approval_comment($1,$2,$3) result', [owner, comment.id, now])).ok, true);
-    assert.equal((await call(db, 'select decline_approval_suggestion($1,$2,$3,$4) result', [owner, comment.id, 'We will keep this wording.', now])).ok, true);
+    const reopened = (await db.query('select suggestion_status,resolved_at,resolved_by,resolved_in_version_id,suggestion_decided_at,suggestion_decided_by from approval_comments where id=$1', [comment.id])).rows[0];
+    assert.equal(reopened.suggestion_status, 'accepted');
+    assert.equal(reopened.resolved_at, null);
+    assert.equal(reopened.resolved_by, null);
+    assert.equal(reopened.resolved_in_version_id, null);
+    assert.equal(new Date(String(reopened.suggestion_decided_at)).toISOString(), now);
+    assert.equal(reopened.suggestion_decided_by, owner);
+    assert.equal((await submit([{ ...textComment, body: 'Another suggestion' }])).ok, true);
+    const toDecline = (await db.query('select id from approval_comments where body=$1', ['Another suggestion'])).rows[0];
+    assert.equal((await call(db, 'select decline_approval_suggestion($1,$2,$3,$4) result', [owner, toDecline.id, 'We will keep this wording.', now])).ok, true);
     const declined = (await db.query<{
       suggestion_status: string;
       suggestion_reply: string;
-    }>('select suggestion_status,suggestion_reply from approval_comments where id=$1', [comment.id])).rows[0];
+    }>('select suggestion_status,suggestion_reply from approval_comments where id=$1', [toDecline.id])).rows[0];
     assert.equal(declined.suggestion_status, 'declined');
     assert.equal(declined.suggestion_reply, 'We will keep this wording.');
+    assert.equal((await call(db, 'select reopen_approval_comment($1,$2,$3) result', [owner, toDecline.id, now])).ok, true);
+    const reopenedDeclined = (await db.query('select suggestion_status,suggestion_decided_at,suggestion_decided_by,suggestion_reply from approval_comments where id=$1', [toDecline.id])).rows[0];
+    assert.deepEqual(reopenedDeclined, { suggestion_status: 'pending', suggestion_decided_at: null, suggestion_decided_by: null, suggestion_reply: null });
     const imageBlock = parsed.outline[0].blocks[2];
     async function replacement() {
       const reserved = await call(db, 'select reserve_approval_image_upload($1,$2,$3,$4,$5,$6) result', [token, item.id, versionId, 'image/heic', 100, now]);
@@ -86,7 +98,7 @@ test('PAGE comments, superseding replacements, accept next draft only, release, 
       released_version_id: string;
     }>('select current_version_id,released_version_id from approval_items where id=$1', [item.id])).rows[0];
     assert.equal(saved.current_version_id, saved.released_version_id);
-    assert.equal((await db.query('select count(*) from approval_comments')).rows[0].count, 3);
+    assert.equal((await db.query('select count(*) from approval_comments')).rows[0].count, 4);
   }
   finally {
     await db.close();

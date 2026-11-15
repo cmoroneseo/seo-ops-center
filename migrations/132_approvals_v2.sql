@@ -1494,7 +1494,7 @@ begin
  select * into c from public.approval_comments where id=p_comment_id for update;
  if not found then return public.gbp_approval_fail('not_found'); end if;
  if not public.gbp_approval_writer(p_actor,c.organization_id) or exists(select 1 from public.approval_bot_actors where user_id=p_actor) then return public.gbp_approval_fail('forbidden'); end if;
- update public.approval_comments set resolved_at=null,resolved_by=null,resolved_in_version_id=null, suggestion_status=case when suggestion_status in ('accepted','declined') then 'pending' else suggestion_status end,suggestion_decided_at=null,suggestion_decided_by=null,suggestion_reply=null where id=c.id;
+ update public.approval_comments set resolved_at=null,resolved_by=null,resolved_in_version_id=null, suggestion_status=case when suggestion_status='declined' then 'pending' else suggestion_status end,suggestion_decided_at=case when suggestion_status='accepted' then suggestion_decided_at else null end,suggestion_decided_by=case when suggestion_status='accepted' then suggestion_decided_by else null end,suggestion_reply=case when suggestion_status='accepted' then suggestion_reply else null end where id=c.id;
  insert into public.approval_events(organization_id,request_id,actor_id,kind,detail,created_at)
  values(c.organization_id,c.request_id,p_actor,'comment_reopened',jsonb_build_object('commentId',c.id),p_now);
  return jsonb_build_object('ok',true);

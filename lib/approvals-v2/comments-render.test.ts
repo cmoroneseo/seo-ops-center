@@ -13,7 +13,7 @@ test('client renders block pins, Highlight filter, unsent controls, and protecte
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
   const block = parsed.outline[0].blocks[0];
-  const html = renderToStaticMarkup(createElement(PageComments, {
+  const element = createElement(PageComments, {
     token: 'offline-fixture-token',
     itemId: 'item',
     versionId: 'version',
@@ -25,8 +25,12 @@ test('client renders block pins, Highlight filter, unsent controls, and protecte
     locked: false,
     drafts: [{ id: 'draft', itemId: 'item', versionId: 'version', anchorKind: 'pin', pinTarget: 'block', blockId: block.blockId, sectionId: parsed.outline[0].sectionId, targetHash: block.hash, body: 'Please review this' }],
     onChange: () => {}
-  }));
-  for (const copy of ['Revision ready', 'Highlights', 'Images', 'Your comments (', 'Not sent yet', 'Comment on this section', 'Read-only.', 'Edit', 'Delete']) assert.ok(html.includes(copy), copy);
+  });
+  const html = renderToStaticMarkup(element);
+  assert.equal(html.includes('Revision ready'), false);
+  const revision = renderToStaticMarkup(createElement(PageComments, { ...element.props, comments: [{ id: 'earlier', anchor: element.props.drafts[0], body: 'Earlier feedback', state: 'earlier', versionNo: 1 }] }));
+  assert.ok(revision.includes('Revision ready'));
+  for (const copy of ['Highlights', 'Images', 'Your comments (', 'Not sent yet', 'Comment on this section', 'Read-only.', 'Edit', 'Delete']) assert.ok(html.includes(copy), copy);
   assert.match(html, /aria-pressed="false"/);
   assert.equal((html.match(/data-comment-content=/g) ?? []).length, 1);
   assert.equal(html.includes('Suggest title'), false);

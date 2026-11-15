@@ -454,10 +454,8 @@ test('accept stages only current, decline replies, reopen resets, release publis
         assert.deepEqual((await db.query(`select suggestion_status,resolved_in_version_id,resolved_by from approval_comments`)).rows[0], { suggestion_status: 'accepted', resolved_in_version_id: state.current_version_id, resolved_by: owner });
         const reopen = () => call(db, `select reopen_approval_comment($1,$2,$3) result`, [owner, c.id, now]);
         assert.equal((await reopen()).ok, true);
-        assert.equal((await decline()).ok, true);
-        assert.equal((await db.query(`select suggestion_reply from approval_comments`)).rows[0].suggestion_reply, 'Use the original');
-        await reopen();
-        assert.deepEqual((await db.query(`select suggestion_status,suggestion_decided_at,suggestion_decided_by,suggestion_reply,resolved_at from approval_comments`)).rows[0], { suggestion_status: 'pending', suggestion_decided_at: null, suggestion_decided_by: null, suggestion_reply: null, resolved_at: null });
+        assert.deepEqual((await db.query(`select suggestion_status,resolved_at,resolved_by,resolved_in_version_id,suggestion_decided_by from approval_comments`)).rows[0], { suggestion_status: 'accepted', resolved_at: null, resolved_by: null, resolved_in_version_id: null, suggestion_decided_by: owner });
+        assert.equal((await decline()).code, 'invalid_request');
         assert.equal((await release()).ok, true);
         assert.deepEqual((await db.query(`select i.released_version_id,i.previous_released_version_id,i.status,r.round from approval_items i join approval_requests r on r.id=i.request_id`)).rows[0], { released_version_id: state.current_version_id, previous_released_version_id: f.i.released_version_id, status: 'pending', round: 2 });
         assert.equal((await db.query(`select id from approval_events where kind='revision_released'`)).rows.length, 1);
