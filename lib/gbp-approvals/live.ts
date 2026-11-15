@@ -39,7 +39,7 @@ export function clientIpHash(request: Request): string | null {
 }
 
 export async function signApprovalPhoto(path: string): Promise<string | null> {
-    if (!path.startsWith('gbp-approvals/')) return path.startsWith('https://') ? path : null;
+    if (!path.startsWith('gbp-approvals/') && !path.startsWith('approval-assets/')) return path.startsWith('https://') ? path : null;
     const admin = createAdminClient();
     const { data, error } = await admin.storage.from('gbp-approval-uploads').createSignedUrl(path, 60 * 10);
     if (error || !data?.signedUrl) return null;

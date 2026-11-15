@@ -1,27 +1,28 @@
+import { PublicPageReview } from '@/components/approvals-v2/PublicPageReview';
+import { loadApprovalReview } from '@/lib/approvals-v2/public';
 import type { Metadata } from 'next';
 
 import { PublicReview, type ReviewPost } from '@/components/gbp-approvals/PublicReview';
-import { loadPublicReview, signApprovalPhoto } from '@/lib/gbp-approvals/live';
-import type { PublicReviewView } from '@/lib/gbp-approvals/public-view';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-    title: 'Review your Google posts',
-    robots: { index: false, follow: false },
-};
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
+    const view = await loadApprovalReview((await params).token).catch(() => null);
+    return { title: view && 'itemType' in view ? 'Review your page' : 'Review your Google posts', robots: { index: false, follow: false } };
+}
 
 export default async function ReviewPage({ params }: { params: Promise<{ token: string }> }) {
     const { token } = await params;
-    let view: PublicReviewView | { code: string } | null = null;
+    let view: Awaited<ReturnType<typeof loadApprovalReview>> = null;
     try {
-        view = await loadPublicReview(token, signApprovalPhoto);
+        view = await loadApprovalReview(token);
     } catch {
         view = null;
     }
     if (!view || 'code' in view) {
         return <PublicReview mode="missing" posts={[]} questions={[]} />;
     }
+    if ('itemType' in view) return <PublicPageReview token={token} view={view} />;
     const posts: ReviewPost[] = view.posts.map(post => ({
         itemId: post.id,
         versionId: post.versionId,

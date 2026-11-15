@@ -18915,7 +18915,7 @@ begin
  or (p_payload->>'slug') !~ '^[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+(-[a-z0-9]+)*)*$'
  or (p_payload ? 'plannedDate' and public.gbp_approval_calendar_date(p_payload->>'plannedDate') is null) then return null; end if;
  for img in select * from jsonb_path_query(p_payload->'body','strict $.** ? (@.type == "image")') loop
-   if not exists (select 1 from public.approval_assets where object_key = img#>>'{attrs,src}') and not public.approval_replacement_key(img#>>'{attrs,src}',null) then return null; end if;
+   if coalesce(img#>>'{attrs,src}','') !~ '^https://\S+$' and not exists (select 1 from public.approval_assets where object_key = img#>>'{attrs,src}') and not public.approval_replacement_key(img#>>'{attrs,src}',null) then return null; end if;
  end loop;
  return jsonb_build_object('payload',p_payload,'photo',p_asset);
 end $$;
@@ -18940,7 +18940,7 @@ begin
    if exists (select 1 from public.approval_requests where id = old.request_id and stage <> 'draft') then raise exception 'sent item cannot be deleted' using errcode = '42501'; end if;
    return old;
  end if;
- if new.item_type is distinct from old.item_type or new.page_kind is distinct from old.page_kind
+ if new.item_type is distinct from old.item_type
  or (new.position is distinct from old.position and exists (select 1 from public.approval_requests where id = new.request_id and stage <> 'draft')) then
  raise exception 'approval item identity cannot change' using errcode = '42501'; end if;
  foreach v in array array[new.current_version_id,new.released_version_id,new.previous_released_version_id] loop
@@ -18969,7 +18969,7 @@ begin
  if t='page' then
    if new.photo_path like 'gbp-approvals/%' and not public.approval_replacement_key(new.photo_path,new.request_id) then raise exception 'image outside request' using errcode='23514'; end if;
    for img in select * from jsonb_path_query(new.payload->'body','strict $.** ? (@.type == "image")') loop
-     if not exists (select 1 from public.approval_assets where object_key=img#>>'{attrs,src}' and request_id=new.request_id and organization_id=new.organization_id and (item_id is null or item_id=new.item_id)) and not public.approval_replacement_key(img#>>'{attrs,src}',new.request_id) then raise exception 'image outside request' using errcode='23514'; end if;
+     if coalesce(img#>>'{attrs,src}','') !~ '^https://\S+$' and not exists (select 1 from public.approval_assets where object_key=img#>>'{attrs,src}' and request_id=new.request_id and organization_id=new.organization_id and (item_id is null or item_id=new.item_id)) and not public.approval_replacement_key(img#>>'{attrs,src}',new.request_id) then raise exception 'image outside request' using errcode='23514'; end if;
    end loop;
    new.body_hash := encode(sha256(convert_to(public.approval_canonical_json(new.payload->'body'),'UTF8')),'hex');
    for s in select value from jsonb_array_elements(coalesce(new.outline,'[]')) loop
@@ -19327,6 +19327,9 @@ begin
     end if;
     if char_length(coalesce(v_note, '')) > 500 then
       raise exception 'invalid_request' using errcode = 'P0001';
+    end if;
+    if v_request.item_type='page' then
+      update public.approval_items set page_kind=v_clean#>>'{payload,pageKind}' where id=v_item.id;
     end if;
     insert into public.approval_item_versions (
       organization_id, request_id, item_id, version_no, schema_version,

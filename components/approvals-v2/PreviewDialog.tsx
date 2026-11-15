@@ -6,16 +6,19 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } 
 import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
 import type { GbpPostPayload } from '@/lib/gbp-approvals/registry';
 import type { PagePayload } from '@/lib/approvals-v2/registry';
-import { approvalPlainText } from '@/lib/approvals-v2/text';
+import { PagePreview } from './PagePreview';
 export function PreviewDialog({
+  domain,
   clientName,
   items
 }: {
+  domain?: string;
   clientName: string;
   items: {
     id: string;
     payload: GbpPostPayload | PagePayload;
     photoUrl: string | null;
+    images?: Record<string, string | null>;
   }[];
 }) {
   return <Dialog>
@@ -28,20 +31,10 @@ export function PreviewDialog({
       {items.map(({
         id,
         payload,
-        photoUrl
+        photoUrl,
+        images
       }, index) => <article key={id} className="space-y-3 rounded-lg border p-4">
-          {'pageKind' in payload ? <>
-            <h2 className="font-semibold">
-              {payload.title}
-            </h2>
-            <p className="text-sm">Title tag: {payload.metaTitle}</p>
-            <p className="text-sm">Meta description: {payload.metaDescription}</p>
-            <p className="break-all text-sm">/{payload.slug}/</p>
-            <p className="text-sm">Planned for {payload.plannedDate ?? 'Not set'}</p>
-            <p className="whitespace-pre-wrap text-sm">
-              {approvalPlainText(payload.body)}
-            </p>
-          </> : <div className="gbp-public" style={{
+          {'pageKind' in payload ? <PagePreview domain={domain} payload={payload} photoUrl={photoUrl} images={images} /> : <div className="gbp-public" style={{
             minHeight: 0
           }}>
             <GbpPostPreview clientName={clientName} post={{

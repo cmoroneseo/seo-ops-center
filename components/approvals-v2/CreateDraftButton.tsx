@@ -8,7 +8,6 @@ import { useOrganization } from '@/components/providers/organization-provider';
 import { getTasks } from '@/lib/supabase/tasks';
 import type { Task } from '@/lib/types';
 
-/** GBP fallback; page sources and rich editing belong to 1C. */
 export function CreateDraftButton({
   taskId,
   taskTitle
@@ -23,6 +22,7 @@ export function CreateDraftButton({
   const [tasks, setTasks] = useState<Task[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [itemType, setItemType] = useState<'gbp_post' | 'page'>('gbp_post');
   const [postCount, setPostCount] = useState(1);
   useEffect(() => {
     if (!open || taskId || !organization) return;
@@ -45,7 +45,16 @@ export function CreateDraftButton({
     }, (_, index) => ({
       position: index + 1,
       photoPath: String(values.get(`photo-${index}`) ?? '') || null,
-      payload: {
+      payload: itemType === 'page' ? {
+        schemaVersion: 1,
+        pageKind: values.get(`kind-${index}`),
+        title: values.get(`title-${index}`),
+        metaTitle: values.get(`metaTitle-${index}`),
+        metaDescription: values.get(`metaDescription-${index}`),
+        slug: values.get(`slug-${index}`),
+        ...(values.get(`date-${index}`) ? { plannedDate: values.get(`date-${index}`) } : {}),
+        body: { format: 'markdown', text: values.get(`body-${index}`) }
+      } : {
         schemaVersion: 1,
         postType: 'update',
         title: values.get(`title-${index}`),
@@ -65,6 +74,7 @@ export function CreateDraftButton({
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+          itemType,
           taskId: taskId ?? values.get('task'),
           title: values.get('title'),
           items
@@ -88,11 +98,12 @@ export function CreateDraftButton({
     </DialogTrigger>
     <DialogContent className="max-h-[85dvh] overflow-y-auto">
       <DialogTitle>Create an approval draft</DialogTitle>
-      <DialogDescription>GBP posts. Creates an internal draft. Nothing is sent. Page creation arrives in the next update.</DialogDescription>
+      <DialogDescription>Creates an internal draft. Nothing is sent.</DialogDescription>
       <form className="space-y-4 text-sm" onSubmit={event => {
         event.preventDefault();
         void create(event.currentTarget);
       }}>
+        <label className="block">Content type<select className={input} value={itemType} onChange={event => { setItemType(event.target.value as 'gbp_post' | 'page'); setPostCount(1); }}><option value="gbp_post">GBP posts</option><option value="page">Pages</option></select></label>
         {!taskId && <label className="block">Task<select
           name="task"
           className={input}
@@ -111,29 +122,35 @@ export function CreateDraftButton({
         {Array.from({
           length: postCount
         }, (_, index) => <fieldset key={index} className="space-y-3 rounded-lg border p-3">
-          <legend>Post {index + 1} · Update</legend>
+          <legend>{itemType === 'page' ? 'Page' : 'Post'} {index + 1}</legend>
+          {itemType === 'page' && <>
+            <label className="block">Page kind<select name={`kind-${index}`} className={input}><option value="blog">Blog</option><option value="service">Service page</option><option value="city">City page</option></select></label>
+            <label className="block">Meta title<input name={`metaTitle-${index}`} required maxLength={120} className={input} /></label>
+            <label className="block">Meta description<textarea name={`metaDescription-${index}`} maxLength={320} className={input} /></label>
+            <label className="block">Slug<input name={`slug-${index}`} required maxLength={200} className={input} /></label>
+          </>}
           <label className="block">Title<input
             name={`title-${index}`}
             required
-            maxLength={80}
+            maxLength={itemType === 'page' ? 200 : 80}
             className={input} /></label>
-          <label className="block">Post text<textarea
+          <label className="block">{itemType === 'page' ? 'Paste Markdown' : 'Post text'}<textarea
             name={`body-${index}`}
             required
-            maxLength={2000}
+            maxLength={itemType === 'page' ? 800000 : 2000}
             className={`${input} min-h-28`} /></label>
           <label className="block">Planned for<input
             type="date"
             name={`date-${index}`}
-            required
+            required={itemType === 'gbp_post'}
             className={input} /></label>
-          <label className="block">Learn more URL<input
+          {itemType === 'gbp_post' && <label className="block">Learn more URL<input
             type="url"
             name={`url-${index}`}
             pattern="https://.*"
             required
             className={input}
-            placeholder="https://" /></label>
+            placeholder="https://" /></label>}
           <label className="block">Photo URL (optional)<input
             type="url"
             name={`photo-${index}`}
@@ -144,8 +161,8 @@ export function CreateDraftButton({
         <Button
           type="button"
           variant="outline"
-          disabled={postCount >= 30 || busy}
-          onClick={() => setPostCount(postCount + 1)}>Add post</Button>
+          disabled={postCount >= (itemType === 'page' ? 20 : 30) || busy}
+          onClick={() => setPostCount(postCount + 1)}>{itemType === 'page' ? 'Add page' : 'Add post'}</Button>
         {error && <p role="alert" className="text-destructive">
           {error}
         </p>}

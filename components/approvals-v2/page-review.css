@@ -1,0 +1,84 @@
+.approval-page-body {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  line-height: 1.7;
+}
+.approval-page-body h1 {
+  font-size: 2rem;
+  font-weight: 750;
+  margin: 1.5rem 0 .75rem;
+}
+.approval-page-body h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 1.5rem 0 .75rem;
+}
+.approval-page-body h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 1.25rem 0 .5rem;
+}
+.approval-page-body h4 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 1rem 0 .5rem;
+}
+.approval-page-body p {
+  margin: .75rem 0;
+}
+.approval-page-body ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+.approval-page-body ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+}
+.approval-page-body blockquote {
+  border-left: 3px solid #0E6670;
+  padding-left: 1rem;
+}
+.approval-page-body table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.approval-page-body td, .approval-page-body th {
+  border: 1px solid #848A90;
+  padding: .5rem;
+}
+.approval-page-body img {
+  max-width: 100%;
+  height: auto;
+}
+.approval-page-body a {
+  color: #0E6670;
+  text-decoration: underline;
+}
+.approval-page-body hr {
+  margin: 1.5rem 0;
+  border-color: #848A90;
+}
+.public-page-review {
+  min-height: 100vh;
+  background: #F6F6F3;
+  color: #1A1A1A;
+  font: 16px/1.5 system-ui, sans-serif;
+}
+.public-page-review button, .public-page-review input, .public-page-review textarea, .public-page-review select {
+  min-height: 48px;
+}
+.public-page-review :focus-visible {
+  outline: 3px solid #0B57D0;
+  outline-offset: 3px;
+}
+.public-page-review button:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+@media (max-width: 640px) {
+  .approval-page-body {
+    font-size: 16px;
+  }
+}

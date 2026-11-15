@@ -91,7 +91,7 @@ export function createBotApprovalRoute(dependencies = {
     }, 503);
     const created = await admin.rpc('create_approval_request', {
       ...botApprovalRpcArgs(command, actor.data.id, key.data.organization_id, clientId, taskId),
-      p_item_type: 'gbp_post',
+      p_item_type: command.itemType ?? 'gbp_post',
       p_created_via: 'bot',
       p_bot_key_id: key.data.id
     });

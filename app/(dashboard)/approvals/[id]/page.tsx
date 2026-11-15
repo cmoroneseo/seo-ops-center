@@ -1,11 +1,14 @@
 'use client';
 
+import '@/components/approvals-v2/page-review.css';
+
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowDown, ArrowUp, CheckCircle, Copy, Lock, Send, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { PreviewDialog } from '@/components/approvals-v2/PreviewDialog';
-import { approvalPlainText } from '@/lib/approvals-v2/text';
+import { PagePreview } from '@/components/approvals-v2/PagePreview';
+import { PageEditor } from '@/components/approvals-v2/PageEditor';
 import type { PagePayload } from '@/lib/approvals-v2/registry';
 import { Button } from '@/components/ui/button';
 import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
@@ -55,6 +58,7 @@ interface Data {
     created_at: string;
     clients: {
       name: string;
+      domain?: string;
     };
     item_type: string;
   };
@@ -239,13 +243,15 @@ export default function Page({
       </h1>
       <p className="my-2 text-sm text-muted-foreground">{data.request.clients?.name} · Created {new Date(data.request.created_at).toLocaleDateString()}{data.botName ? ` by ${data.botName}` : ''}</p>
       <StatusChip group={approvalGroup(data.request.stage, data.items)} />
+      <span className="ml-2"><TypeChip row={{ itemType: data.request.item_type, pageKinds: [...new Set(data.items.map(item => item.page_kind).filter((kind): kind is string => !!kind))] }} /></span>
       {data.request.archived_at && <span className="ml-2">Archived</span>}
       <div className="mt-3">
-        <PreviewDialog clientName={data.request.clients?.name ?? 'Client'} items={data.items.flatMap(item => {
+        <PreviewDialog domain={data.request.clients?.domain} clientName={data.request.clients?.name ?? 'Client'} items={data.items.flatMap(item => {
           const version = (draft ? item.version : item.releasedVersion) ?? item.version;
           return version ? [{
             id: item.id,
             payload: version.payload,
+            images: data.photos,
             photoUrl: data.photos[version.photo_path ?? ''] ?? null
           }] : [];
         })} />
@@ -335,34 +341,20 @@ export default function Page({
               </div>}
             </header>
             {'pageKind' in p ? <>
-              <p className="text-sm text-muted-foreground">Editing pages arrives in the next update</p>
-              <dl className="space-y-3 text-sm">
-                <div>
-                  <dt className="text-muted-foreground">Title tag</dt>
-                  <dd>
-                    {p.metaTitle}
-                    <span className="text-xs">{p.metaTitle?.length ?? 0} / 60</span>
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Meta description</dt>
-                  <dd>
-                    {p.metaDescription}
-                    <span className="text-xs">{p.metaDescription?.length ?? 0} / 160</span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Slug</dt>
-                  <dd className="break-all">/{p.slug}/</dd>
-                </div>
-                <div>
-                  <dt>Planned for</dt>
-                  <dd>{p.plannedDate ?? 'Not set'} (sign-off only; doesn’t set the date)</dd>
-                </div>
-              </dl>
-              <div className="whitespace-pre-wrap rounded-lg border p-4 text-sm">
-                {approvalPlainText(p.body)}
-              </div>
+              <PagePreview domain={data.request.clients?.domain} payload={p} photoUrl={data.photos[version.photo_path ?? '']} images={data.photos} />
+              {editable && item.version && <PageEditor
+                key={item.version.id}
+                domain={data.request.clients?.domain}
+                requestId={id}
+                itemId={item.id}
+                payload={item.version.payload as PagePayload}
+                photoPath={item.version.photo_path}
+                photoUrl={data.photos[item.version.photo_path ?? ''] ?? null}
+                images={data.photos}
+                sent={!draft}
+                versionNo={item.version.version_no}
+                busy={busy}
+                onSave={entry => act('versions', { items: [entry] })} />}
             </> : <>
               <p className="text-sm">Planned for {p.scheduledDate}</p>
               <div className="gbp-public" style={{
