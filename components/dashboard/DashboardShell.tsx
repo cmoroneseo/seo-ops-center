@@ -9,6 +9,7 @@ import { ToastGateProvider } from '@/components/providers/toast-gate';
 import { TimerNotifications } from '@/components/timer/TimerNotifications';
 import { FloatingTimer } from '@/components/timer/FloatingTimer';
 import { useClients } from '@/lib/hooks/use-clients';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,7 @@ export function DashboardShell({
     children: React.ReactNode;
 }) {
     const { organization, isLoading } = useOrganization();
+    const { isOwner, isLoading: memberLoading } = useCurrentMember();
     const { clients } = useClients({ statuses: ['Active'] });
     const router = useRouter();
     const pathname = usePathname();
@@ -82,7 +84,7 @@ export function DashboardShell({
             </div>
             {!isSetupPage && (
                 <div className="staff-canvas contents">
-                    <FloatingTimer clients={clients} />
+                    <FloatingTimer clients={clients} botControls={isOwner && !memberLoading} />
                     <TimerNotifications />
                     <FeedbackWidget />
                     <NotepadPanel />

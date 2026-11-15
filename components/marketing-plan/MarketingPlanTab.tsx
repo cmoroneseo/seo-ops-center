@@ -35,6 +35,7 @@ import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-mo
 import type { HoursNarrative } from '@/lib/seo-plan/overview';
 import {getSeoHoursForMonth} from '@/lib/supabase/change-log';
 import { getTask, updateTask } from '@/lib/supabase/tasks';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getTimeLogs } from '@/lib/supabase/time-logs';
 import {SEO_PLAN_READ_ONLY_NOTE} from '@/lib/seo-plan/read-only';
 import {
@@ -67,6 +68,7 @@ interface MarketingPlanTabProps {
 }
 
 export function MarketingPlanTab({ organizationId, clientId, clientName, monthlyBudget = 0,scopeMode='monthly', presentation = 'classic', hoursNarrative = 'default', checklistScope, readOnly = false }: MarketingPlanTabProps) {
+    const { isOwner, isLoading: memberLoading } = useCurrentMember();
     const [addChooserOpen, setAddChooserOpen] = useState(false);
     const [libraryOpen, setLibraryOpen] = useState(false);
     const [basecampOnly, setBasecampOnly] = useState(false);
@@ -632,7 +634,7 @@ export function MarketingPlanTab({ organizationId, clientId, clientName, monthly
             await refresh();
             if (!result.success) throw new Error('Task is linked, but the due date could not be saved. Update it in Tasks.');
         }} />}
-        {taskDetail && <TaskDetailModal task={taskDetail.task} isOpen initialCompletion={taskDetail.complete} currentUserId={currentUser.id} onClose={() => { setTaskDetail(null); void refresh(); setTimeVersion(value => value + 1); }} onUpdate={() => { void refresh(); }} onDelete={() => { setTaskDetail(null); void refresh(); }} />}
+        {taskDetail && <TaskDetailModal task={taskDetail.task} isOpen canControlBotTimers={isOwner && !memberLoading} initialCompletion={taskDetail.complete} currentUserId={currentUser.id} onClose={() => { setTaskDetail(null); void refresh(); setTimeVersion(value => value + 1); }} onUpdate={() => { void refresh(); }} onDelete={() => { setTaskDetail(null); void refresh(); }} />}
     </>;
 
 }

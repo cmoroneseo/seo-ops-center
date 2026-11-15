@@ -4,6 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useOrganization } from './organization-provider';
 import { getClientTimesheetSyncEnabled, getOpenTimerAttempts, mutateTimer, updateSessionNotes } from '@/lib/supabase/time-logs';
 import type { SessionNote, TimerAttempt } from '@/lib/types';
+import type { BotTimerClock } from '@/lib/timer/bot-display';
+import { BOT_TIMER_POLL_MS, botTimerElapsedSeconds } from '@/lib/timer/bot-display';
+import { controlBotTimer, getOpenBotTimers, stopOpenBotTimersForTask } from '@/lib/supabase/bot-timers';
 import type { TimerMutationRequest, TimerStateResponse } from '@/lib/timer/contracts';
 import { startTimerMutation } from '@/lib/timer/backdated-start';
 import { updateTask } from '@/lib/supabase/tasks';
@@ -69,6 +72,15 @@ interface TimerContextType {
     editNote: (attemptId: string, noteId: string, text: string) => Promise<void>;
     deleteNote: (attemptId: string, noteId: string) => Promise<void>;
     getAttemptById: (attemptId: string) => TimerAttempt | null;
+    /** Running and paused bot timers. They do not use his open-segment slot. */
+    botTimers?: readonly BotTimerClock[];
+    getBotElapsedSeconds?: (timer: BotTimerClock) => number;
+    pauseBotTimer?: (timeLogId: string) => Promise<void>;
+    resumeBotTimer?: (timeLogId: string) => Promise<void>;
+    stopBotTimer?: (timeLogId: string) => Promise<{ capped: boolean }>;
+    stopBotTimersOnTask?: (taskId: string) => Promise<{ ok: true; capped: boolean } | { ok: false; error: string }>;
+    /** Set when the open-bot-timer read failed. Empty timers are not this case. */
+    botLoadError?: string | null;
 }
 
 export const TimerContext = createContext<TimerContextType | undefined>(undefined);
@@ -77,6 +89,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const { organization } = useOrganization();
     const [runningTimer, setRunningTimer] = useState<TimerAttempt | null>(null);
     const [pausedTimers, setPausedTimers] = useState<TimerAttempt[]>([]);
+    const [botTimers, setBotTimers] = useState<BotTimerClock[]>([]);
+    const [botLoadError, setBotLoadError] = useState<string | null>(null);
     const [clockNow, setClockNow] = useState(() => Date.now());
     const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
@@ -111,15 +125,30 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         return state;
     }, [applyTimerState, notifyTimerChange]);
 
-    useEffect(() => {
-        if (!runningTimer) return;
-        const interval = window.setInterval(() => setClockNow(Date.now()), 1000);
-        return () => window.clearInterval(interval);
-    }, [runningTimer]);
+    const botRunning = botTimers.some(timer => timer.phase === 'running');
 
     useEffect(() => {
-        if (!runningTimer) {
+        if (!runningTimer && !botRunning) return;
+        const interval = window.setInterval(() => setClockNow(Date.now()), 1000);
+        return () => window.clearInterval(interval);
+    }, [botRunning, runningTimer]);
+
+    useEffect(() => {
+        const titled = runningTimer ?? botTimers.find(timer => timer.phase === 'running') ?? null;
+        if (!titled) {
             document.title = 'SEO Ops Center';
+            return;
+        }
+        if (!runningTimer) {
+            const bot = titled as BotTimerClock;
+            const duration = botTimerElapsedSeconds(bot, new Date(clockNow));
+            const hours = Math.floor(duration / 3600);
+            const minutes = Math.floor((duration % 3600) / 60);
+            const seconds = duration % 60;
+            const display = hours > 0
+                ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+                : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            document.title = `⏱ ${display} — ${bot.taskTitle} | SEO Ops`;
             return;
         }
         const duration = totalAttemptActiveSeconds(runningTimer, new Date(clockNow));
@@ -130,11 +159,43 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
             : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         document.title = `⏱ ${display} — ${runningTimer.clientName || 'Timer'} | SEO Ops`;
-    }, [clockNow, runningTimer]);
+    }, [botTimers, clockNow, runningTimer]);
+
+    const refreshBotTimers = useCallback(async () => {
+        if (!organization) return;
+        const result = await getOpenBotTimers(organization.id);
+        if (result.error) {
+            setBotLoadError(result.error);
+            return;
+        }
+        setBotLoadError(null);
+        setBotTimers(result.timers);
+    }, [organization]);
 
     useEffect(() => {
         void refreshAttempts();
     }, [refreshAttempts]);
+
+    useEffect(() => {
+        if (!organization) return;
+        let interval = 0;
+        const pull = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            void refreshBotTimers();
+        };
+        pull();
+        interval = window.setInterval(pull, BOT_TIMER_POLL_MS);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') pull();
+        };
+        window.addEventListener('focus', pull);
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            window.clearInterval(interval);
+            window.removeEventListener('focus', pull);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, [organization, refreshBotTimers]);
 
     useEffect(() => {
         const refresh = () => void refreshAttempts();
@@ -291,6 +352,41 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         await updateSessionNotes(attemptId, notes);
     }, [attemptById, replaceAttemptNotes]);
 
+    const runBotControl = useCallback(async (action: 'pause' | 'resume' | 'stop', timeLogId: string) => {
+        const result = await controlBotTimer({
+            action,
+            timeLogId,
+            timeZone: browserTimeZone(),
+        });
+        if (!result.ok && !(action === 'stop' && result.code === 'timer_not_running')) {
+            throw new Error(result.error || 'Could not update the bot timer.');
+        }
+        await refreshBotTimers();
+        notifyTimerChange('pause');
+        return result;
+    }, [browserTimeZone, notifyTimerChange, refreshBotTimers]);
+
+    const pauseBotTimer = useCallback(async (timeLogId: string) => {
+        const result = await runBotControl('pause', timeLogId);
+        if (result.capped) throw new Error('Stopped at 2 hours. Review it before it counts.');
+    }, [runBotControl]);
+
+    const resumeBotTimer = useCallback(async (timeLogId: string) => {
+        await runBotControl('resume', timeLogId);
+    }, [runBotControl]);
+
+    const stopBotTimer = useCallback(async (timeLogId: string) => {
+        const result = await runBotControl('stop', timeLogId);
+        return { capped: result.capped };
+    }, [runBotControl]);
+
+    const stopBotTimersOnTask = useCallback(async (taskId: string) => {
+        const result = await stopOpenBotTimersForTask(taskId);
+        await refreshBotTimers();
+        notifyTimerChange('pause');
+        return result;
+    }, [notifyTimerChange, refreshBotTimers]);
+
     const value = useMemo(() => ({
         runningTimer,
         pausedTimers,
@@ -306,7 +402,14 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         editNote,
         deleteNote,
         getAttemptById,
-    }), [addNote, beginStop, clockNow, deleteNote, discard, editNote, finalize, getAttemptById, pause, pausedTimers, resume, runningTimer, startTask, switchToTask]);
+        botTimers,
+        getBotElapsedSeconds: (timer: BotTimerClock) => botTimerElapsedSeconds(timer, new Date(clockNow)),
+        pauseBotTimer,
+        resumeBotTimer,
+        stopBotTimer,
+        stopBotTimersOnTask,
+        botLoadError,
+    }), [addNote, beginStop, botLoadError, botTimers, clockNow, deleteNote, discard, editNote, finalize, getAttemptById, pause, pauseBotTimer, pausedTimers, resume, resumeBotTimer, runningTimer, startTask, stopBotTimer, stopBotTimersOnTask, switchToTask]);
 
     return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>;
 }

@@ -22,6 +22,7 @@ import { isTaskStage } from '../tasks/stage';
 import { PART_OF_OTHER_CLIENT_ERROR, partOfWrite } from '../tasks/part-of';
 import { normalizeBlockedReason, taskStatusUpdate } from '../tasks/status';
 import { sumTaskLoggedHours } from '../time-budget-logic';
+import { botTimerDeleteBlock, stopOpenBotTimersForTask } from './bot-timers';
 import {
     attachSubtaskSnapshots,
     liveSubtasks,
@@ -607,6 +608,10 @@ export async function updateTask(
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
+        if (patch.status === 'done') {
+            const stopped = await stopOpenBotTimersForTask(taskId);
+            if (!stopped.ok) return { success: false, error: stopped.error };
+        }
         // Build row, stripping undefined values
         const candidate: Record<string, unknown> = {
             ...(patch.title !== undefined && { title: patch.title }),
@@ -935,6 +940,8 @@ export async function deleteTask(taskId: string): Promise<{ success: boolean; er
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
+        const blocked = await botTimerDeleteBlock(taskId);
+        if (blocked) return { success: false, error: blocked };
         // Subtasks cascade via FK; comments cascade via FK
         const { error } = await supabase.from('tasks').delete().eq('id', taskId);
         if (error) throw error;

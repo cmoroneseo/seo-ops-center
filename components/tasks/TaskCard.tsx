@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Task } from '@/lib/types';
 import { taskDescriptionText } from '@/lib/tasks/description';
 import { listedSubtaskProgress } from '@/lib/tasks/subtask-progress';
-import { planRowTimerLabel, planRowTimerView } from '@/lib/seo-plan/row-timer';
+import { formatPlanClock, planRowTimerLabel } from '@/lib/seo-plan/row-timer';
 import { SubtaskProgressText } from './SubtaskProgressText';
 import { useTaskTimerClick } from './use-task-timer-click';
 
@@ -17,8 +17,8 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCardProps) {
-    const { pendingTaskId, notice, onTimer, runningTimer, pausedTimers, getElapsedSeconds } = useTaskTimerClick();
-    const timer = planRowTimerView(task.id, runningTimer, pausedTimers, getElapsedSeconds);
+    const { pendingTaskId, notice, onTimer, viewFor } = useTaskTimerClick();
+    const timer = viewFor(task.id);
     const timerPending = pendingTaskId === task.id;
 
     const handleTimerClick = async (e: React.MouseEvent) => {
@@ -71,7 +71,20 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
                 )}
             </div>
 
-            {canStartTimer && (
+            {canStartTimer && timer.owner === 'bot' && timer.botControls === false ? (
+                <span
+                    data-task-timer={timer.phase}
+                    data-bot-controls="hidden"
+                    aria-label={timer.phase === 'paused' ? `Timer paused for ${task.title}` : `Timer running for ${task.title}`}
+                    className={cn(
+                        'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-mono tabular-nums',
+                        timer.phase === 'running' ? 'bg-[#ec4899]/15 text-[#ec4899]' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+                    )}
+                >
+                    {timer.phase === 'running' && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#ec4899] animate-pulse" />}
+                    {formatPlanClock(timer.seconds)}
+                </span>
+            ) : canStartTimer && (
                 <button
                     type="button"
                     onClick={handleTimerClick}
@@ -95,6 +108,9 @@ export function TaskCard({ task, clientId, clientName, memberMap = {} }: TaskCar
                             : timer.phase === 'paused'
                                 ? <><Play className="h-3 w-3 fill-current" /> Resume</>
                                 : <><Play className="h-3 w-3 fill-current" /> Start Timer</>}
+                    {timer.phase !== 'idle' && !timerPending && (
+                        <span className="font-mono tabular-nums">{formatPlanClock(timer.seconds)}</span>
+                    )}
                 </button>
             )}
             {notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}

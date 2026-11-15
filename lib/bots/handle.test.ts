@@ -11,6 +11,7 @@ import {
     BotTimerLookupError,
     capOverdueBotTimers,
     handleBotRequest,
+    runBotTimerControl,
     type BotActor,
     type BotDeps,
     type BotOperationRecord,
@@ -255,7 +256,11 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
         },
         async finalizeTimer(input) {
             const index = mem.timers.findIndex(item => item.id === input.timer.id);
-            if (index === -1) return null;
+            if (index === -1) {
+                const logs = mem.logs.filter(item => item.id === input.timer.id);
+                if (logs.length === 0) return null;
+                return { logs, transitioned: false };
+            }
             for (const stretch of input.stretches) {
                 if (!mem.segments.some(segment => segment.timeLogId === input.timer.id && segment.startedAt === stretch.startedAt)) {
                     mem.segments.push({ timeLogId: input.timer.id, ...stretch });
@@ -280,7 +285,7 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
                 mem.logs.push(log);
                 return log;
             });
-            return logs;
+            return { logs, transitioned: true };
         },
         async pushTodo(taskId) {
             mem.pushed.push(taskId);
@@ -1362,4 +1367,139 @@ test('start does not treat a timer lookup error as no running timer', async () =
         assert.equal(mem.operations.length, 0);
         assert.deepEqual(logs, [['bot timer lookup failed', { code: 'PGRST201' }]]);
     });
+});
+
+test('Carlos can pause and stop a bot timer while his own timer and another bot keep running', async () => {
+    const brief = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
+    const draft = task({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Draft' });
+    const { mem, deps } = world({ tasks: [brief, draft] });
+    const humanOpen = [{ userId: CARLOS, endedAt: null as string | null }];
+    const otherKey = '77777777-7777-4777-8777-777777777777';
+    const otherToken = 'seo_bot_secondtokenvalue';
+    const authenticate = deps.authenticate;
+    deps.authenticate = async token => {
+        if (hashBotKey(token) === hashBotKey(otherToken)) {
+            return { id: otherKey, organizationId: ORG, name: 'technical-seo', revokedAt: null };
+        }
+        return authenticate(token);
+    };
+    const staff = {
+        ...deps,
+        async getBotKey(id: string) {
+            if (id === KEY) return { id: KEY, organizationId: ORG, name: 'seo-manager', revokedAt: null };
+            if (id === otherKey) return { id: otherKey, organizationId: ORG, name: 'technical-seo', revokedAt: null };
+            return null;
+        },
+    };
+
+    await handleBotRequest(request(BOT_TIMER_START_PATH, {
+        idempotencyKey: 'start-brief',
+        clientId: CLIENT,
+        taskId: brief.id,
+        description: 'Mapped the keyword set',
+    }), deps);
+    await handleBotRequest(request(BOT_TIMER_START_PATH, {
+        idempotencyKey: 'start-draft',
+        clientId: CLIENT,
+        taskId: draft.id,
+    }, otherToken), deps);
+    assert.equal(mem.timers.length, 2);
+
+    const briefTimer = mem.timers.find(item => item.taskId === brief.id);
+    assert.ok(briefTimer);
+    mem.now = new Date(NOW.getTime() + 10 * 60 * 1000);
+    const paused = await runBotTimerControl(staff, {
+        action: 'pause',
+        timeLogId: briefTimer.id,
+        description: 'Checked the top ten',
+    });
+    assert.equal(paused.status, 200);
+    assert.equal(mem.synced.length, 0);
+    assert.equal(mem.segments.every(segment => Boolean(segment.endedAt)), true);
+    assert.equal(mem.timers.filter(item => item.pausedAt == null).length, 1);
+    assert.equal(mem.timers.find(item => item.taskId === draft.id)?.pausedAt, null);
+    assert.equal(humanOpen[0].endedAt, null);
+
+    const resumed = await runBotTimerControl(staff, { action: 'resume', timeLogId: briefTimer.id });
+    assert.equal(resumed.status, 200);
+    assert.equal(mem.timers.filter(item => item.pausedAt == null).length, 2);
+    assert.equal(mem.synced.length, 0);
+
+    mem.now = new Date(NOW.getTime() + 20 * 60 * 1000);
+    const stopped = await runBotTimerControl(staff, {
+        action: 'stop',
+        timeLogId: briefTimer.id,
+        description: 'Ready for review',
+        timeZone: 'America/Los_Angeles',
+    });
+    assert.equal(stopped.status, 200);
+    const stoppedBody = stopped.body as { timeLog: { description: string; basecamp: { status: string } } };
+    assert.equal(stoppedBody.timeLog.basecamp.status, 'pushed');
+    assert.equal(stoppedBody.timeLog.description.includes('Ready for review'), true);
+    assert.equal(/\b(hour|hours|minute|minutes)\b/i.test(stoppedBody.timeLog.description), false);
+    assert.equal(mem.synced.length, 1);
+    assert.equal(mem.timers.find(item => item.taskId === draft.id)?.pausedAt, null);
+
+    const again = await runBotTimerControl(staff, { action: 'stop', timeLogId: briefTimer.id });
+    assert.equal(again.status, 404);
+    const apiAgain = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+        idempotencyKey: 'stop-brief-again',
+        taskId: brief.id,
+    }), deps);
+    assert.equal(apiAgain.status, 404);
+    assert.equal(mem.synced.length, 1);
+
+    const draftStop = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+        idempotencyKey: 'stop-draft',
+        taskId: draft.id,
+    }, otherToken), deps);
+    assert.equal(draftStop.status, 200);
+    assert.equal(mem.synced.length, 2);
+    assert.equal(humanOpen[0].endedAt, null);
+});
+
+test('a stop that loses the race does not push to Basecamp again', async () => {
+    const brief = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Brief' });
+    const { mem, deps } = world({ tasks: [brief] });
+    await handleBotRequest(request(BOT_TIMER_START_PATH, {
+        idempotencyKey: 'start-brief',
+        clientId: CLIENT,
+        taskId: brief.id,
+    }), deps);
+    const running = mem.timers[0];
+    assert.ok(running);
+    const stale = { ...running, stretches: [...running.stretches] };
+    const finalize = deps.finalizeTimer.bind(deps);
+    let calls = 0;
+    deps.finalizeTimer = async input => {
+        calls += 1;
+        if (calls > 1) {
+            const logs = mem.logs.filter(item => item.id === input.timer.id);
+            return logs.length > 0 ? { logs, transitioned: false } : null;
+        }
+        return finalize(input);
+    };
+    deps.getTimer = async id => (id === running.id ? stale : null);
+    deps.findRunningTimer = async () => stale;
+    const staff = {
+        ...deps,
+        async getBotKey(id: string) {
+            return id === KEY ? { id: KEY, organizationId: ORG, name: 'seo-manager', revokedAt: null } : null;
+        },
+    };
+    mem.now = new Date(NOW.getTime() + 5 * 60 * 1000);
+    const first = await runBotTimerControl(staff, {
+        action: 'stop',
+        timeLogId: running.id,
+        timeZone: 'America/Los_Angeles',
+    });
+    const second = await runBotTimerControl(staff, {
+        action: 'stop',
+        timeLogId: running.id,
+        timeZone: 'America/Los_Angeles',
+    });
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.equal((second.body as { alreadyStopped?: boolean }).alreadyStopped, true);
+    assert.equal(mem.synced.length, 1);
 });

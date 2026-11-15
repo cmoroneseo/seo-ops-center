@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Clock, ChevronDown, Pause, Play, Plus, Square, StickyNote } from 'lucide-react';
 import { useTimer } from '@/components/providers/timer-provider';
+import { BotTimerChip } from './BotTimerChip';
 import { StopConfirmSheet } from './StopConfirmSheet';
 import { QuickStartPopover } from './QuickStartPopover';
 import { TimerNotes } from './TimerNotes';
@@ -43,10 +44,32 @@ function formatElapsed(seconds: number) {
 
 interface FloatingTimerProps {
     clients: ClientProject[];
+    /**
+     * Pause, resume, and stop on a bot chip. The dashboard passes the org owner check.
+     * Omitted in tests, which then show the controls.
+     */
+    botControls?: boolean;
 }
 
-export function FloatingTimer({ clients }: FloatingTimerProps) {
-    const { runningTimer, pausedTimers, getElapsedSeconds, pause, resume, beginStop, discard } = useTimer();
+export function FloatingTimer({ clients, botControls = true }: FloatingTimerProps) {
+    const {
+        runningTimer,
+        pausedTimers,
+        getElapsedSeconds,
+        pause,
+        resume,
+        beginStop,
+        discard,
+        botTimers = [],
+        getBotElapsedSeconds,
+        pauseBotTimer,
+        resumeBotTimer,
+        stopBotTimer,
+        botLoadError = null,
+    } = useTimer();
+    const canControlBots = botControls;
+    const [botError, setBotError] = useState<string | null>(null);
+    const [botPending, setBotPending] = useState<string | null>(null);
     const [expanded, setExpanded] = useState(false);
     const [showNotes, setShowNotes] = useState(false);
     const [showQuickStart, setShowQuickStart] = useState(false);
@@ -76,6 +99,41 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
 
     const [stopError, setStopError] = useState<string | null>(null);
 
+    const runBot = async (timeLogId: string, action: 'pause' | 'resume' | 'stop') => {
+        if (botPending) return;
+        setBotPending(timeLogId);
+        setBotError(null);
+        try {
+            if (action === 'pause') await pauseBotTimer?.(timeLogId);
+            else if (action === 'resume') await resumeBotTimer?.(timeLogId);
+            else await stopBotTimer?.(timeLogId);
+        } catch (error) {
+            setBotError(error instanceof Error ? error.message : 'Could not update the bot timer.');
+        } finally {
+            setBotPending(null);
+        }
+    };
+
+    const botStack = botTimers.length > 0 ? (
+        <div data-bot-timers className="mb-2 flex flex-col items-end gap-2">
+            {botTimers.map(timer => (
+                <BotTimerChip
+                    key={timer.id}
+                    timer={timer}
+                    seconds={getBotElapsedSeconds ? getBotElapsedSeconds(timer) : 0}
+                    controls={canControlBots}
+                    pending={botPending === timer.id}
+                    onPause={id => void runBot(id, 'pause')}
+                    onResume={id => void runBot(id, 'resume')}
+                    onStop={id => void runBot(id, 'stop')}
+                />
+            ))}
+        </div>
+    ) : null;
+    const botNotice = (botLoadError || botError) ? (
+        <p role="alert" data-bot-load-error className="mb-2 max-w-72 text-right text-xs text-destructive">{botLoadError || botError}</p>
+    ) : null;
+
     const openStopReview = async (attempt: TimerAttempt) => {
         try {
             if (!attempt.reviewingAt) await beginStop(attempt);
@@ -94,7 +152,9 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
         // primaryTimer, and its outcome panel still has to report a failed
         // completion or Basecamp push.
         return (
-            <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
+            <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 flex flex-col items-end">
+                {botNotice}
+                {botStack}
                 {reviewAttemptId && <StopConfirmSheet attemptId={reviewAttemptId} onClose={() => setReviewAttemptId(null)} />}
                 <div className="relative">
                     <button
@@ -123,7 +183,9 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
 
     if (!expanded) {
         return (
-            <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50">
+            <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 flex flex-col items-end">
+                {botNotice}
+                {botStack}
                 <button
                     onClick={() => setExpanded(true)}
                     title={runningStarted ? `${primaryLabel}. ${runningStarted}` : primaryLabel}
@@ -143,8 +205,10 @@ export function FloatingTimer({ clients }: FloatingTimerProps) {
     }
 
     return (
-        <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 w-72 animate-in slide-in-from-bottom-3 fade-in duration-200">
-            <div className={cn('bg-card border rounded-2xl shadow-2xl overflow-hidden', runningTimer ? 'border-[#ec4899]/30 shadow-[#ec4899]/5' : 'border-amber-500/30')}>
+        <div ref={setWidgetNode} className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-50 flex w-72 flex-col items-end animate-in slide-in-from-bottom-3 fade-in duration-200">
+            {botNotice}
+            {botStack}
+            <div className={cn('w-full bg-card border rounded-2xl shadow-2xl overflow-hidden', runningTimer ? 'border-[#ec4899]/30 shadow-[#ec4899]/5' : 'border-amber-500/30')}>
                 <div className={cn('h-0.5 w-full', runningTimer ? 'bg-gradient-to-r from-[#ec4899]/0 via-[#ec4899] to-[#ec4899]/0 animate-pulse' : 'bg-amber-500/60')} />
 
                 <div className="px-4 pt-4 pb-2 space-y-3">
