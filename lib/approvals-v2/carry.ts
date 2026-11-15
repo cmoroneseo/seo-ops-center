@@ -23,7 +23,12 @@ export interface DraftComment extends CommentAnchor {
   previewUrl?: string;
 }
 export function blockText(node: PageNode) {
-  return normalizeForMatch(nodeText(node));
+  return nodeText(node)
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 /** Offsets are code points, never UTF-16 units. Cross-block selections end at the first block. */
 export function highlightAnchor(node: PageNode, targetHash: string, start: number, end?: number): CommentAnchor {
@@ -44,37 +49,52 @@ export function highlightAnchor(node: PageNode, targetHash: string, start: numbe
   };
 }
 export function carryAnchor(anchor: CommentAnchor, body: PageNode, outline: OutlineSection[], photoHash?: string, previousOutline: OutlineSection[] = []) {
+  // Sentinels retain boundary spaces in quotes and context during normalization.
+  const matchText = (text: string) => normalizeForMatch(`x${text}x`).slice(1, -1);
   const blocks = outline.flatMap(section => section.blocks.map(block => ({ ...block, sectionId: section.sectionId })));
   const same = blocks.find(block => block.blockId === anchor.blockId);
-  const result = (state: 'same' | 'rehighlighted' | 'moved' | 'text_changed' | 'earlier' | 'image_changed', block = same, start = anchor.rangeStart) => ({
+  const result = (state: 'same' | 'rehighlighted' | 'moved' | 'text_changed' | 'earlier' | 'image_changed', block = same, start = anchor.rangeStart, end = start === undefined ? undefined : start + [...(anchor.quote ?? '')].length) => ({
     ...anchor,
     state,
     blockId: block?.blockId,
     sectionId: block?.sectionId,
     rangeStart: start,
-    rangeEnd: start === undefined ? undefined : start + [...(anchor.quote ?? '')].length
+    rangeEnd: end
   });
   if (anchor.anchorKind === 'page')
     return result('same');
   if (anchor.pinTarget === 'mockup')
     return result(photoHash === anchor.targetHash ? 'same' : 'image_changed');
-  if (same?.hash === anchor.targetHash)
+  if (same?.hash === anchor.targetHash && anchor.anchorKind !== 'highlight')
     return result('same');
   if (anchor.anchorKind === 'highlight' && anchor.quote) {
     const candidates = [same, ...blocks.filter(block => block !== same && block.sectionId === anchor.sectionId), ...blocks.filter(block => block !== same && block.sectionId !== anchor.sectionId)].filter(block => !!block);
     for (const block of candidates) {
       const node = body.content?.find(node => node.attrs?.blockId === block.blockId);
-      const text = node ? blockText(node) : '';
+      const source = node ? blockText(node) : '';
+      const text = matchText(source);
+      const quote = matchText(anchor.quote);
+      // Lowercasing can expand a code point (İ → i + combining dot).
+      const boundaries = new Map<number, number>([[0, 0]]);
+      let offset = 0;
+      [...source].forEach((point, index) => {
+        offset += point.toLowerCase().length;
+        boundaries.set(offset, index + 1);
+      });
       const occurrences: {
         start: number;
+        end: number;
         score: number;
       }[] = [];
-      for (let at = text.indexOf(anchor.quote); at !== -1; at = text.indexOf(anchor.quote, at + 1)) {
-        occurrences.push({ start: [...text.slice(0, at)].length, score: Number(!anchor.quotePrefix || text.slice(0, at).endsWith(anchor.quotePrefix)) + Number(!anchor.quoteSuffix || text.slice(at + anchor.quote.length).startsWith(anchor.quoteSuffix)) });
+      for (let at = text.indexOf(quote); quote && at !== -1; at = text.indexOf(quote, at + 1)) {
+        const start = boundaries.get(at);
+        const end = boundaries.get(at + quote.length);
+        if (start !== undefined && end !== undefined)
+          occurrences.push({ start, end, score: Number(!anchor.quotePrefix || text.slice(0, at).endsWith(matchText(anchor.quotePrefix))) + Number(!anchor.quoteSuffix || text.slice(at + quote.length).startsWith(matchText(anchor.quoteSuffix))) });
       }
       occurrences.sort((a, b) => b.score - a.score || Math.abs(a.start - (anchor.rangeStart ?? 0)) - Math.abs(b.start - (anchor.rangeStart ?? 0)));
       if (occurrences.length)
-        return result(block === same ? 'rehighlighted' : 'moved', block, occurrences[0].start);
+        return result(block === same ? block.hash === anchor.targetHash ? 'same' : 'rehighlighted' : 'moved', block, occurrences[0].start, occurrences[0].end);
     }
   }
   else {

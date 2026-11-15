@@ -1,3 +1,4 @@
+import { normalizeForMatch } from '../approvals/anchoring.ts';
 import { carryAnchor, blockText, type CommentAnchor } from './carry.ts';
 import { sanitizeDoc, type PageNode } from './page-doc.ts';
 import { normalizePageBody, type OutlineSection } from './page-body.ts';
@@ -52,7 +53,7 @@ export function applyCommentSuggestion(body: unknown, outline: OutlineSection[],
       }
       return text ? [{ ...node, text }] : [];
     }
-    if ([...blockText(block)].slice(start, end).join('') !== anchor.quote)
+    if (normalizeForMatch([...blockText(block)].slice(start, end).join('')) !== normalizeForMatch(anchor.quote ?? ''))
       throw new Error('The selected wording changed.');
     block.content = block.content?.flatMap(edit);
     if (!inserted)

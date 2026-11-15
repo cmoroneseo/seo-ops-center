@@ -12,7 +12,7 @@ test('highlight anchors use normalized code points including emoji, retain conte
   assert.equal(anchor.quote, '😀');
   assert.equal(anchor.rangeStart, 6);
   assert.equal(anchor.rangeEnd, 7);
-  assert.equal(anchor.quotePrefix, 'hello ');
+  assert.equal(anchor.quotePrefix, 'Hello ');
   assert.equal(anchor.quoteSuffix, ' world!');
   const snapped = highlightAnchor(original.body.content[0], anchor.targetHash!, 6);
   assert.equal(snapped.quote, '😀 world!');
@@ -63,4 +63,25 @@ test('removed blocks attach to the nearest surviving paragraph in the original s
   const carried = carryAnchor(selected, next.body, next.outline, undefined, original.outline);
   assert.equal(carried.state, 'text_changed');
   assert.equal(carried.blockId, 'near');
+});
+
+test('highlight quotes preserve client casing through validation, carry and acceptance', () => {
+  const quote = 'You get a written quote';
+  const original = doc(paragraph(`İ 😀 ${quote}. Thanks!`));
+  const selected = highlightAnchor(original.body.content[0], original.outline[0].blocks[0].hash, 4, 27);
+  assert.equal(selected.quote, quote);
+  assert.equal(validCommentAnchor(selected, original.body, original.outline), true);
+  assert.equal(carryAnchor(selected, original.body, original.outline).state, 'same');
+  for (const text of [`İ 😀 ${quote.toUpperCase()}. Thanks!`, `İ 😀 Now ${quote.toLowerCase()}. Thanks!`]) {
+    const next = doc(paragraph(text));
+    const carried = carryAnchor(selected, next.body, next.outline);
+    assert.equal(carried.state, text.includes('Now') ? 'rehighlighted' : 'same');
+    assert.equal(carried.quote, quote);
+    assert.equal(carried.rangeStart, text.includes('Now') ? 8 : 4);
+    assert.equal(carried.rangeEnd, text.includes('Now') ? 31 : 27);
+    const edited = applyCommentSuggestion(next.body, next.outline, selected, 'A written estimate');
+    assert.equal(edited.body.content[0].content?.[0].text, text.includes('Now') ? 'İ 😀 Now A written estimate. Thanks!' : 'İ 😀 A written estimate. Thanks!');
+  }
+  const changed = doc(paragraph('Different wording'));
+  assert.equal(carryAnchor(selected, changed.body, changed.outline).quote, quote);
 });
