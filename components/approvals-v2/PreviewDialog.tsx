@@ -10,10 +10,12 @@ import { PagePreview } from './PagePreview';
 export function PreviewDialog({
   domain,
   clientName,
+  logoSrc,
   items
 }: {
   domain?: string;
   clientName: string;
+  logoSrc?: string;
   items: {
     id: string;
     payload: GbpPostPayload | PagePayload;
@@ -37,7 +39,7 @@ export function PreviewDialog({
           {'pageKind' in payload ? <PagePreview domain={domain} payload={payload} photoUrl={photoUrl} images={images} /> : <div className="gbp-public" style={{
             minHeight: 0
           }}>
-            <GbpPostPreview clientName={clientName} post={{
+            <GbpPostPreview logoSrc={logoSrc} clientName={clientName} post={{
               ...payload,
               position: index + 1,
               scheduled: payload.scheduledDate,

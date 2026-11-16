@@ -1,3 +1,4 @@
+import { safeClientLogoUrl } from './client-logo';
 import { createHash } from 'node:crypto';
 import { carryAnchor, type CommentAnchor } from './carry';
 import { cache } from 'react';
@@ -72,14 +73,23 @@ export const loadApprovalReview = cache(async (token: string) => {
       domain: client?.domain ?? undefined
     } as PublicPageView;
   }
-  // Keep the GBP projection and renderer unchanged.
+  let clientLogoUrl = null;
+  if (data.state === 'active') {
+    const admin = createAdminClient();
+    const link = await admin.from('approval_links').select('request_id').eq('token_hash', hashToken(token)).maybeSingle();
+    if (!link.error && link.data) {
+      const request = await admin.from('approval_requests').select('clients!approval_requests_client_id_fkey(logo_url)').eq('id', link.data.request_id).maybeSingle();
+      const client = request.data?.clients as { logo_url?: string } | null;
+      if (!request.error) clientLogoUrl = safeClientLogoUrl(client?.logo_url);
+    }
+  }
   const paths = new Map<string, string | null>();
   for (const item of data.items ?? []) {
     for (const path of [item.version?.photoPath, item.version?.previous?.photoPath, item.decision?.replacementPhotoPath]) {
       if (typeof path === 'string') paths.set(path, await signApprovalPhoto(path));
     }
   }
-  return projectPublicReview(data, path => paths.get(path) ?? null);
+  return projectPublicReview({ ...data, clientLogoUrl }, path => paths.get(path) ?? null);
 });
 export function createPublicItem(dependencies = {
   createAdminClient,

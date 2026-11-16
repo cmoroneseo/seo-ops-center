@@ -54,7 +54,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             dueAt={view.dueAt}
             mode={mode}
             posts={posts}
-            clientName={view.clientName}
+            clientName={view.state === 'active' ? view.clientName : undefined}
+            logoSrc={view.state === 'active' ? view.clientLogoUrl ?? undefined : undefined}
             questions={view.questions.map(question => ({
                 id: question.id,
                 prompt: question.prompt,

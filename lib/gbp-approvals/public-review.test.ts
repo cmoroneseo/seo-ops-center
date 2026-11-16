@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import React, { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { renderToStaticMarkup, renderToString } from 'react-dom/server';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 const require = createRequire(import.meta.url);
 require.extensions['.css'] = () => {};
-const { PublicReview } = require('../../components/gbp-approvals/PublicReview') as typeof import('../../components/gbp-approvals/PublicReview');
+const { PublicReview, GbpPostPreview } = require('../../components/gbp-approvals/PublicReview') as typeof import('../../components/gbp-approvals/PublicReview');
 const post = {
     position: 1, title: 'Actual title', scheduled: '2026-12-01',
     offerStart: '2026-12-01', offerEnd: '2026-12-31', body: 'Current agency text',
@@ -45,8 +45,8 @@ test('expired page uses actual expiry and has no form', () => {
 
 for (const mode of ['missing', 'expired', 'revoked'] as const) {
     test(`${mode} page shows no client name, logo, sample data, or expiry note`, () => {
-        const html = renderToStaticMarkup(createElement(PublicReview, { mode, posts: [] }));
-        assert.doesNotMatch(html, /ALL-IN-1/);
+        const html = renderToStaticMarkup(createElement(PublicReview, { mode, posts: [], clientName: 'Private client', logoSrc: '/private-client-logo.png' }));
+        assert.doesNotMatch(html, /ALL-IN-1|Private client|private-client-logo/);
         assert.doesNotMatch(html, /Prepared for/);
         assert.doesNotMatch(html, /works until/);
         assert.doesNotMatch(html, /<img/);
@@ -124,6 +124,68 @@ test('suggested edits are prefilled, optional, and require a comment before subm
         assert.equal('suggestedTitle' in submissions[0].decisions[0], false);
     } finally {
         await act(async () => root.unmount());
+        Object.assign(globalThis, saved);
+        dom.window.close();
+    }
+});
+
+
+test('GBP avatar renders the client logo or falls back to its initial', () => {
+    const logo = renderToStaticMarkup(createElement(GbpPostPreview, { post, clientName: 'Real client', logoSrc: '/client-logo.png' }));
+    assert.match(logo, /class="g-av"><img src="\/client-logo.png"/);
+    const initial = renderToStaticMarkup(createElement(GbpPostPreview, { post, clientName: 'Real client' }));
+    assert.match(initial, /class="g-av-initial" aria-hidden="true">R<\/span>/);
+    assert.doesNotMatch(initial, /<img/);
+});
+
+test('failed client logos disappear from the header and fall back to the avatar initial', async () => {
+    const { JSDOM } = await import('jsdom');
+    const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
+    const saved = { window: globalThis.window, document: globalThis.document };
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
+    const { createRoot } = await import('react-dom/client');
+    const { act } = await import('react');
+    const root = createRoot(document.getElementById('root')!);
+    try {
+        await act(async () => root.render(createElement(PublicReview, { mode: 'review', clientName: 'Real client', logoSrc: '/client-logo.png', posts: [post], questions: [] })));
+        assert.ok(document.querySelector('.prep img'));
+        assert.ok(document.querySelector('.g-av img'));
+        await act(async () => {
+            document.querySelector('.prep img')!.dispatchEvent(new dom.window.Event('error'));
+            document.querySelector('.g-av img')!.dispatchEvent(new dom.window.Event('error'));
+        });
+        assert.equal(document.querySelector('.prep img'), null);
+        assert.equal(document.querySelector('.g-av img'), null);
+        assert.equal(document.querySelector('.g-av-initial')?.textContent, 'R');
+    } finally {
+        await act(async () => root.unmount());
+        Object.assign(globalThis, saved);
+        dom.window.close();
+    }
+});
+
+
+test('avatar logos that failed before hydration fall back to the initial', async () => {
+    const { JSDOM } = await import('jsdom');
+    const view = createElement(GbpPostPreview, { post, clientName: 'Real client', logoSrc: '/missing-logo.png' });
+    const dom = new JSDOM(`<div id="root">${renderToString(view)}</div>`, { url: 'http://localhost' });
+    const saved = { window: globalThis.window, document: globalThis.document };
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
+    const { hydrateRoot } = await import('react-dom/client');
+    const { act } = await import('react');
+    const container = document.getElementById('root')!;
+    const logos = container.querySelectorAll('.g-av img');
+    assert.equal(logos.length, 1);
+    for (const img of logos) {
+        Object.defineProperties(img, { complete: { value: true }, naturalWidth: { value: 0 } });
+    }
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+        await act(async () => { root = hydrateRoot(container, view); });
+        assert.ok(!document.querySelector('.g-av img'));
+        assert.equal(document.querySelector('.g-av-initial')?.textContent, 'R');
+    } finally {
+        await act(async () => root?.unmount());
         Object.assign(globalThis, saved);
         dom.window.close();
     }
