@@ -1,3 +1,4 @@
+import { safeClientLogoUrl } from './client-logo';
 import { createHash } from 'node:crypto';
 import { carryAnchor } from './carry';
 import { rowAnchor } from './comment-row';
@@ -40,7 +41,7 @@ export function createStaffDetail(dependencies = {
       actor,
       members
     } = ctx;
-    const result = await admin.from('approval_requests').select('*,clients!approval_requests_client_id_fkey(id,name,domain,account_manager_id),owner:users!approval_requests_owner_id_fkey(id,full_name),bot_api_keys!approval_requests_bot_key_id_fkey(name)').eq('id', id).in('organization_id', members.map(m => m.organization_id)).maybeSingle();
+    const result = await admin.from('approval_requests').select('*,clients!approval_requests_client_id_fkey(id,name,domain,logo_url,account_manager_id),owner:users!approval_requests_owner_id_fkey(id,full_name),bot_api_keys!approval_requests_bot_key_id_fkey(name)').eq('id', id).in('organization_id', members.map(m => m.organization_id)).maybeSingle();
     if (result.error) return json({
       error: 'Approvals could not be loaded.'
     }, 503);
@@ -49,6 +50,7 @@ export function createStaffDetail(dependencies = {
       code: 'not_found'
     }, 404);
     const r = result.data;
+    if (r.clients) r.clients.logo_url = safeClientLogoUrl(r.clients.logo_url);
     const [items, versions, responses, questions, events, link, comments, uploads] = await Promise.all([
       admin.from('approval_items').select('*').eq('request_id', id).order('position'),
       admin.from('approval_item_versions').select('*').eq('request_id', id)

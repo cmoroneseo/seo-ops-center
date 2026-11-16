@@ -61,6 +61,7 @@ interface Data {
     clients: {
       name: string;
       domain?: string;
+      logo_url?: string | null;
     };
     item_type: string;
   };
@@ -249,7 +250,7 @@ export default function Page({
       <span className="ml-2"><TypeChip row={{ itemType: data.request.item_type, pageKinds: [...new Set(data.items.map(item => item.page_kind).filter((kind): kind is string => !!kind))] }} /></span>
       {data.request.archived_at && <span className="ml-2">Archived</span>}
       <div className="mt-3">
-        <PreviewDialog domain={data.request.clients?.domain} clientName={data.request.clients?.name ?? 'Client'} items={data.items.flatMap(item => {
+        <PreviewDialog logoSrc={data.request.clients?.logo_url ?? undefined} domain={data.request.clients?.domain} clientName={data.request.clients?.name ?? 'Client'} items={data.items.flatMap(item => {
           const version = (draft ? item.version : item.releasedVersion) ?? item.version;
           return version ? [{
             id: item.id,
@@ -368,7 +369,7 @@ export default function Page({
               <div className="gbp-public" style={{
                 minHeight: 0
               }}>
-                <GbpPostPreview clientName={data.request.clients?.name ?? 'Client'} post={{
+                <GbpPostPreview logoSrc={data.request.clients?.logo_url ?? undefined} clientName={data.request.clients?.name ?? 'Client'} post={{
                   position: item.position,
                   title: p.title,
                   scheduled: p.scheduledDate,

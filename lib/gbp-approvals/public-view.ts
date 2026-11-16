@@ -41,6 +41,7 @@ export interface PublicReviewView {
     state: ReviewState;
     title: string;
     clientName: string;
+    clientLogoUrl: string | null;
     dueAt: string | null;
     round: number;
     expiresAt: string | null;
@@ -189,7 +190,8 @@ export function projectPublicReview(
     return {
         state,
         title: text(row.title) ?? 'Review',
-        clientName: text(row.clientName) ?? 'your account',
+        clientName: state === 'active' ? text(row.clientName) ?? 'your account' : 'your account',
+        clientLogoUrl: state === 'active' ? text(row.clientLogoUrl) : null,
         dueAt: text(row.dueAt),
         round: typeof row.round === 'number' ? row.round : 1,
         expiresAt: text(row.expiresAt),

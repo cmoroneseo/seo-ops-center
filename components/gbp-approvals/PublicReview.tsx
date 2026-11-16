@@ -306,6 +306,7 @@ export function PublicReview({
 }
 
 function Shell({ children, clientName, logoSrc, active = false }: { children: ReactNode; clientName?: string; logoSrc?: string; active?: boolean }) {
+    const [failedLogo, setFailedLogo] = useState<string>();
     return (
         <div className="gbp-public">
             <header className="band">
@@ -317,7 +318,7 @@ function Shell({ children, clientName, logoSrc, active = false }: { children: Re
             {active && clientName && (
                 <div className="prep">
                     <div className="prep-in">
-                        {logoSrc && <img src={logoSrc} alt={`${clientName} logo`} />}
+                        {logoSrc && failedLogo !== logoSrc && <img src={logoSrc} alt={`${clientName} logo`} onError={() => setFailedLogo(logoSrc)} />}
                         <div><div className="k">Prepared for</div><div className="v">{clientName}</div></div>
                     </div>
                 </div>
@@ -432,12 +433,13 @@ function PostCard({
 }
 
 export function GbpPostPreview({ post, clientName, logoSrc, showFull = true }: { post: ReviewPost; clientName: string; logoSrc?: string; showFull?: boolean }) {
+ const [failedLogo, setFailedLogo] = useState<string>();
  return (<article className="gbp">
                             <div className={post.photo ? 'g-photo' : 'g-photo g-photo-missing'}>
                                 {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}
                             </div>
                             <div className="g-body">
-                                <div className="g-head"><span className="g-av">{logoSrc ? <img src={logoSrc} alt="" /> : <span className="g-av-initial" aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}</span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
+                                <div className="g-head"><span className="g-av">{logoSrc && failedLogo !== logoSrc ? <img src={logoSrc} alt="" onError={() => setFailedLogo(logoSrc)} /> : <span className="g-av-initial" aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}</span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
                                 <div className="g-offer">{post.postType ?? 'Offer'}</div>
                                 <h3 className="g-title">{post.title}</h3>
                                 <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>

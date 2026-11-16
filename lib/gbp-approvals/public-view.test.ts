@@ -118,3 +118,12 @@ test('the leftovers edit shows the removed phrase', () => {
     assert.equal(parts.some(part => part.kind === 'removed' && part.text.includes('leftovers')), true);
     assert.equal(parts.some(part => part.kind === 'same' && part.text.includes('tap below')), true);
 });
+
+for (const state of ['active', 'expired', 'revoked']) {
+    test(`${state} public view only exposes a logo when active`, () => {
+        const view = projectPublicReview({ ok: true, state, clientName: 'Private client', clientLogoUrl: 'https://project.supabase.co/storage/v1/object/public/client-logos/client.png' });
+        assert.ok('clientLogoUrl' in view);
+        assert.equal(view.clientLogoUrl, state === 'active' ? 'https://project.supabase.co/storage/v1/object/public/client-logos/client.png' : null);
+        if (state !== 'active') assert.notEqual(view.clientName, 'Private client');
+    });
+}
