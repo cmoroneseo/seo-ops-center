@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import React, { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { renderToStaticMarkup, renderToString } from 'react-dom/server';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
@@ -159,6 +159,33 @@ test('failed client logos disappear from the header and fall back to the avatar 
         assert.equal(document.querySelector('.g-av-initial')?.textContent, 'R');
     } finally {
         await act(async () => root.unmount());
+        Object.assign(globalThis, saved);
+        dom.window.close();
+    }
+});
+
+
+test('avatar logos that failed before hydration fall back to the initial', async () => {
+    const { JSDOM } = await import('jsdom');
+    const view = createElement(GbpPostPreview, { post, clientName: 'Real client', logoSrc: '/missing-logo.png' });
+    const dom = new JSDOM(`<div id="root">${renderToString(view)}</div>`, { url: 'http://localhost' });
+    const saved = { window: globalThis.window, document: globalThis.document };
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
+    const { hydrateRoot } = await import('react-dom/client');
+    const { act } = await import('react');
+    const container = document.getElementById('root')!;
+    const logos = container.querySelectorAll('.g-av img');
+    assert.equal(logos.length, 1);
+    for (const img of logos) {
+        Object.defineProperties(img, { complete: { value: true }, naturalWidth: { value: 0 } });
+    }
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+        await act(async () => { root = hydrateRoot(container, view); });
+        assert.ok(!document.querySelector('.g-av img'));
+        assert.equal(document.querySelector('.g-av-initial')?.textContent, 'R');
+    } finally {
+        await act(async () => root?.unmount());
         Object.assign(globalThis, saved);
         dom.window.close();
     }
