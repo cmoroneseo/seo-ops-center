@@ -254,12 +254,18 @@ export function botTimerDaySlices(
     }], timeZone);
 }
 
-/** Every closed stretch, split on local midnights and summed per calendar day. */
+/**
+ * Every closed stretch, split on local midnights and summed per calendar day.
+ * `carried` is running time stored only on `elapsed_seconds` (rows paused before
+ * bot segments existed). It lands whole on its own date, the way
+ * `finalize_time_attempt` treats the same baseline, and no segment is invented.
+ */
 export function botTimerDaySlicesFromStretches(
     stretches: readonly BotTimerStretchInterval[],
     timeZone: string,
+    carried?: { seconds: number; date: string } | null,
 ): BotTimerDaySlice[] {
-    return slicesFromSegments(stretches.map(stretch => ({
+    const slices = slicesFromSegments(stretches.map(stretch => ({
         id: 'bot-timer',
         timeLogId: 'bot-timer',
         organizationId: 'bot-timer',
@@ -267,4 +273,11 @@ export function botTimerDaySlicesFromStretches(
         startedAt: stretch.startedAt,
         endedAt: stretch.endedAt,
     })), timeZone);
+    const carriedSeconds = carried ? Math.round(carried.seconds) : 0;
+    if (!carried || !Number.isFinite(carriedSeconds) || carriedSeconds <= 0) return slices;
+    const totals = new Map(slices.map(slice => [slice.date, slice.seconds]));
+    totals.set(carried.date, (totals.get(carried.date) ?? 0) + carriedSeconds);
+    return [...totals.entries()]
+        .sort((left, right) => left[0].localeCompare(right[0]))
+        .map(([date, seconds]) => ({ date, seconds, hours: hoursFromSeconds(seconds) }));
 }

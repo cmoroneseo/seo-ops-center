@@ -142,6 +142,14 @@ export interface RunningBotTimer {
     openNote: string | null;
     /** When the latest stretch ended. Null while running. */
     pausedAt: string | null;
+    /**
+     * Running seconds on `elapsed_seconds` that no stored segment covers.
+     * Rows paused before bot segments existed keep their time only there.
+     * Zero or absent for rows whose segments hold all of their time.
+     */
+    carriedSeconds?: number;
+    /** Local date the carried seconds belong to (`time_logs.date`). */
+    carriedDate?: string | null;
 }
 
 export interface FinalizedBotLog {
@@ -267,6 +275,12 @@ export interface BotDeps {
     completeTodo(taskId: string, actor: BotActor): Promise<BasecampStep>;
 }
 
+/** Calendar date of an instant in `timeZone`, as YYYY-MM-DD. */
+function localDate(instant: string, timeZone: string): string {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
+        .format(new Date(instant));
+}
+
 function json(body: unknown, status: number, headers?: Record<string, string>): Response {
     return Response.json(body, { status, headers });
 }
@@ -347,8 +361,14 @@ function timerBody(timer: RunningBotTimer, alreadyRunning: boolean) {
     };
 }
 
+/** Closed running time: stored stretches plus any carried legacy seconds. */
+function timerClosedMs(timer: RunningBotTimer): number {
+    const carried = timer.carriedSeconds ?? 0;
+    return closedRunningMs(timer.stretches) + (Number.isFinite(carried) && carried > 0 ? carried * 1000 : 0);
+}
+
 function pausedBody(timer: RunningBotTimer) {
-    const seconds = Math.round(closedRunningMs(timer.stretches) / 1000);
+    const seconds = Math.round(timerClosedMs(timer) / 1000);
     return {
         id: timer.id,
         taskId: timer.taskId,
@@ -612,19 +632,24 @@ function closedStretches(
     maxMs: number | null,
 ): {
     stretches: BotTimerStretch[];
+    /** Total running time after the close, carried legacy seconds included. */
+    closedMs: number;
     capped: boolean;
     stoppedAt: string;
 } {
     const decision = botTimerCloseOpen({
         openStartedAt: isRunningTimer(timer) ? timer.startedAt : null,
-        closedMs: closedRunningMs(timer.stretches),
+        closedMs: timerClosedMs(timer),
         now,
         maxMs,
     });
     if (!isRunningTimer(timer) || !timer.startedAt || !decision.openEndedAt) {
-        const ended = timer.stretches[timer.stretches.length - 1]?.endedAt ?? now.toISOString();
+        const ended = timer.stretches[timer.stretches.length - 1]?.endedAt
+            ?? timer.pausedAt
+            ?? now.toISOString();
         return {
             stretches: timer.stretches,
+            closedMs: decision.runningMs,
             capped: decision.capped,
             stoppedAt: ended,
         };
@@ -635,6 +660,7 @@ function closedStretches(
             endedAt: decision.openEndedAt,
             note: combineStretchNote(timer.openNote, pauseNote),
         }],
+        closedMs: decision.runningMs,
         capped: decision.capped,
         stoppedAt: decision.openEndedAt,
     };
@@ -655,7 +681,14 @@ async function closeTimer(
     },
     deps: BotDeps,
 ): Promise<{ status: number; body: unknown } | { logs: FinalizedBotLog[]; capped: boolean }> {
-    const slices = botTimerDaySlicesFromStretches(input.stretches, input.timeZone);
+    const carriedSeconds = Math.round(Math.max(0, timer.carriedSeconds ?? 0));
+    const slices = botTimerDaySlicesFromStretches(
+        input.stretches,
+        input.timeZone,
+        carriedSeconds > 0
+            ? { seconds: carriedSeconds, date: timer.carriedDate ?? localDate(timer.pausedAt ?? input.stoppedAt, input.timeZone) }
+            : null,
+    );
     if (slices.length === 0) return { status: 500, body: errorBody('internal', 'Timer could not be stopped.') };
     const logs = await deps.finalizeTimer({
         timer,
@@ -677,7 +710,7 @@ async function closeTimer(
 async function capTimer(timer: RunningBotTimer, deps: BotDeps, maxMs: number): Promise<FinalizedBotLog | null> {
     const closed = closedStretches(timer, deps.now(), null, maxMs);
     if (!closed.capped) return null;
-    const seconds = Math.round(closedRunningMs(closed.stretches) / 1000);
+    const seconds = Math.round(closed.closedMs / 1000);
     const summary = botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(stretch => stretch.note),
         hours: hoursFromSeconds(seconds),
@@ -883,7 +916,7 @@ async function executePause(
     const maxMs = botTimerMaxMs();
     const closed = closedStretches(running, deps.now(), command.description ?? null, maxMs);
     if (closed.capped && maxMs != null) {
-        const seconds = Math.round(closedRunningMs(closed.stretches) / 1000);
+        const seconds = Math.round(closed.closedMs / 1000);
         const summary = botTimerBasecampSummary({
             stretchNotes: closed.stretches.map(stretch => stretch.note),
             hours: hoursFromSeconds(seconds),
@@ -930,7 +963,7 @@ async function executePause(
     const description = botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(item => item.note),
     }) || running.taskTitle;
-    const seconds = Math.round(closedRunningMs(closed.stretches) / 1000);
+    const seconds = Math.round(closed.closedMs / 1000);
     const paused = await deps.pauseTimer({
         timer: running,
         stretch,
@@ -986,7 +1019,7 @@ async function executeResume(
         return { status: 404, body: errorBody('timer_not_paused', 'This bot does not have a paused timer on that task.') };
     }
     const maxMs = botTimerMaxMs();
-    if (maxMs != null && closedRunningMs(paused.stretches) >= maxMs) {
+    if (maxMs != null && timerClosedMs(paused) >= maxMs) {
         return {
             status: 409,
             body: errorBody(
@@ -1041,8 +1074,8 @@ async function executeStop(
     const summary = botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(stretch => stretch.note),
         stopNote: command.description,
-        hours: hoursFromSeconds(Math.round(closedRunningMs(closed.stretches) / 1000)),
-        minutes: Math.round(closedRunningMs(closed.stretches) / 60000),
+        hours: hoursFromSeconds(Math.round(closed.closedMs / 1000)),
+        minutes: Math.round(closed.closedMs / 60000),
         startedAt: closed.stretches[0]?.startedAt,
         stoppedAt: closed.stoppedAt,
     });
@@ -1131,7 +1164,7 @@ function runningPastCap(timer: RunningBotTimer, now: Date, maxMs: number | null)
     if (maxMs == null || !isRunningTimer(timer)) return false;
     return botTimerCloseOpen({
         openStartedAt: timer.startedAt,
-        closedMs: closedRunningMs(timer.stretches),
+        closedMs: timerClosedMs(timer),
         now,
         maxMs,
     }).capped;

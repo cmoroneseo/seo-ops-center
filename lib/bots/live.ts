@@ -4,7 +4,7 @@ import { createLiveBasecampTimesheetPost } from '../basecamp/timesheet-live.ts';
 import { BOT_ACTOR_EMAIL, hashBotKey } from './keys.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import { matchBotTask } from './task-lookup.ts';
-import { botStretchSegmentId } from './timer.ts';
+import { botStretchSegmentId, closedRunningMs } from './timer.ts';
 import {
     basecampStepFromResponse,
     BotTimerLookupError,
@@ -118,7 +118,22 @@ function timerBase(row: Record<string, unknown>, stretches: BotTimerStretch[]): 
         billable: row.billable !== false,
         projectId: typeof row.project_id === 'string' ? row.project_id : null,
         stretches,
+        carriedSeconds: carriedSecondsOf(row, stretches),
+        carriedDate: typeof row.date === 'string' && row.date ? row.date : null,
     };
+}
+
+/**
+ * Seconds on `elapsed_seconds` that the stored segments do not cover.
+ * Bot pause writes `elapsed_seconds` as the rounded total of every closed
+ * stretch (plus this carry), so a row with full segment coverage carries 0.
+ * A row paused before bot segments existed carries all of `elapsed_seconds`.
+ */
+export function carriedSecondsOf(row: Record<string, unknown>, stretches: BotTimerStretch[]): number {
+    const elapsed = Number(row.elapsed_seconds);
+    if (!Number.isFinite(elapsed) || elapsed <= 0) return 0;
+    const covered = Math.round(closedRunningMs(stretches) / 1000);
+    return Math.max(0, Math.round(elapsed) - covered);
 }
 
 function runningRecord(row: Record<string, unknown>): RunningBotTimer | null {
@@ -138,7 +153,11 @@ function pausedRecord(row: Record<string, unknown>): RunningBotTimer | null {
     const stretches = stretchRows(row.time_log_segments);
     const base = timerBase(row, stretches);
     if (!base) return null;
-    const pausedAt = stretches[stretches.length - 1]?.endedAt ?? null;
+    // A row paused before bot segments existed has none. time_logs has no
+    // updated_at, so use created_at: it is never later than the real pause,
+    // so the stale-pause review can only flag such a row early, never late.
+    const pausedAt = stretches[stretches.length - 1]?.endedAt
+        ?? (typeof row.created_at === 'string' && row.created_at ? row.created_at : null);
     if (!pausedAt) return null;
     return {
         ...base,
@@ -166,7 +185,7 @@ function operationRecord(row: Record<string, unknown>): BotOperationRecord {
 // time_log_segments has two foreign keys to time_logs, so PostgREST rejects an
 // unqualified embed. Name the time_log_id relationship. The columns stay the
 // same: started_at, ended_at, note.
-const TIMER_COLUMNS = 'id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, status, timer_started_at, description, counts_toward_budget, billable, tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(started_at, ended_at, note)';
+const TIMER_COLUMNS = 'id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, status, date, created_at, elapsed_seconds, timer_started_at, description, counts_toward_budget, billable, tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(started_at, ended_at, note)';
 
 function raiseTimerLookupError(error: { code?: string | null }): never {
     throw new BotTimerLookupError(typeof error.code === 'string' ? error.code : undefined);
