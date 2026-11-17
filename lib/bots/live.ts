@@ -79,6 +79,24 @@ function stretchRows(value: unknown): BotTimerStretch[] {
     }).sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }
 
+/**
+ * Stored segment rows with `stretch` present exactly once.
+ * The pause path re-reads segments after inserting the closed stretch, so the
+ * row is normally there already. Postgres returns `+00:00` timestamps, not the
+ * `.000Z` form the handler built, so match on the instant, not the string.
+ */
+export function withStretchRow(rows: unknown, stretch: BotTimerStretch): unknown[] {
+    const stored = Array.isArray(rows) ? rows : [];
+    const startMs = Date.parse(stretch.startedAt);
+    const present = stored.some(item => {
+        if (!item || typeof item !== 'object') return false;
+        const startedAt = (item as Record<string, unknown>).started_at;
+        return typeof startedAt === 'string' && Date.parse(startedAt) === startMs;
+    });
+    if (present) return stored;
+    return [...stored, { started_at: stretch.startedAt, ended_at: stretch.endedAt, note: stretch.note }];
+}
+
 function timerBase(row: Record<string, unknown>, stretches: BotTimerStretch[]): Omit<RunningBotTimer, 'startedAt' | 'openNote' | 'pausedAt'> | null {
     const taskId = typeof row.task_id === 'string' ? row.task_id : null;
     const botKeyId = typeof row.bot_key_id === 'string' ? row.bot_key_id : null;
@@ -238,7 +256,11 @@ async function push(actor: BotActor, taskId: string, action: 'create_todo' | 'co
     return basecampStepFromResponse(response);
 }
 
-export function liveBotDeps(): BotDeps {
+export function liveBotDeps(
+    options: { admin?: () => ReturnType<typeof createAdminClient> } = {},
+): BotDeps {
+    // Tests pass a fake client. Production uses the service-role client.
+    const admin = options.admin ?? createAdminClient;
     return {
         now: () => new Date(),
         async authenticate(token) {
@@ -592,14 +614,12 @@ export function liveBotDeps(): BotDeps {
                 .maybeSingle();
             if (error) raiseTimerLookupError(error);
             if (data) {
+                // The segment insert above runs first, so the embed already
+                // holds the closed stretch. Build from the stored rows only.
                 const paused = pausedRecord({
                     ...data,
                     tasks: { title: input.timer.taskTitle },
-                    time_log_segments: [...(data.time_log_segments ?? []), {
-                        started_at: input.stretch.startedAt,
-                        ended_at: input.stretch.endedAt,
-                        note: input.stretch.note,
-                    }],
+                    time_log_segments: withStretchRow(data.time_log_segments, input.stretch),
                 });
                 if (paused) return paused;
             }
