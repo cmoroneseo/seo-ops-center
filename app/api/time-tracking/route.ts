@@ -15,6 +15,8 @@ import {
 } from '@/lib/timer/attempt-route';
 import { timerStateFromRows } from '@/lib/timer/contracts';
 import { finalizeTaskCompletion } from '@/lib/tasks/status';
+import { scheduleLiveForecastPushResolved } from '@/lib/forecast/live-push';
+import { forecastWeeksForInstants } from '@/lib/forecast/nudge';
 
 export const dynamic = 'force-dynamic';
 
@@ -262,5 +264,71 @@ export async function POST(request: NextRequest): Promise<Response> {
         },
     };
 
-    return handleTimerMutation(request, deps);
+    const raw = await request.text();
+    const replay = new Request(request.url, {
+        method: 'POST',
+        headers: request.headers,
+        body: raw,
+    });
+    const response = await handleTimerMutation(replay, deps);
+    if (response.ok && authenticatedUserId) {
+        let parsed: Record<string, unknown> = {};
+        try {
+            const body = JSON.parse(raw) as unknown;
+            if (body && typeof body === 'object' && !Array.isArray(body)) parsed = body as Record<string, unknown>;
+        } catch {
+            parsed = {};
+        }
+        const userId = authenticatedUserId;
+        const actorName = authenticatedActorName;
+        scheduleLiveForecastPushResolved(async () => {
+            const admin = createAdminClient();
+            const timeZone = typeof parsed.timeZone === 'string' && parsed.timeZone ? parsed.timeZone : 'UTC';
+            const now = new Date();
+            let today = now.toISOString().slice(0, 10);
+            try {
+                today = new Intl.DateTimeFormat('en-CA', {
+                    timeZone,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                }).format(now);
+            } catch {
+                today = now.toISOString().slice(0, 10);
+            }
+            let organizationId = '';
+            let date = now.toISOString();
+            const timeLogId = typeof parsed.timeLogId === 'string' ? parsed.timeLogId : '';
+            const taskId = typeof parsed.taskId === 'string'
+                ? parsed.taskId
+                : typeof parsed.toTaskId === 'string' ? parsed.toTaskId : '';
+            if (timeLogId) {
+                const { data } = await admin
+                    .from('time_logs')
+                    .select('organization_id, date')
+                    .eq('id', timeLogId)
+                    .maybeSingle();
+                organizationId = typeof data?.organization_id === 'string' ? data.organization_id : '';
+                date = typeof data?.date === 'string' ? data.date : date;
+            } else if (taskId) {
+                const { data } = await admin
+                    .from('tasks')
+                    .select('organization_id')
+                    .eq('id', taskId)
+                    .maybeSingle();
+                organizationId = typeof data?.organization_id === 'string' ? data.organization_id : '';
+            }
+            if (!organizationId) return [];
+            return forecastWeeksForInstants(today, timeZone, [date, now.toISOString()]).map(weekStart => ({
+                organizationId,
+                weekStart,
+                timeZone,
+                today,
+                userId,
+                actorName,
+                now: now.toISOString(),
+            }));
+        });
+    }
+    return response;
 }

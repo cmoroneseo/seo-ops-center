@@ -1,3 +1,4 @@
+import { scheduleLiveForecastPushFromDates } from '../forecast/live-push.ts';
 import { createAdminClient } from '../supabase/admin.ts';
 import { createLiveBasecampPushPost } from '../basecamp/push-live.ts';
 import { createLiveBasecampTimesheetPost } from '../basecamp/timesheet-live.ts';
@@ -282,6 +283,19 @@ export function liveBotDeps(
     const admin = options.admin ?? createAdminClient;
     return {
         now: () => new Date(),
+        onCommitted(event) {
+            const today = new Intl.DateTimeFormat('en-CA', {
+                timeZone: event.timeZone,
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).format(new Date());
+            scheduleLiveForecastPushFromDates({
+                ...event,
+                today,
+                now: new Date().toISOString(),
+            });
+        },
         async authenticate(token) {
             const { data, error } = await admin()
                 .from('bot_api_keys')

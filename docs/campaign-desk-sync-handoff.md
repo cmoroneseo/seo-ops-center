@@ -197,14 +197,24 @@ Implement these against your endpoint. Use a synthetic organization. Do not writ
 
 ## Version 2
 
-Version 1 above stays the payload while `CAMPAIGN_DESK_SYNC_V2` is anything other than the exact string `true`. Version 2 is the body in Campaign Desk `docs/campaign-desk-sync-v2.md` (PR #48). SEO Ops sends it from the same manual Sync to forecast button. There is still no cron. Each new body gets a new `runId`. The same body is reused from `campaign_desk_sync_runs`.
+Version 1 above stays the payload while `CAMPAIGN_DESK_SYNC_V2` is anything other than the exact string `true`. Version 2 is the body in Campaign Desk `docs/campaign-desk-sync-v2.md` (PR #48). SEO Ops sends it from the manual Sync button and, when the existing sync flags are on, again after a task, planner block, or time entry is saved. There is still no cron. Each new body gets a new `runId`. The same body is reused from `campaign_desk_sync_runs`.
 
-Version 2 rules SEO Ops follows:
+While `CAMPAIGN_DESK_HYBRID_WEEK` is anything other than the exact string `true`, a version 2 week still follows the original rules: the current week and earlier weeks are logged time only, later weeks are task estimates, and every item `source` matches the week `basis`. SEO Ops does not send `"people": []` on its own.
 
-- `version` is the number `2`. Unknown keys are not sent. `weekStart` is the Monday. Every item `source` matches the week `basis`.
+### What Campaign Desk must accept before `CAMPAIGN_DESK_HYBRID_WEEK` is turned on
+
+Do not turn that flag on until these rules are live on the receiver. They are not sent while the flag is off.
+
+- The current week keeps `basis: "actual"`. Items for hours already logged stay `source: "actual"`. Items for work still on the calendar, including later today and the rest of the week, are `source: "estimate"`. Both can be in the same week. Do not reject an item because its `source` differs from the week `basis`.
+- A block that already has a time entry is not also sent as a plan.
+- Earlier weeks stay all `actual`. Later weeks stay all `estimate`, one task estimate on the task start date. A task with several people is split evenly. Tracked time stays with the person who logged it.
+- A version 2 week with `"people": []` clears that week, the same way a version 1 week with `"allocations": []` does. SEO Ops sends that only from a server delete, and only while this flag is on. A person cannot ask the push route to clear a week.
+
+The rest of version 2 is unchanged and is sent whether or not the hybrid flag is on:
+
+- `version` is the number `2`. Unknown keys are not sent. `weekStart` is the Monday.
 - `minutes` is an integer from 1 to 1440. `hours` is minutes ÷ 60, half away from zero, two decimal places (`90` → `"1.50"`, `10` → `"0.17"`).
 - `itemKey` is stable `kind:id:date`, unique for that person and date.
-- The current week and earlier weeks send tracked time, one item per day, per task or event. Later weeks put the task estimate on the task start date. A task with several people splits that estimate evenly. Tracked time stays with the person who logged it.
 - Breaks are left out. Out of office is not sent. A client meeting is `kind: "event"` and `bucket: "client"`. An internal event is `bucket: "internal"` and `client: null`.
 - People match by email. A client item always includes `name` and `domain` (`domain` is null when SEO Ops has none) plus `campaignDeskClientId` from `campaign_desk_client_links` when a row exists, otherwise from one exact `GET /v1/clients` name match.
 - Migration `099_campaign_desk_client_links.sql` creates that map. It is not applied by this change. Apply it before turning version 2 on. Version 1 does not read it.
