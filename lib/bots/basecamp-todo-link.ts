@@ -1,5 +1,6 @@
 import { buildBasecampTaskRows } from '../basecamp/import-tasks-route.ts';
 import { providerParentListId } from '../basecamp/import-stage.ts';
+import { isBasecampRecordingConflict } from '../basecamp/task-recording-conflict.ts';
 import {
     importBasecampTodoSteps,
     readBasecampTodo,
@@ -44,7 +45,7 @@ function conflict(): Failure {
     return failure(409, 'basecamp_todo_linked', 'The Basecamp to-do or the requested task already has a conflicting link.');
 }
 
-export async function linkBasecampTodo(input: {
+interface LinkBasecampTodoInput {
     command: BotCreateCommand & { basecampTodoId: string };
     client: BotClientRecord;
     actor: BotActor;
@@ -53,7 +54,18 @@ export async function linkBasecampTodo(input: {
     now: string;
     deps: BotDeps;
     insertSubtask(parent: BotTaskRecord, draft: BotSubtaskDraft, index: number): Promise<TaskResult | { status: number; body: unknown }>;
-}): Promise<LinkedTaskResult | { status: number; body: unknown }> {
+}
+
+export async function linkBasecampTodo(input: LinkBasecampTodoInput) {
+    try {
+        return await linkTodo(input);
+    } catch (error) {
+        if (isBasecampRecordingConflict(error)) return conflict();
+        throw error;
+    }
+}
+
+async function linkTodo(input: LinkBasecampTodoInput): Promise<LinkedTaskResult | { status: number; body: unknown }> {
     const { deps, command, client, actor, now } = input;
     const { basecampTasks } = deps;
     const organizationId = client.organizationId;

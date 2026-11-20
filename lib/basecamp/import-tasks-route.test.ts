@@ -341,7 +341,7 @@ test('a chunk that failed to insert announces no completions', async () => {
         getTodo: async () => completedProviderTodo as never,
         resolveAssignees: async () => new Map([[5001, 'user-abel']]),
         createWriter: () => ({
-            insertTasks: async () => 'insert failed',
+            insertTasks: async () => ({ code: 'XX000', message: 'insert failed' }),
             logActivity: async () => {},
             logCompletions: async payload => { completions.push(...payload.completions); },
         }),
@@ -658,6 +658,51 @@ function memoryStore() {
         },
     };
 }
+
+test('import skips concurrently claimed to-dos and steps and imports the rest of each batch', async () => {
+    const { createBasecampImportTasksPost } = await loadRouteModule();
+    const memory = memoryStore();
+    const winner = { id: 'existing', basecampTodoId: 77, stage: 'onboarding', parentTaskId: null, row: {} };
+    const conflict = {
+        code: '23505',
+        message: 'duplicate key value violates unique constraint "tasks_basecamp_recording_unique"',
+    };
+    const activityCounts: number[] = [];
+    const post = createBasecampImportTasksPost({
+        authorizeClient: async () => authorized,
+        createAccessSource: () => externalSource(),
+        isConfigured: () => true,
+        getTodo: async (_projectId, todoId) => ({
+            id: Number(todoId), title: `To-do ${todoId}`, description: '', due_on: null,
+        }),
+        getSteps: async (_projectId, todoId) => todoId === '77'
+            ? [{ id: 81, title: 'Brief' }, { id: 82, title: 'Draft' }]
+            : [],
+        resolveAssignees: async () => new Map(),
+        createWriter: () => ({
+            ...memory.writer,
+            async insertTasks(rows) {
+                const ids = rows.map(row => Number(row.basecamp_todo_id));
+                if (ids.includes(77)) {
+                    if (!memory.stored.includes(winner)) memory.stored.push(winner);
+                    return conflict;
+                }
+                if (ids.includes(81)) return conflict;
+                return memory.writer.insertTasks(rows);
+            },
+            async logActivity({ imported }) { activityCounts.push(imported); },
+        }),
+        now: () => '2026-10-20T22:44:55.000Z',
+    });
+
+    const response = await post(request({ tasks: [task, { ...task, basecampTodoId: 78 }] }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await responseBody(response), { imported: 2, errors: [] });
+    assert.deepEqual(memory.inserted.map(row => [row.basecamp_todo_id, row.parent_task_id ?? null]), [
+        [78, null], [82, winner.id],
+    ]);
+    assert.deepEqual(activityCounts, [2]);
+});
 
 test('todos from the configured onboarding list land in Onboarding, in list order', async () => {
     const { createBasecampImportTasksPost } = await loadRouteModule();

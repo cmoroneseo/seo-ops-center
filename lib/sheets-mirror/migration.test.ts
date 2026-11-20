@@ -104,5 +104,5 @@ test('136 defaults existing and new clients to off, requires a boolean and prese
 
 test('schema mirror contains the exact migration 136 section', () => {
     const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
-    assert.equal(schema.slice(schema.lastIndexOf('-- Migration 136:')).trim(), switchMigration.trim());
+    assert.equal(schema.slice(schema.lastIndexOf('-- Migration 136:'), schema.lastIndexOf('-- Migration 137:')).trim(), switchMigration.trim());
 });

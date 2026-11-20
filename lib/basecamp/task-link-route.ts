@@ -1,4 +1,5 @@
 import { numericId } from './import-tasks-route.ts';
+import { isBasecampRecordingConflict } from './task-recording-conflict.ts';
 import { parseBasecampTodoInput } from './todo-input.ts';
 import {
     importBasecampTodoSteps,
@@ -109,12 +110,14 @@ export function createBasecampTaskLinkHandler(
             const { imported, linked } = await importBasecampTodoSteps({
                 store, root, projectId, todoId, steps, now, userId: auth.userId,
                 matchExistingTitles: action === 'link',
+                skipRecordingConflicts: action === 'refresh',
                 resolveAssignees: resolveAssignees
                     ? personIds => resolveAssignees(auth.organizationId, personIds)
                     : undefined,
             });
             return Response.json({ todoId, projectId, imported: imported.length, linked });
         } catch (cause) {
+            if (action === 'link' && isBasecampRecordingConflict(cause)) return conflict();
             console.error('[Basecamp] Task link or refresh failed', cause);
             return error('Unable to save the Basecamp link or steps. Try again.', 500);
         }

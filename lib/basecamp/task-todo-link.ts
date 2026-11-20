@@ -1,4 +1,5 @@
 import { draftsForSteps, linkImportedSteps, type ProviderTodo } from './import-tasks-route.ts';
+import { isBasecampRecordingConflict } from './task-recording-conflict.ts';
 import { groupByStepTitle, mergeBasecampTodoSteps, normalizeStepTitle, stepsForTodo, type BasecampTodoStep } from './todo-steps.ts';
 
 export interface BasecampLinkedTask {
@@ -46,6 +47,23 @@ export async function readBasecampTodoSteps(
         .filter(step => String(step.id) !== todoId);
 }
 
+async function insertUnclaimedSteps<T extends BasecampLinkedTask>(
+    store: BasecampLinkStore<T>, rows: Record<string, unknown>[],
+): Promise<T[]> {
+    try {
+        return await store.insertImportedTasks(rows);
+    } catch (error) {
+        if (!isBasecampRecordingConflict(error)) throw error;
+        if (rows.length === 1) return [];
+
+        // The failed batch is atomic. Retry smaller batches to isolate the claimed steps.
+        const midpoint = Math.ceil(rows.length / 2);
+        const first = await insertUnclaimedSteps(store, rows.slice(0, midpoint));
+        const second = await insertUnclaimedSteps(store, rows.slice(midpoint));
+        return [...first, ...second];
+    }
+}
+
 export async function importBasecampTodoSteps<T extends BasecampLinkedTask>(input: {
     store: BasecampLinkStore<T>;
     root: T;
@@ -55,6 +73,7 @@ export async function importBasecampTodoSteps<T extends BasecampLinkedTask>(inpu
     userId: string;
     now: string;
     matchExistingTitles: boolean;
+    skipRecordingConflicts?: boolean;
     resolveAssignees?: (personIds: number[]) => Promise<Map<number, string>>;
 }) {
     const { store, root, steps, projectId, todoId, userId, now } = input;
@@ -102,7 +121,12 @@ export async function importBasecampTodoSteps<T extends BasecampLinkedTask>(inpu
         parents: [{ basecampTodoId: Number(todoId), taskId: root.id, stage: root.stage ?? null }],
         alreadyImportedStepIds: claimedIds,
     });
-    const imported = rows.length > 0 ? await store.insertImportedTasks(rows) : [];
+    let imported: T[] = [];
+    if (rows.length > 0) {
+        imported = input.skipRecordingConflicts
+            ? await insertUnclaimedSteps(store, rows)
+            : await store.insertImportedTasks(rows);
+    }
     for (const child of imported) {
         if (child.basecampTodoId) childrenByStepId.set(child.basecampTodoId, child);
     }

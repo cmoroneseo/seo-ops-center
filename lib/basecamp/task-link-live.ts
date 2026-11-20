@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { requireTaskOrgMember } from '@/lib/security/tenant-authz';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { membersByBasecampPersonId } from '@/lib/supabase/timesheet-imports';
@@ -34,16 +33,6 @@ function taskRecord(row: {
         basecampTodoId: row.basecamp_todo_id == null ? null : String(row.basecamp_todo_id),
         basecampProjectId: row.basecamp_project_id == null ? null : String(row.basecamp_project_id),
     };
-}
-
-// Concurrent drawer imports can both miss the same recording during lookup.
-// Use its stable task UUID to let the primary key deduplicate those inserts.
-function importedStepTaskId(stepId: unknown): string {
-    const bytes = createHash('sha256').update(`basecamp-imported-step:${stepId}`).digest().subarray(0, 16);
-    bytes[6] = (bytes[6] & 0x0f) | 0x80;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = bytes.toString('hex');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export function createLiveBasecampTaskLinkHandler(action: 'link' | 'refresh' | 'check') {
@@ -111,11 +100,7 @@ export function createLiveBasecampTaskLinkHandler(action: 'link' | 'refresh' | '
                         && saved.parentTaskId === task.parentTaskId ? saved : null;
                 },
                 async insertImportedTasks(rows) {
-                    const { data, error } = await admin.from('tasks')
-                        .upsert(rows.map(row => ({ ...row, id: importedStepTaskId(row.basecamp_todo_id) })), {
-                            onConflict: 'id', ignoreDuplicates: true,
-                        })
-                        .select(TASK_COLUMNS);
+                    const { data, error } = await admin.from('tasks').insert(rows).select(TASK_COLUMNS);
                     if (error) throw error;
                     return (data ?? []).map(taskRecord);
                 },

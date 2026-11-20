@@ -153,6 +153,26 @@ test('refuses conflicting links across organizations or on the requested task', 
     assert.equal(existing.root.basecampTodoId, '1234');
 });
 
+const recordingConflict = {
+    code: '23505',
+    message: 'duplicate key value violates unique constraint "tasks_basecamp_recording_unique"',
+};
+
+for (const write of ['updateTaskLink', 'insertImportedTasks'] as const) {
+    test(`link returns a conflict if a concurrent request wins the ${write} write`, async () => {
+        const f = fixture();
+        const store = f.deps.createStore();
+        store[write] = async () => { throw recordingConflict; };
+        f.deps.createStore = () => store;
+
+        const result = await f.call('link');
+        assert.equal(result.status, 409);
+        assert.match((await result.json()).error, /conflicting link/i);
+        assert.deepEqual(f.inserted, []);
+        assert.deepEqual(f.writeCalls, []);
+    });
+}
+
 test('requires a session and a writable role for the canonical task client and organization', async () => {
     const denials = [
         [{ ok: false, status: 401, error: 'Unauthorized' }, 401],
@@ -190,6 +210,45 @@ test('refresh imports five newly arrived steps under the existing parent and the
     assert.equal(f.tasks.filter(row => row.parentTaskId === null).length, 1);
     assert.deepEqual(await (await f.call('refresh')).json(), { todoId, projectId, imported: 0, linked: 0 });
     assert.equal(f.inserted.length, 5);
+    assert.deepEqual(f.writeCalls, []);
+});
+
+test('refresh skips a step claimed during insert and imports the remaining steps', async () => {
+    const f = fixture({ linked: true });
+    const claimedStep = f.steps[4];
+    const store = f.deps.createStore();
+    const insert = store.insertImportedTasks;
+    store.insertImportedTasks = async rows => {
+        if (rows.some(row => row.basecamp_todo_id === claimedStep.id)) {
+            if (!f.tasks.some(task => task.basecampTodoId === String(claimedStep.id))) {
+                f.tasks.push({
+                    ...parent, id: 'concurrent-import', parentTaskId: parent.id, title: claimedStep.title,
+                    basecampTodoId: String(claimedStep.id), basecampProjectId: projectId,
+                });
+            }
+            throw recordingConflict;
+        }
+        return insert(rows);
+    };
+    f.deps.createStore = () => store;
+
+    const result = await f.call('refresh');
+    assert.equal(result.status, 200);
+    assert.deepEqual(await result.json(), { todoId, projectId, imported: 8, linked: 0 });
+    assert.deepEqual(f.inserted.map(row => row.basecamp_todo_id), f.steps.filter(step => step !== claimedStep).map(step => step.id));
+    assert.deepEqual(await (await f.call('refresh')).json(), { todoId, projectId, imported: 0, linked: 0 });
+    assert.deepEqual(f.writeCalls, []);
+});
+
+test('refresh keeps unrelated uniqueness errors on the existing failure path', async () => {
+    const f = fixture({ linked: true });
+    const store = f.deps.createStore();
+    store.insertImportedTasks = async () => {
+        throw { code: '23505', message: 'duplicate key value violates unique constraint "tasks_pkey"' };
+    };
+    f.deps.createStore = () => store;
+
+    assert.equal((await f.call('refresh')).status, 500);
     assert.deepEqual(f.writeCalls, []);
 });
 
