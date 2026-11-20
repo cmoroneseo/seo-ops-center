@@ -4,7 +4,7 @@ SEO bots create tasks and run timers in SEO Ops Center over HTTP. Time is attrib
 
 Bots do not log minutes after the fact. There is no `minutes` or `hours` field. `POST /api/bots/time` is gone.
 
-A task this API creates is assigned to Carlos. The insert sets `assignee_id` and `assignee_ids` to his user id, `created_by` to the same id, and `status_history` to a `todo` entry by him. `priority` is `medium` and `tags` is empty. The SEO Plan reads `assignee_ids`. `assignee_id` is set to the same user so it is not left null.
+Tasks created from bot input are assigned to Carlos. The insert sets `assignee_id` and `assignee_ids` to his user id, `created_by` to the same id, and `status_history` to a `todo` entry by him. `priority` is `medium` and `tags` is empty. A top-level to-do imported from Basecamp is also assigned to Carlos and carries the provider's completion state. Imported steps carry their Basecamp completion state and arrive unassigned.
 
 This is not a Supabase key. A bot key cannot read the database, delete rows, or change settings. The service role stays on the server.
 
@@ -47,9 +47,10 @@ Only the `seo-manager` key. Every other bot key is **403** `forbidden`.
 | --- | --- | --- |
 | `idempotencyKey` | yes | 8–200 characters: letters, numbers, `:`, `_`, `.`, `-`. |
 | `clientId` or `clientName` | one of them | `clientName` is an exact match inside the key's organization. |
-| `taskTitle` | yes | The task to create. Exact and case-sensitive. |
+| `taskTitle` | unless `basecampTodoId` is sent | Matches an existing task by exact, case-sensitive title. When importing a new task, this field overrides the Basecamp title. |
+| `basecampTodoId` | no | Positive integer or string of digits for an existing top-level to-do in this client's configured Basecamp project. Omit both parent fields when sending it. |
 | `parentTaskId` or `parentTitle` | no | Creates one subtask under that existing top-level task. `parentTitle` is exact. Send `parentTaskId` when more than one parent has that title. |
-| `subtasks` | no | A list of `{ title, category?, dueDate? }`, at most 20, titles unique in the call. Creates those subtasks under `taskTitle`. Do not send this together with a parent. |
+| `subtasks` | no | A list of `{ title, category?, dueDate? }`, at most 20, titles unique in the call. Applies to the top-level task. Omit both parent fields when sending it. |
 | `category` | no | Stored on `tasks.category` when the task is created. Omit it and the task is unlabeled. `content`, `technical`, `local`, `links`, `strategy`, `admin`, and `reporting` are always accepted. A label the client already uses, such as `SEO`, is accepted only as that exact string. |
 | `dueDate` | no | `YYYY-MM-DD`. Also sent as the Basecamp due date when the to-do is created. |
 
@@ -58,10 +59,11 @@ One call does one of these:
 - a solo task (`taskTitle` only)
 - a parent and its subtasks (`taskTitle` plus `subtasks`)
 - one subtask under an existing parent (`parentTaskId` or `parentTitle`, plus `taskTitle`)
+- a link to an existing Basecamp to-do (`basecampTodoId`, with optional `taskTitle` and `subtasks`)
 
 An exact title that already exists is returned with `created: false`. It is not duplicated. A title that matches more than one task is **409**.
 
-The parent's Basecamp to-do is created or reused on the client's SEO Plan list, the same way the app pushes a task. Subtasks become steps on that to-do. Sync off, or no SEO Plan list: the tasks stay in SEO Ops.
+Without `basecampTodoId`, the app creates or reuses the parent's Basecamp to-do on the client's SEO Plan list. Subtasks become steps on that to-do. If sync is off or the SEO Plan list is missing, the tasks stay in SEO Ops.
 
 When the parent already has a Basecamp to-do, the push checks its steps for each unlinked subtask. Titles must match exactly after trimming whitespace and ignoring case. A unique, unclaimed match is linked in SEO Ops and left untouched in Basecamp. A subtask with no match gets a new step.
 
@@ -82,6 +84,32 @@ curl -X POST https://seo-ops-center.vercel.app/api/bots/tasks \
     ]
   }'
 ```
+
+### Link an existing Basecamp to-do
+
+Send `basecampTodoId` to link an existing top-level task or import a new one. The to-do can be on any list in the client's configured Basecamp project, including Onboarding. This path requires only the configured project and creates no Basecamp to-do.
+
+An exact `taskTitle` match links an unlinked app task. If the to-do already belongs to a task in this client and the title identifies no conflicting task, the response returns that task with `created: false` and preserves its title. With no matching task or existing link, the app imports the Basecamp title, description, due date, and completion state. A supplied `taskTitle` or `dueDate` overrides the corresponding value on the new app task.
+
+Missing Basecamp steps are imported by recording ID. Requested subtasks reuse a unique step by trimmed, case-insensitive title, and new titles can create steps on the linked to-do. Ambiguous or already-claimed matches are reported in `task.basecamp.subtasksSkipped`. The response includes `task.linked: true` for this explicit link path and `false` for standard task creation. Returned subtasks include `basecampStepId` when the linked recording is known to be a step.
+
+```json
+{
+  "idempotencyKey": "link-onboarding-12345",
+  "clientName": "Ecoworkz",
+  "basecampTodoId": "12345",
+  "subtasks": [{ "title": "Connect Search Console" }]
+}
+```
+
+| Status | Code | Condition |
+| --- | --- | --- |
+| 400 | `invalid_request` | Invalid `basecampTodoId`, or supplied with a parent field. |
+| 400 | `basecamp_recording_is_step` | The ID is a Basecamp step. |
+| 404 | `basecamp_todo_not_found` | No to-do with that ID was found in the configured project. |
+| 409 | `basecamp_project_not_configured` | The client has no configured Basecamp project. |
+| 409 | `basecamp_todo_linked` | The to-do is linked to a different task, client, or organization, or the requested task has a different link. |
+| 502 | `basecamp_steps_unavailable` or `basecamp_step_sync_failed` | The step list could not be read or a new step could not be created. Retry with the same idempotency key. |
 
 ## Start a timer
 

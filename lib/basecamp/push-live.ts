@@ -29,6 +29,11 @@ import { classifyBasecampRecording, completableRecordingKind } from '../seo-plan
 
 type AuthorizeTask = Parameters<typeof createBasecampPushPost>[0]['authorizeTask'];
 
+export async function basecampRecordingKind(projectId: string, recordingId: string) {
+    const body = await getBasecampRecording(projectId, recordingId);
+    return completableRecordingKind(classifyBasecampRecording(body));
+}
+
 /**
  * The to-do push the task drawer uses. Callers supply who is allowed to push.
  * The store, the SEO Plan list, and the Basecamp client stay here so a bot
@@ -260,11 +265,7 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
             createStep: (projectId, parentTodoId, title) => (
                 createBasecampTodoStep(projectId, parentTodoId, title)
             ),
-            async recordingKind(projectId, recordingId) {
-                const body = await getBasecampRecording(projectId, recordingId);
-                if (body == null) return null;
-                return completableRecordingKind(classifyBasecampRecording(body));
-            },
+            recordingKind: basecampRecordingKind,
             completeTodo: (projectId, todoId) => completeBasecampTodo(projectId, todoId),
             reopenTodo: (projectId, todoId) => reopenBasecampTodo(projectId, todoId),
             completeStep: (_projectId, stepId) => completeBasecampStep(stepId),

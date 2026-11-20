@@ -113,3 +113,21 @@ export function stepsForTodo(steps: readonly BasecampTodoStep[], todoId: string)
     if (id == null) return [];
     return steps.filter(step => step.parentTodoId == null || step.parentTodoId === id);
 }
+
+export const BASECAMP_STEP_MATCH_CONFLICT =
+    'Some subtasks stayed in SEO Ops because their Basecamp step matches were ambiguous or already linked.';
+
+export function normalizeStepTitle(title: string): string {
+    return title.trim().toLowerCase();
+}
+
+export function groupByStepTitle<T extends { title: string }>(items: readonly T[]): Map<string, T[]> {
+    const byTitle = new Map<string, T[]>();
+    for (const item of items) {
+        const title = normalizeStepTitle(item.title);
+        const matches = byTitle.get(title) ?? [];
+        matches.push(item);
+        byTitle.set(title, matches);
+    }
+    return byTitle;
+}
