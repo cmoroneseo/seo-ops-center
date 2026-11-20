@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { completionCalendarDay } from '../tasks/completion-date.ts';
 import { taskStatusUpdate, type TaskStatusHistoryEntryLike } from '../tasks/status.ts';
+import { authenticateBotRequest, type BotKeyRecord } from './auth.ts';
 import { BOT_ACTOR_TIME_ZONE } from './keys.ts';
-import { bearerToken, isBotKeyToken } from './scope.ts';
 import {
     parseBotRequest,
     type BotCommand,
@@ -66,13 +66,6 @@ function resumeCapMessage(maxMs: number): string {
     return `This timer already has ${capPhrase(maxMs)} of running time. Stop it instead of resuming.`;
 }
 
-export interface BotKeyRecord {
-    id: string;
-    organizationId: string;
-    name: string;
-    revokedAt: string | null;
-}
-
 export interface BotActor {
     userId: string;
     name: string;
@@ -97,6 +90,7 @@ export interface BotClientRecord {
     id: string;
     organizationId: string;
     name: string;
+    status: string | null;
 }
 
 export interface BotTaskRecord {
@@ -459,6 +453,9 @@ async function executeCreate(
     }
     if (!client || client.organizationId !== key.organizationId) {
         return { status: 404, body: errorBody('client_not_found', 'Client not found.') };
+    }
+    if (client.status === 'inactive') {
+        return { status: 409, body: errorBody('client_inactive', 'Tasks cannot be created for an inactive client.') };
     }
 
     const labels = { labels: null as string[] | null };
@@ -1230,12 +1227,9 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     if (request.method.toUpperCase() !== 'POST') {
         return json(errorBody('forbidden', 'This key cannot call that route.'), 403);
     }
-    const token = bearerToken(request.headers.get('authorization'));
-    if (!token) return json(errorBody('missing_api_key', 'Missing API key. Send Authorization: Bearer <key>.'), 401);
-    if (!isBotKeyToken(token)) return json(errorBody('invalid_api_key', 'Invalid API key.'), 401);
-
-    const key = await deps.authenticate(token);
-    if (!key || key.revokedAt) return json(errorBody('invalid_api_key', 'Invalid API key.'), 401);
+    const auth = await authenticateBotRequest(request, token => deps.authenticate(token));
+    if ('response' in auth) return auth.response;
+    const { key } = auth;
 
     let payload: unknown;
     try {

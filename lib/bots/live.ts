@@ -1,7 +1,8 @@
 import { createAdminClient } from '../supabase/admin.ts';
 import { createLiveBasecampPushPost } from '../basecamp/push-live.ts';
 import { createLiveBasecampTimesheetPost } from '../basecamp/timesheet-live.ts';
-import { BOT_ACTOR_EMAIL, hashBotKey } from './keys.ts';
+import { verifyBotKey } from './auth.ts';
+import { BOT_ACTOR_EMAIL } from './keys.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import { matchBotTask } from './task-lookup.ts';
 import { botStretchSegmentId, closedRunningMs } from './timer.ts';
@@ -12,7 +13,6 @@ import {
     type BotActor,
     type BotClientRecord,
     type BotDeps,
-    type BotKeyRecord,
     type BotOperationRecord,
     type BotTaskRecord,
     type BotTimerStretch,
@@ -283,19 +283,10 @@ export function liveBotDeps(
     return {
         now: () => new Date(),
         async authenticate(token) {
-            const { data, error } = await admin()
-                .from('bot_api_keys')
-                .select('id, organization_id, name, revoked_at, key_hash')
-                .eq('key_hash', hashBotKey(token))
-                .maybeSingle();
-            if (error || !data || data.revoked_at) return null;
-            await admin().from('bot_api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', data.id);
-            return {
-                id: data.id,
-                organizationId: data.organization_id,
-                name: data.name,
-                revokedAt: null,
-            } satisfies BotKeyRecord;
+            const key = await verifyBotKey(token, admin);
+            if (!key) return null;
+            await admin().from('bot_api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', key.id);
+            return key;
         },
         async actor(organizationId) {
             const { data: user, error } = await admin()
@@ -360,7 +351,7 @@ export function liveBotDeps(
         async findClient(organizationId, command) {
             let query = admin()
                 .from('clients')
-                .select('id, organization_id, name')
+                .select('id, organization_id, name, status')
                 .eq('organization_id', organizationId)
                 .limit(2);
             if (command.clientId) query = query.eq('id', command.clientId);
@@ -378,6 +369,7 @@ export function liveBotDeps(
                 id: row.id,
                 organizationId: row.organization_id,
                 name: row.name,
+                status: row.status,
             };
             return client;
         },
