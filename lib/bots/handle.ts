@@ -163,6 +163,7 @@ export interface BasecampStep {
     status: 'pushed' | 'skipped' | 'failed' | 'not_sent';
     reason?: string;
     providerId?: string;
+    subtasksSkipped?: number;
 }
 
 export interface BotDeps {
@@ -326,7 +327,13 @@ export async function basecampStepFromResponse(response: Response): Promise<Base
         ? String(providerValue)
         : undefined;
     if (response.ok && body?.success !== false) {
-        return { status: 'pushed', ...(providerId ? { providerId } : {}) };
+        const subtasksSkipped = typeof body?.subtasksSkipped === 'number' ? body.subtasksSkipped : 0;
+        const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason : undefined;
+        return {
+            status: 'pushed',
+            ...(providerId ? { providerId } : {}),
+            ...(subtasksSkipped > 0 ? { subtasksSkipped, ...(reason ? { reason } : {}) } : {}),
+        };
     }
     const reason = typeof body?.error === 'string' && body.error.trim()
         ? body.error

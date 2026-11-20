@@ -2,6 +2,7 @@ import {
     authorizeBasecampProject,
     type BasecampProjectAccessSource,
 } from './project-access.ts';
+import { stepsForTodo, type BasecampTodoStep } from './todo-steps.ts';
 
 type TaskAuthorization =
     | {
@@ -43,6 +44,7 @@ interface CanonicalSubtask {
 interface PushStore {
     getTask(taskId: string, organizationId: string, clientId: string): Promise<CanonicalTask | null>;
     listSubtasks?(taskId: string, organizationId: string, clientId: string): Promise<CanonicalSubtask[]>;
+    listLinkedStepIds?(projectId: string, stepIds: string[]): Promise<string[]>;
     updateTaskLink(
         taskId: string,
         organizationId: string,
@@ -74,6 +76,7 @@ interface Provider {
             completionSubscriberPersonIds?: number[];
         },
     ): Promise<{ id: string | number; appUrl: string; supportsSubtasks?: boolean } | null>;
+    listSteps?(projectId: string, parentTodoId: string): Promise<BasecampTodoStep[]>;
     createStep?(
         projectId: string,
         parentTodoId: string,
@@ -119,6 +122,10 @@ function numericId(value: unknown): string | null {
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     const normalized = String(value).trim();
     return /^\d+$/.test(normalized) ? normalized : null;
+}
+
+function normalizeStepTitle(title: string): string {
+    return title.trim().toLowerCase();
 }
 
 /**
@@ -288,7 +295,7 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                             ? task.completionSubscriberPersonIds
                             : undefined,
                     });
-                let preservedCount: { subtasksPreserved?: number } = {};
+                const subtaskSummary: { subtasksPreserved?: number; subtasksSkipped?: number; reason?: string } = {};
                 if (created) {
                     // A retry after a partial subtask failure must reuse the linked
                     // parent rather than duplicate it in Basecamp.
@@ -319,7 +326,7 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                     // the id would drop the imported one.
                     const preserved = subtasks.filter(subtask => numericId(subtask.basecampTodoId));
                     const unlinked = subtasks.filter(subtask => !numericId(subtask.basecampTodoId));
-                    preservedCount = preserved.length > 0 ? { subtasksPreserved: preserved.length } : {};
+                    if (preserved.length > 0) subtaskSummary.subtasksPreserved = preserved.length;
                     // Undefined means the recording did not say. False means this
                     // to-do does not accept nested subtasks; the parent still ships.
                     if (unlinked.length > 0 && created.supportsSubtasks === false) {
@@ -337,7 +344,7 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                     todoId: created.id,
                                     error: 'Basecamp completion failed',
                                     subtasksSkipped: unlinked.length,
-                                    ...preservedCount,
+                                    ...subtaskSummary,
                                 }, 502);
                             }
                         }
@@ -345,13 +352,59 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                             success: true,
                             todoId: created.id,
                             subtasksSkipped: unlinked.length,
-                            ...preservedCount,
+                            ...subtaskSummary,
                         });
                     }
+
+                    const stepsByTitle = new Map<string, BasecampTodoStep[]>();
+                    const subtaskTitleCounts = new Map<string, number>();
+                    const linkedStepIds = new Set(preserved.map(subtask => numericId(subtask.basecampTodoId)));
+                    if (existingTodoId && unlinked.length > 0 && dependencies.provider.createStep) {
+                        const steps = await dependencies.provider.listSteps?.(projectId, existingTodoId).catch(() => null);
+                        if (!steps) {
+                            return json({
+                                success: false,
+                                partial: true,
+                                todoId: created.id,
+                                error: 'Basecamp subtasks could not be read',
+                                ...subtaskSummary,
+                            }, 502);
+                        }
+                        for (const step of stepsForTodo(steps, existingTodoId)) {
+                            const title = normalizeStepTitle(step.title);
+                            const matches = stepsByTitle.get(title) ?? [];
+                            matches.push(step);
+                            stepsByTitle.set(title, matches);
+                        }
+                        for (const subtask of unlinked) {
+                            const title = normalizeStepTitle(subtask.title);
+                            subtaskTitleCounts.set(title, (subtaskTitleCounts.get(title) ?? 0) + 1);
+                        }
+                        const candidateIds = [...subtaskTitleCounts].flatMap(([title, count]) => {
+                            const matches = stepsByTitle.get(title);
+                            return count === 1 && matches?.length === 1 ? [String(matches[0].id)] : [];
+                        });
+                        if (candidateIds.length > 0) {
+                            if (!store.listLinkedStepIds) throw new Error('Basecamp step link lookup is unavailable');
+                            for (const id of await store.listLinkedStepIds(projectId, candidateIds)) linkedStepIds.add(id);
+                        }
+                    }
+
                     const createdStepIds = new Map<string, string>();
                     if (unlinked.length > 0 && dependencies.provider.createStep) {
                         for (const subtask of unlinked) {
-                            const step = await dependencies.provider.createStep(
+                            const title = normalizeStepTitle(subtask.title);
+                            const matches = stepsByTitle.get(title) ?? [];
+                            const match = matches[0];
+                            // Skip ambiguous or already-linked matches without choosing an owner
+                            // or creating a duplicate. A unique, free match only gets a local link.
+                            if (match && (matches.length > 1 || (subtaskTitleCounts.get(title) ?? 0) > 1
+                                || linkedStepIds.has(String(match.id)))) {
+                                subtaskSummary.subtasksSkipped = (subtaskSummary.subtasksSkipped ?? 0) + 1;
+                                subtaskSummary.reason = 'Some subtasks stayed in SEO Ops because their Basecamp step matches were ambiguous or already linked.';
+                                continue;
+                            }
+                            const step = match ?? await dependencies.provider.createStep(
                                 projectId,
                                 String(created.id),
                                 subtask.title,
@@ -362,10 +415,11 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                     partial: true,
                                     todoId: created.id,
                                     error: `Basecamp subtask sync failed: ${subtask.title}`,
-                                    ...preservedCount,
+                                    ...subtaskSummary,
                                 }, 502);
                             }
-                            createdStepIds.set(subtask.id, String(step.id));
+                            // Only new steps participate in completion sync on this push.
+                            if (!match) createdStepIds.set(subtask.id, String(step.id));
                             const stepLinkError = await store.updateTaskLink(
                                 subtask.id,
                                 task.organizationId,
@@ -389,7 +443,7 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                 partial: true,
                                 todoId: created.id,
                                 error: 'Basecamp completion failed',
-                                ...preservedCount,
+                                ...subtaskSummary,
                             }, 502);
                         }
                         const completed = await completeRecording(dependencies.provider, projectId, stepId, stepKind);
@@ -399,7 +453,7 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                 partial: true,
                                 todoId: created.id,
                                 error: 'Basecamp completion failed',
-                                ...preservedCount,
+                                ...subtaskSummary,
                             }, 502);
                         }
                     }
@@ -416,12 +470,12 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                 partial: true,
                                 todoId: created.id,
                                 error: 'Basecamp completion failed',
-                                ...preservedCount,
+                                ...subtaskSummary,
                             }, 502);
                         }
                     }
                 }
-                return json({ success: Boolean(created), todoId: created?.id, ...preservedCount });
+                return json({ success: Boolean(created), todoId: created?.id, ...subtaskSummary });
             }
 
             const todoId = numericId(task.basecampTodoId);

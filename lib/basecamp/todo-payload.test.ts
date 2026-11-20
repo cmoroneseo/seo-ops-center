@@ -14,6 +14,7 @@ import {
     basecampTrashPath,
     completeBasecampStep,
     completeBasecampTodo,
+    listBasecampTodoSteps,
     reopenBasecampStep,
     reopenBasecampTodo,
 } from './api.ts';
@@ -32,6 +33,35 @@ test('Basecamp create payload uses the official fields for every mapped SEO PM v
         assignee_ids: [10, 11],
         completion_subscriber_ids: [12],
     });
+});
+
+test('strict step listing rejects a failed page even after reading some steps', async (t) => {
+    const previousAccount = process.env.BASECAMP_ACCOUNT_ID;
+    const previousToken = process.env.BASECAMP_ACCESS_TOKEN;
+    process.env.BASECAMP_ACCOUNT_ID = '123';
+    process.env.BASECAMP_ACCESS_TOKEN = 'test-token';
+    const path = 'https://3.basecampapi.com/123/recordings/77/subtasks.json';
+    const fetch = t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+        if (String(input) === path) {
+            return Response.json([{ id: 81, title: 'Brief' }], {
+                headers: { Link: `<${path}?page=2>; rel="next"` },
+            });
+        }
+        assert.equal(String(input), `${path}?page=2`);
+        return new Response(null, { status: 503 });
+    });
+    t.mock.method(console, 'error', () => {});
+
+    try {
+        await assert.rejects(listBasecampTodoSteps(202, 77, { strict: true }), /503/);
+        assert.equal(fetch.mock.callCount(), 2);
+        assert.deepEqual((await listBasecampTodoSteps(202, 77)).map(step => step.id), [81]);
+    } finally {
+        if (previousAccount === undefined) delete process.env.BASECAMP_ACCOUNT_ID;
+        else process.env.BASECAMP_ACCOUNT_ID = previousAccount;
+        if (previousToken === undefined) delete process.env.BASECAMP_ACCESS_TOKEN;
+        else process.env.BASECAMP_ACCESS_TOKEN = previousToken;
+    }
 });
 
 test('a to-do update sends content with the assignee and subscriber lists, including when they are empty', () => {

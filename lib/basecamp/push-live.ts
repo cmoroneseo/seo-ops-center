@@ -13,6 +13,7 @@ import {
     updateBasecampTodoAssignees,
     updateBasecampTodoDueDate,
     createBasecampTodoStep,
+    listBasecampTodoSteps,
     basecampSubtaskSupport,
     findProjectTimesheetRecordingId,
     listBasecampProjectTimesheetEntries,
@@ -116,6 +117,16 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                         status: subtask.status,
                         basecampTodoId: subtask.basecamp_todo_id,
                     }));
+                },
+                async listLinkedStepIds(projectId, stepIds) {
+                    // A step may be linked to a task outside the current client.
+                    const { data, error } = await admin
+                        .from('tasks')
+                        .select('basecamp_todo_id')
+                        .eq('basecamp_project_id', Number(projectId))
+                        .in('basecamp_todo_id', stepIds);
+                    if (error) throw error;
+                    return (data ?? []).map(row => String(row.basecamp_todo_id));
                 },
                 async updateTaskLink(taskId, organizationId, clientId, projectId, todoId, syncedAt) {
                     const { error } = await admin
@@ -245,6 +256,7 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
             createTodo: (projectId, todolistId, params) => (
                 createBasecampTodo(projectId, todolistId, params)
             ),
+            listSteps: (projectId, todoId) => listBasecampTodoSteps(projectId, todoId, { strict: true }),
             createStep: (projectId, parentTodoId, title) => (
                 createBasecampTodoStep(projectId, parentTodoId, title)
             ),

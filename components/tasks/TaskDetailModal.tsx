@@ -459,7 +459,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'create_todo', taskId: task.id }),
             });
-            const body = await res.json().catch(() => null) as { todoId?: unknown; success?: boolean; partial?: boolean; subtasksSkipped?: unknown; subtasksPreserved?: unknown } | null;
+            const body = await res.json().catch(() => null) as { todoId?: unknown; success?: boolean; partial?: boolean; subtasksSkipped?: unknown; subtasksPreserved?: unknown; reason?: unknown } | null;
             const outcome = pushOutcomeFor(res.status, body);
             setTodoPushOutcome(outcome);
             const returnedId = basecampTodoIdFrom(body?.todoId);
@@ -479,7 +479,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             const skipped = body && typeof body.subtasksSkipped === 'number' ? body.subtasksSkipped : 0;
             const preserved = body && typeof body.subtasksPreserved === 'number' ? body.subtasksPreserved : 0;
             setSubtaskNestNote(skipped > 0
-                ? `Sent the to-do. This list did not accept nested subtasks, so ${skipped} stayed in SEO PM only.`
+                ? typeof body?.reason === 'string'
+                    ? body.reason
+                    : `Sent the to-do. This list did not accept nested subtasks, so ${skipped} stayed in SEO PM only.`
                 : preserved > 0
                     ? `Sent the pillar. ${preserved} existing Basecamp ${preserved === 1 ? 'to-do stays' : 'to-dos stay'} linked on ${preserved === 1 ? 'its task' : 'their tasks'}.`
                     : null);

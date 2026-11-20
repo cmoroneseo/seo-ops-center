@@ -79,10 +79,12 @@ export function normalizeBasecampTodoStep(value: unknown): BasecampTodoStep | nu
 }
 
 /** Items from a subtasks.json page: a bare array, or `{ steps: [...] }`. */
-export function basecampStepPageItems(body: unknown): unknown[] {
+export function basecampStepPageItems(body: unknown, strict = false): unknown[] {
     if (Array.isArray(body)) return body;
     const wrapped = record(body);
-    return Array.isArray(wrapped?.steps) ? wrapped.steps : [];
+    if (Array.isArray(wrapped?.steps)) return wrapped.steps;
+    if (strict) throw new Error('Invalid Basecamp subtasks page');
+    return [];
 }
 
 /**
