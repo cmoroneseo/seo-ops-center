@@ -1,16 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import React, { createElement } from 'react';
+import React, { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { JSDOM } from 'jsdom';
 
-import { SetupChecklistView } from '../../components/onboarding/SetupChecklist.tsx';
+import { ClientSetup, SetupChecklistView } from '../../components/onboarding/SetupChecklist.tsx';
 import {
     SETUP_LOAD_FAILED,
     SETUP_STEP_ORDER,
     clientDetailsDone,
     deriveSetupChecklist,
     planBuilt,
-    searchConsoleConnectedFromIntegration,
     setupChecklistPanel,
     setupChecklistRows,
     setupChecklistVisible,
@@ -29,7 +30,7 @@ function facts(patch: Partial<SetupChecklistFacts> = {}): SetupChecklistFacts {
         businessDescription: 'Local plumbing',
         competitors: ['rival.example'],
         keywords: ['roof repair'],
-        searchConsoleConnected: true,
+        googleAccess: { gsc: 'connected', ga4: 'connected', gtm: 'connected' },
         topicMapBuilt: true,
         marketingPlanItemCount: 2,
         initiativeCount: 0,
@@ -46,7 +47,7 @@ test('setup steps follow the client setup order and link to the place each one i
         businessDescription: 'Plumbing',
         competitors: [],
         keywords: ['  '],
-        searchConsoleConnected: false,
+        googleAccess: { gsc: 'not-connected', ga4: 'not-connected', gtm: 'not-connected' },
         topicMapBuilt: false,
         marketingPlanItemCount: 0,
         initiativeCount: 0,
@@ -57,19 +58,23 @@ test('setup steps follow the client setup order and link to the place each one i
         'Competitors',
         'Keywords',
         'Connect Google Search Console',
+        'Connect Google Analytics (GA4)',
+        'Connect Google Tag Manager',
         'Build topic map',
         'Build plan',
     ]);
     assert.deepEqual(SETUP_STEP_ORDER, steps.map(step => step.id));
-    assert.deepEqual(steps.map(step => step.done), [false, false, false, false, false, false, false]);
+    assert.ok(steps.every(step => step.done === false));
     assert.equal(steps[0].href, '/workspace/client%20id?tab=overview&setup=details');
     assert.equal(steps[1].href, '/workspace/client%20id?tab=topical-map&setup=brand');
     assert.equal(steps[2].href, '/workspace/client%20id?tab=topical-map&setup=competitors');
     assert.equal(steps[3].href, '/workspace/client%20id?tab=topical-map&setup=keywords');
     assert.equal(steps[4].href, '/workspace/client%20id?tab=integrations&setup=search-console');
-    assert.equal(steps[5].href, '/workspace/client%20id?tab=topical-map&setup=generate');
-    assert.equal(steps[6].href, '/workspace/client%20id?tab=campaign-workspace');
-    assert.equal(deriveSetupChecklist(facts(), options)[6].href, '/workspace/client%20id?tab=campaign');
+    assert.equal(steps[5].href, '/workspace/client%20id?tab=integrations&setup=ga4');
+    assert.equal(steps[6].href, '/workspace/client%20id?tab=integrations&setup=gtm');
+    assert.equal(steps[7].href, '/workspace/client%20id?tab=topical-map&setup=generate');
+    assert.equal(steps[8].href, '/workspace/client%20id?tab=campaign-workspace');
+    assert.equal(deriveSetupChecklist(facts(), options).find(step => step.id === 'plan')?.href, '/workspace/client%20id?tab=campaign');
     assert.equal(wizardStepForSetup('keywords'), 'keywords');
     assert.equal(wizardStepForSetup('generate'), 'confirm');
     assert.equal(wizardStepForSetup('details'), null);
@@ -78,13 +83,6 @@ test('setup steps follow the client setup order and link to the place each one i
 test('each step is done only from real state, and a failed read stays unknown', () => {
     assert.equal(clientDetailsDone('Northside'), true);
     assert.equal(clientDetailsDone('  '), false);
-    assert.equal(searchConsoleConnectedFromIntegration(null), false);
-    assert.equal(searchConsoleConnectedFromIntegration('unknown'), null);
-    assert.equal(searchConsoleConnectedFromIntegration({ syncStatus: 'active', selectedProperty: '' }), false);
-    assert.equal(searchConsoleConnectedFromIntegration({ syncStatus: 'active', needsPropertySetup: true, selectedProperty: 'sc-domain:a.com' }), false);
-    assert.equal(searchConsoleConnectedFromIntegration({ syncStatus: 'disconnected', selectedProperty: 'sc-domain:a.com' }), false);
-    assert.equal(searchConsoleConnectedFromIntegration({ syncStatus: 'error', selectedProperty: 'sc-domain:a.com' }), false);
-    assert.equal(searchConsoleConnectedFromIntegration({ syncStatus: 'active', selectedProperty: 'sc-domain:a.com' }), true);
 
     assert.equal(topicMapBuiltFrom({ status: 'missing' }), false);
     assert.equal(topicMapBuiltFrom({ status: 'unknown' }), null);
@@ -103,28 +101,40 @@ test('each step is done only from real state, and a failed read stays unknown', 
         businessDescription: null,
         competitors: null,
         keywords: null,
-        searchConsoleConnected: null,
+        googleAccess: null,
         topicMapBuilt: null,
         marketingPlanItemCount: null,
         initiativeCount: null,
     }), options);
     assert.equal(unknown[0].done, true);
-    assert.deepEqual(unknown.slice(1).map(step => step.done), [null, null, null, null, null, null]);
+    assert.ok(unknown.slice(1).every(step => step.done === null));
+});
+
+test('Google steps complete independently when each service has access to its saved resource', () => {
+    const steps = deriveSetupChecklist(facts({
+        googleAccess: { gsc: 'connected', ga4: 'pick', gtm: 'needs-reconnect' },
+    }), options);
+    assert.deepEqual(steps.slice(4, 7).map(step => [step.id, step.done]), [
+        ['search-console', true],
+        ['ga4', false],
+        ['gtm', false],
+    ]);
+    assert.ok(deriveSetupChecklist(facts(), options).slice(4, 7).every(step => step.done === true));
 });
 
 test('done rows say Done, the first open step is the only Next up with the only primary button, and the topic map waits on keywords', () => {
     const steps = deriveSetupChecklist(facts({
         competitors: [],
         keywords: [],
-        searchConsoleConnected: false,
+        googleAccess: { gsc: 'not-connected', ga4: 'not-connected', gtm: 'not-connected' },
         topicMapBuilt: false,
         marketingPlanItemCount: 0,
         initiativeCount: null,
     }), options);
     const rows = setupChecklistRows(steps);
-    assert.deepEqual(rows.map(row => row.state), ['done', 'done', 'next', 'todo', 'todo', 'locked', 'unknown']);
-    assert.equal(rows[5].lockedReason, 'needs keywords first');
-    assert.deepEqual(setupProgress(steps), { done: 2, total: 7, left: 5, percent: 29 });
+    assert.deepEqual(rows.map(row => row.state), ['done', 'done', 'next', 'todo', 'todo', 'todo', 'todo', 'locked', 'unknown']);
+    assert.equal(rows.find(row => row.id === 'topic-map')?.lockedReason, 'needs keywords first');
+    assert.deepEqual(setupProgress(steps), { done: 2, total: 9, left: 7, percent: 22 });
 
     const html = renderToStaticMarkup(createElement(SetupChecklistView, {
         clientName: 'Northside Plumbing', steps, panel: 'list', onDismiss: () => {},
@@ -167,9 +177,9 @@ test('the list hides when every step is done or when it is dismissed, and a fail
         onDismiss: () => {},
     }));
     assert.match(list, /Finish setting up Northside Plumbing/);
-    assert.match(list, /4 of 7 done/);
+    assert.match(list, /6 of 9 done/);
     assert.match(list, /3 to go/);
-    assert.match(list, /role="progressbar"[^>]*aria-valuemax="7"[^>]*aria-valuenow="4"/);
+    assert.match(list, /role="progressbar"[^>]*aria-valuemax="9"[^>]*aria-valuenow="6"/);
     assert.match(list, /Add client details/);
     assert.match(list, /href="\/workspace\/client%20id\?tab=topical-map&amp;setup=keywords"/);
     assert.match(list, />Hide</);
@@ -182,4 +192,43 @@ test('the list hides when every step is done or when it is dismissed, and a fail
     assert.equal(failed.includes('Not done'), false);
     assert.equal(failed.includes(' done<'), false);
     assert.equal(failed.includes('progressbar'), false);
+});
+
+test('the Overview loads Google access even with a saved checklist dismissal', async t => {
+    const dom = new JSDOM('<div id="root"></div>', { url: 'https://example.test/' });
+    t.mock.method(globalThis, 'fetch', async input => {
+        assert.equal(input, '/api/integrations/status?clientId=client&orgId=org');
+        return Response.json({ integrations: [
+            { service: 'gsc', syncStatus: 'active', selectedProperty: 'sc-domain:example.com', needsPropertySetup: false },
+            { service: 'ga4', syncStatus: 'error' },
+            { service: 'gtm', syncStatus: 'pending_setup' },
+        ] });
+    });
+    const previousWindow = globalThis.window;
+    const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    globalThis.window = dom.window as unknown as Window & typeof globalThis;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = dom.window.document.getElementById('root')!;
+    const root = createRoot(container);
+    try {
+        dom.window.localStorage.setItem('seo-ops.setup-checklist.dismissed.client', '1');
+        await act(async () => {
+            root.render(createElement(ClientSetup, { clientId: 'client', organizationId: 'org', clientName: 'Northside Plumbing' }));
+        });
+        assert.equal(container.querySelector('#setup-checklist-title'), null);
+        const strip = container.querySelector('[aria-labelledby="google-access-title"]');
+        assert.ok(strip);
+        assert.deepEqual(Array.from(strip.querySelectorAll('a'), link => [link.getAttribute('aria-label'), link.getAttribute('href')]), [
+            ['GSC Connected. Open Google Search Console settings', '/workspace/client?tab=integrations&setup=search-console'],
+            ['GA4 Needs reconnect. Open Google Analytics (GA4) settings', '/workspace/client?tab=integrations&setup=ga4'],
+            ['GTM Pick container. Open Google Tag Manager settings', '/workspace/client?tab=integrations&setup=gtm'],
+        ]);
+        assert.equal(strip.querySelector('button'), null);
+    } finally {
+        act(() => root.unmount());
+        globalThis.window = previousWindow;
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+        dom.window.close();
+    }
 });

@@ -245,7 +245,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     useEffect(() => {
         const setup = searchParams.get('setup');
         if (setup === 'search-console') setSelectedService('gsc');
-        else if (setup === 'ahrefs') setSelectedService('ahrefs');
+        else if (setup === 'ga4' || setup === 'gtm' || setup === 'ahrefs') setSelectedService(setup);
     }, [searchParams]);
 
     useEffect(() => {
