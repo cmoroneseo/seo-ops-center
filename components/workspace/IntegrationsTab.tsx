@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils';
 import { ga4PickerRequested } from '@/lib/agency-dashboard/ga4-link';
 import { GA4_RECONNECT_ANALYTICS_LABEL } from '@/lib/ga4/connection-health';
 import { Ga4KeyEventPicker } from './Ga4KeyEventPicker';
+import type { SheetConfig } from '@/lib/google/sheet-config-route';
+import { parseSheetLink } from '@/lib/google/sheet-link';
 import { connectedAccountLabel, googleConnectPath } from '@/lib/google/account';
 import { authorizedProjectId } from '@/lib/basecamp/project-selection';
 import {
@@ -90,6 +92,13 @@ async function getClientIntegrations(clientId: string, orgId?: string): Promise<
     return Array.isArray(data.integrations) ? data.integrations : [];
 }
 
+async function requestSheetConfig(endpoint: string, options?: RequestInit): Promise<SheetConfig> {
+    const response = await fetch(endpoint, options);
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data) throw new Error(data?.error || 'Unable to load or save the Google Sheets link.');
+    return data;
+}
+
 export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const { organization } = useOrganization();
     const searchParams = useSearchParams();
@@ -124,6 +133,47 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     const [selectedService, setSelectedService] = useState<IntegrationCardId | null>(null);
 
     useEffect(() => { setSelectedService(null); }, [clientId]);
+
+    const [sheetConfig, setSheetConfig] = useState<SheetConfig | null>(null);
+    const [sheetUrl, setSheetUrl] = useState('');
+    const [sheetLoadError, setSheetLoadError] = useState('');
+    const [sheetSaving, setSheetSaving] = useState(false);
+    const sheetEndpoint = `/api/clients/${encodeURIComponent(clientId)}/sheet-config`;
+    const sheetDraft = sheetUrl.trim() ? parseSheetLink(sheetUrl) : null;
+    const sheetError = sheetDraft?.ok === false ? sheetDraft.error : undefined;
+    const savedSheet = sheetConfig?.roadmap_sheet_url ? parseSheetLink(sheetConfig.roadmap_sheet_url) : null;
+
+    useEffect(() => {
+        const controller = new AbortController();
+        requestSheetConfig(sheetEndpoint, { signal: controller.signal })
+            .then(config => {
+                if (controller.signal.aborted) return;
+                setSheetConfig(config);
+                setSheetUrl(config.roadmap_sheet_url ?? '');
+            })
+            .catch(error => {
+                if (!controller.signal.aborted) setSheetLoadError(error.message);
+            });
+        return () => controller.abort();
+    }, [sheetEndpoint]);
+
+    async function saveSheetConfig(url: string | null) {
+        setSheetSaving(true);
+        try {
+            const config = await requestSheetConfig(sheetEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roadmap_sheet_url: url }),
+            });
+            setSheetConfig(config);
+            setSheetUrl(config.roadmap_sheet_url ?? '');
+            setToast(config.roadmap_sheet_id ? 'Google Sheets link saved' : 'Google Sheets link removed');
+        } catch (error) {
+            setToast(error instanceof Error ? error.message : 'Unable to save the Google Sheets link.');
+        } finally {
+            setSheetSaving(false);
+        }
+    }
 
     const orgId = organization?.id;
 
@@ -412,6 +462,14 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     });
     cards.push({ id: 'basecamp', name: 'Basecamp', description: 'Sync client tasks and time entries', tone: bcSyncEnabled && bcProjectId ? 'connected' : 'neutral', status: bcSyncEnabled && bcProjectId ? 'Sync enabled' : 'Click to set up' });
 
+    cards.push({
+        id: 'google-sheets',
+        name: 'Google Sheets',
+        description: 'Client SEO roadmap sheet (backup / client services view)',
+        tone: sheetConfig?.roadmap_sheet_id ? 'connected' : 'neutral',
+        status: sheetConfig?.roadmap_sheet_id ? 'Linked' : 'Click to set up',
+    });
+
     function closePanel() {
         const current = selectedService;
         setSelectedService(null);
@@ -454,7 +512,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                 onSaved={() => { setShowGscPicker(false); setToast('Search Console property saved'); getClientIntegrations(clientId, orgId).then(setIntegrations).catch(() => setToast('Property saved. Reload to refresh connection status.')); }} />}
             {/* Toast */}
             {toast && (
-                <div className="fixed bottom-6 right-6 z-50 bg-card border border-border rounded-lg px-4 py-3 text-sm shadow-lg flex items-center gap-2">
+                <div role="status" className="fixed bottom-6 right-6 z-50 bg-card border border-border rounded-lg px-4 py-3 text-sm shadow-lg flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
                     {toast}
                 </div>
@@ -707,6 +765,51 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
             </div>
 
             {/* Basecamp Sync */}
+            <div hidden={selectedService !== 'google-sheets'} id="integration-panel-google-sheets" role="region" aria-labelledby="integration-card-google-sheets" className="rounded-2xl border border-border/50 bg-card p-5 sm:p-6 space-y-5">
+                <div className="flex items-center gap-3">
+                    <IntegrationIcon service="google-sheets" />
+                    <div>
+                        <span className="font-medium text-sm">Google Sheets</span>
+                        <p className="text-xs text-muted-foreground">Client SEO roadmap sheet (backup / client services view)</p>
+                    </div>
+                </div>
+                {sheetLoadError && <p role="alert" className="text-sm text-destructive">{sheetLoadError}</p>}
+                {!sheetConfig && !sheetLoadError && <p role="status" className="text-sm text-muted-foreground">Loading sheet configuration…</p>}
+                <div className="space-y-2">
+                    <label htmlFor="roadmap-sheet-url" className="text-sm font-medium">Roadmap sheet URL</label>
+                    <input
+                        id="roadmap-sheet-url"
+                        type="url"
+                        value={sheetUrl}
+                        onChange={event => setSheetUrl(event.target.value)}
+                        placeholder="https://docs.google.com/spreadsheets/d/…/edit"
+                        disabled={!sheetConfig || sheetSaving}
+                        aria-invalid={Boolean(sheetError)}
+                        aria-describedby={sheetError ? 'roadmap-sheet-error' : undefined}
+                        className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                    />
+                    {sheetError && <p id="roadmap-sheet-error" role="alert" className="text-xs text-destructive">{sheetError}</p>}
+                    <p className="text-xs text-muted-foreground">Sheet ID <span className="break-all font-mono">{sheetDraft?.ok ? sheetDraft.sheetId : '—'}</span></p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                    <button type="button" onClick={() => void saveSheetConfig(sheetUrl)} disabled={!sheetConfig || sheetSaving || Boolean(sheetError)}
+                        className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+                        {sheetSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    {savedSheet?.ok && (
+                        <a href={savedSheet.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary underline">
+                            Open sheet <ExternalLink aria-hidden="true" className="h-4 w-4" />
+                        </a>
+                    )}
+                    {sheetConfig?.roadmap_sheet_id && (
+                        <button type="button" onClick={() => void saveSheetConfig(null)} disabled={sheetSaving}
+                            className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted/30 disabled:opacity-50">
+                            Remove link
+                        </button>
+                    )}
+                </div>
+            </div>
+
             <div hidden={selectedService !== 'basecamp'} id="integration-panel-basecamp" role="region" aria-labelledby="integration-card-basecamp" className="rounded-2xl border border-border/50 bg-card p-5 sm:p-6 space-y-5">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
