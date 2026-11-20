@@ -3,6 +3,10 @@
     "framework": "nextjs",
     "crons": [
         {
+            "path": "/api/cron/sync-client-sheets",
+            "schedule": "30 11 * * *"
+        },
+        {
             "path": "/api/cron/gbp-approval-retention",
             "schedule": "0 13 * * *"
         },
@@ -160,6 +164,10 @@
         }
     ],
     "functions": {
+        "app/api/queues/client-sheet-mirror/route.ts": {
+            "maxDuration": 300,
+            "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "client-sheet-mirror" }]
+        },
         "app/api/queues/gsc-v2-backfill/route.ts": {
             "maxDuration": 300,
             "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "gsc-v2-backfill" }]
