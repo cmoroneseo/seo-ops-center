@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useId } from 'react';
 import { X, Upload, Loader2, Check, Trash2 } from 'lucide-react';
 import { ClientProject, ProjectStatus } from '@/lib/types';
 import { updateClientProject } from '@/lib/supabase/clients';
@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import { createCommitment, getCommitments } from '@/lib/supabase/commitments';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
+import { parseSheetLink } from '@/lib/google/sheet-link';
 
 interface Props {
     client: ClientProject;
@@ -41,6 +42,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
     const { organization } = useOrganization();
     const [name, setName] = useState(client.clientName);
     const [domain, setDomain] = useState(client.domain ?? '');
+    const [sheetUrl, setSheetUrl] = useState(client.roadmapSheetUrl ?? '');
     const [logoUrl, setLogoUrl] = useState(client.logoUrl ?? '');
     const [logoPreview, setLogoPreview] = useState(client.logoUrl ?? '');
     const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -55,6 +57,10 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
     const [error, setError] = useState('');
     const [dragging, setDragging] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
+    const sheetInputId = useId();
+    const sheetErrorId = `${sheetInputId}-error`;
+    const sheetLink = sheetUrl.trim() ? parseSheetLink(sheetUrl) : null;
+    const sheetError = sheetLink?.ok === false ? sheetLink.error : undefined;
 
     const uploadLogo = useCallback(async (file: File) => {
         setLogoError('');
@@ -117,6 +123,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
     };
 
     const handleSave = async () => {
+        if (sheetError) return;
         if (!name.trim()) { setError('Client name is required.'); return; }
         if (status !== 'Onboarding' && !launchDate) { setError('Launch date is required for active clients.'); return; }
         setSaving(true);
@@ -138,6 +145,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
             status,
             launchDate: launchDate || undefined,
             domain: domain.trim() || undefined,
+            roadmapSheetUrl: sheetUrl !== (client.roadmapSheetUrl ?? '') ? sheetUrl : undefined,
         });
         setSaving(false);
         if (!result.success || !result.data) {
@@ -330,6 +338,26 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                         <p className="text-[10px] text-muted-foreground">Used for Ahrefs keyword research and site analysis.</p>
                     </div>
 
+                    <div className="space-y-2">
+                        <label htmlFor={sheetInputId} className="text-sm font-medium">Client SEO sheet</label>
+                        <input
+                            id={sheetInputId}
+                            type="url"
+                            value={sheetUrl}
+                            onChange={e => setSheetUrl(e.target.value)}
+                            placeholder="https://docs.google.com/spreadsheets/d/…"
+                            aria-invalid={Boolean(sheetError)}
+                            aria-describedby={sheetError ? sheetErrorId : undefined}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        />
+                        {sheetError && <p id={sheetErrorId} className="text-xs text-destructive">{sheetError}</p>}
+                        {sheetLink?.ok && (
+                            <a href={sheetLink.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline">
+                                Open sheet
+                            </a>
+                        )}
+                    </div>
+
                     {/* Hours & Deliverables */}
                     <div className="space-y-3">
                         <label className="text-sm font-medium">Hours &amp; Deliverables</label>
@@ -426,7 +454,7 @@ export function EditClientPanel({ client, onClose, onSaved }: Props) {
                     </button>
                     <button
                         onClick={handleSave}
-                        disabled={saving || uploadingLogo || saved}
+                        disabled={saving || uploadingLogo || saved || Boolean(sheetError)}
                         className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60"
                     >
                         {saved ? (

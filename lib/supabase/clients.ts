@@ -2,6 +2,7 @@ import { createClient } from './client';
 import { ClientProject, ProjectStatus, EngagementModel, Tier } from '../types';
 import { actualBlogsDueToDate, targetBlogCount } from '../seo-ops-logic';
 import { logActivity } from './client-activity';
+import { sheetLinkRowPatch } from '../google/sheet-link';
 // --- status mapping between the app's ProjectStatus and the DB's clients.status ---
 const DB_TO_APP_STATUS: Record<string, ProjectStatus> = {
     active: 'Active',
@@ -37,6 +38,8 @@ export function rowToClientProject(row: any): ClientProject {
         organizationId: row.organization_id,
         clientName: row.name,
         domain: row.domain ?? undefined,
+        roadmapSheetUrl: row.roadmap_sheet_url,
+        roadmapSheetId: row.roadmap_sheet_id,
         logoUrl: row.logo_url ?? undefined,
         launchDate,
         onboardingDate: row.onboarding_date ?? undefined,
@@ -98,6 +101,8 @@ export function clientProjectToRow(client: Partial<ClientProject>) {
         tier: client.tier,
         logo_url: client.logoUrl,
         domain: client.domain ?? undefined,
+        roadmap_sheet_url: client.roadmapSheetUrl,
+        roadmap_sheet_id: client.roadmapSheetId,
     };
 }
 
@@ -174,11 +179,18 @@ export async function updateClientProject(
     id: string,
     patch: Partial<ClientProject>,
 ): Promise<{ success: boolean; data?: ClientProject; error?: string }> {
+    const sheetLink = sheetLinkRowPatch(patch);
+    if (!sheetLink.ok) return { success: false, error: sheetLink.error };
+
     const supabase = createClient();
     if (!supabase) return { success: false, error: 'Supabase not initialized' };
 
     try {
-        const row = clientProjectToRow(patch);
+        const row = {
+            ...clientProjectToRow(patch),
+            roadmap_sheet_url: sheetLink.roadmap_sheet_url,
+            roadmap_sheet_id: sheetLink.roadmap_sheet_id,
+        };
         // strip undefined so we only update provided fields
         const payload = Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined));
 
