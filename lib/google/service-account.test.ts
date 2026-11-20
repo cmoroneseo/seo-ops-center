@@ -43,6 +43,7 @@ test('parseServiceAccount rejects missing, malformed, and incomplete credentials
     assert.equal(parseServiceAccount('   '), null);
     assert.equal(parseServiceAccount('not json'), null);
     assert.equal(parseServiceAccount('{}'), null);
+    assert.equal(parseServiceAccount('null'), null);
     assert.equal(parseServiceAccount(JSON.stringify({ client_email: 'a@b.c' })), null);
     assert.equal(
         parseServiceAccount(JSON.stringify({ client_email: 'a@b.c', private_key: 'nonsense' })),
@@ -112,4 +113,18 @@ test('isCacheValid refreshes early rather than racing the expiry', () => {
         false,
         'inside the skew window the token is treated as already stale',
     );
+});
+
+test('Docs and Sheets access tokens are cached separately', async (t) => {
+    const { getAccessToken, resetTokenCache, SHEETS_SCOPES } = await import('./service-account');
+    resetTokenCache();
+    t.after(resetTokenCache);
+    let calls = 0;
+    const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ access_token: String(++calls) }));
+    const credentials = { clientEmail: 'svc@example.test', privateKey, tokenUri: 'https://example.test/token' };
+    assert.equal(await getAccessToken(credentials), '1');
+    assert.equal(await getAccessToken(credentials, SHEETS_SCOPES), '2');
+    assert.equal(await getAccessToken(credentials, DOCS_SCOPES), '1');
+    assert.equal(await getAccessToken(credentials, SHEETS_SCOPES), '2');
+    assert.equal(mock.mock.callCount(), 2);
 });

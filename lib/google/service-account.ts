@@ -23,6 +23,8 @@ export const DOCS_SCOPES = [
     'https://www.googleapis.com/auth/drive.readonly',
 ].join(' ');
 
+export const SHEETS_SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+
 const DEFAULT_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 
 /**
@@ -41,6 +43,8 @@ export function parseServiceAccount(raw: string | undefined): ServiceAccountCred
     } catch {
         return null;
     }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
 
     const clientEmail = typeof parsed.client_email === 'string' ? parsed.client_email : '';
     const rawKey = typeof parsed.private_key === 'string' ? parsed.private_key : '';
@@ -105,7 +109,7 @@ interface CachedToken {
     expiresAt: number;
 }
 
-let cache: CachedToken | null = null;
+const cache = new Map<string, CachedToken>();
 
 /** Refresh a minute early so a token never expires mid-request. */
 const EXPIRY_SKEW_MS = 60_000;
@@ -115,14 +119,16 @@ export function isCacheValid(cached: CachedToken | null, now = Date.now()): bool
 }
 
 export function resetTokenCache(): void {
-    cache = null;
+    cache.clear();
 }
 
 export async function getAccessToken(
     credentials: ServiceAccountCredentials,
     scope: string = DOCS_SCOPES,
 ): Promise<string> {
-    if (isCacheValid(cache)) return cache!.token;
+    const cacheKey = JSON.stringify([credentials.clientEmail, credentials.tokenUri, scope]);
+    const cached = cache.get(cacheKey);
+    if (cached && isCacheValid(cached)) return cached.token;
 
     const assertion = signJwt(credentials, scope);
     const response = await fetch(credentials.tokenUri, {
@@ -144,11 +150,11 @@ export async function getAccessToken(
     const body = (await response.json()) as { access_token?: string; expires_in?: number };
     if (!body.access_token) throw new Error('Google token exchange returned no access_token.');
 
-    cache = {
+    cache.set(cacheKey, {
         token: body.access_token,
         expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000,
-    };
-    return cache.token;
+    });
+    return body.access_token;
 }
 
 export function loadServiceAccountFromEnv(): ServiceAccountCredentials | null {

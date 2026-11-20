@@ -136,7 +136,8 @@ export async function middleware(request: NextRequest) {
     const isWebhookRoute = pathname.startsWith('/api/integrations/basecamp/webhook') ||
         pathname.startsWith('/api/cron/') ||
         pathname === '/api/queues/gsc-v2-backfill' ||
-        pathname === '/api/queues/bing-webmaster-sync'
+        pathname === '/api/queues/bing-webmaster-sync' ||
+        pathname === '/api/queues/client-sheet-mirror'
 
     // Portal sign-in is invite + magic link. The hub itself still requires a session.
     const isPortalEntry = isPortalLoginPath(pathname)
