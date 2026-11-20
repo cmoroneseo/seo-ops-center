@@ -9,7 +9,7 @@ import { runManualMirror } from './manual';
 const now = new Date('2026-11-20T02:30:00Z');
 const id = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
-const client = { id, organization_id: 'org', roadmap_sheet_id: 'sheet' };
+const client = { id, organization_id: 'org', roadmap_sheet_id: 'sheet', sheet_mirror_enabled: true };
 const task: TaskRow = {
     id: 'parent', title: '=2+2', parent_task_id: null, category: 'seo', stage: 'draft', status: 'done',
     start_date: '2026-11-18T18:00:00Z', due_date: '2026-11-19', completed_at: now.toISOString(),
@@ -201,7 +201,7 @@ test('kill switch is exact and cron, queue and manual paths never call services 
         { skipped: true, reason: 'Sheet mirror is off' });
     await runMirrorQueue(chain, { enabled: false, sync: unexpected, publish: unexpected });
     await runMirrorQueue({ ...chain, clients: ['bad-id'] }, { enabled: true, sync: unexpected, publish: unexpected });
-    const response = await runManualMirror(id, { enabled: false, authorize: async () => auth, sync: unexpected });
+    const response = await runManualMirror(id, { enabled: false, authorize: async () => auth, loadClient: unexpected, sync: unexpected });
     assert.equal(response.status, 409);
     assert.equal((await response.json()).error, 'Sheet mirror is off');
     assert.deepEqual(await syncClientSheet(id, {
@@ -273,11 +273,11 @@ test('sync logs success and failure, and a client without a saved sheet skips al
 
 test('manual sync rejects a viewer and returns 429 on a rate-limited reservation', async () => {
     const viewer = await runManualMirror(id, {
-        enabled: true, authorize: async () => ({ ...auth, role: 'viewer' }), sync: unexpected,
+        enabled: true, authorize: async () => ({ ...auth, role: 'viewer' }), loadClient: unexpected, sync: unexpected,
     });
     assert.equal(viewer.status, 403);
     const limited = await runManualMirror(id, {
-        enabled: true, authorize: async () => auth,
+        enabled: true, authorize: async () => auth, loadClient: store.loadClient,
         sync: (clientId, organizationId, requestedBy) => syncClientSheet(clientId, {
             enabled: true, now: () => now, trigger: 'manual', organizationId, requestedBy,
             store: { ...store, async reserve(_id, selectedClient, trigger, actor) {
@@ -288,4 +288,58 @@ test('manual sync rejects a viewer and returns 429 on a rate-limited reservation
         }),
     });
     assert.equal(limited.status, 429);
+});
+
+test('scheduled runs only enqueue linked, active or onboarding clients with the switch on', async () => {
+    let rows = [
+        { ...client, status: 'active' },
+        { ...client, id: other, status: 'onboarding' },
+        { ...client, id: 'off', status: 'active', sheet_mirror_enabled: false },
+        { ...client, id: 'unlinked', status: 'active', roadmap_sheet_id: null },
+        { ...client, id: 'inactive', status: 'inactive' },
+    ];
+    type Row = typeof rows[number];
+    const query = {
+        select() { return query; },
+        eq(key: keyof Row, value: unknown) { rows = rows.filter(row => row[key] === value); return query; },
+        not(key: keyof Row, operator: string, value: null) {
+            assert.equal(operator, 'is');
+            rows = rows.filter(row => row[key] !== value);
+            return query;
+        },
+        in(key: keyof Row, values: unknown[]) { rows = rows.filter(row => values.includes(row[key])); return query; },
+        order() { return query; },
+        async range(from: number, to: number) { return { data: rows.slice(from, to + 1), error: null }; },
+    };
+    const mirrorStore = createMirrorStore({
+        from(table: string) { assert.equal(table, 'clients'); return query; },
+    } as unknown as Parameters<typeof createMirrorStore>[0]);
+    const messages: MirrorMessage[] = [];
+    assert.deepEqual(await runMirrorCron({
+        enabled: true, listClients: mirrorStore.listClients,
+        async publish(message) { messages.push(message); },
+    }), { enqueued: 1, clients: 2 });
+    assert.deepEqual(messages[0].clients, [id, other]);
+});
+
+test('manual sync returns 409 before starting work when the client switch is off', async () => {
+    const response = await runManualMirror(id, {
+        enabled: true, authorize: async () => auth, sync: unexpected,
+        async loadClient(clientId, organizationId) {
+            assert.deepEqual([clientId, organizationId], [id, 'org']);
+            return { ...client, sheet_mirror_enabled: false };
+        },
+    });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, 'Sheet mirror is off for this client');
+});
+
+test('a queued client whose mirror was switched off skips reservation and writes', async () => {
+    assert.deepEqual(await syncClientSheet(id, {
+        enabled: true, now: () => now, trigger: 'cron', write: unexpected,
+        store: {
+            ...store, reserve: unexpected, loadData: unexpected,
+            loadClient: async () => ({ ...client, sheet_mirror_enabled: false }),
+        },
+    }), { status: 'skipped', reason: 'client_disabled' });
 });

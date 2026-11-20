@@ -1,7 +1,7 @@
 import type { createAdminClient } from '../supabase/admin';
 import type { RoadmapRow, TaskRow } from './model';
 
-export const CLIENT_COLUMNS = 'id,organization_id,roadmap_sheet_id';
+export const CLIENT_COLUMNS = 'id,organization_id,roadmap_sheet_id,sheet_mirror_enabled';
 export const ROADMAP_COLUMNS = 'id,title,step_key,status,priority,due_date,roadmap_phase,roadmap_included,sort_order,task_id,updated_at';
 export const TASK_COLUMNS = 'id,title,parent_task_id,category,stage,status,start_date,due_date,completed_at,published_url,basecamp_project_id,basecamp_todo_id';
 export const LOG_COLUMNS = 'started_at,finished_at,status,trigger,rows_written,error';
@@ -10,6 +10,7 @@ export interface MirrorClient {
     id: string;
     organization_id: string;
     roadmap_sheet_id: string | null;
+    sheet_mirror_enabled: boolean;
 }
 
 export type Trigger = 'cron' | 'manual';
@@ -50,7 +51,7 @@ export function createMirrorStore(db: ReturnType<typeof createAdminClient>) {
         },
         async listClients(): Promise<string[]> {
             const rows = await allRows<{ id: string }>((from, to) => db.from('clients').select('id')
-                .not('roadmap_sheet_id', 'is', null).in('status', ['active', 'onboarding'])
+                .eq('sheet_mirror_enabled', true).not('roadmap_sheet_id', 'is', null).in('status', ['active', 'onboarding'])
                 .order('id').range(from, to));
             return rows.map(row => row.id);
         },

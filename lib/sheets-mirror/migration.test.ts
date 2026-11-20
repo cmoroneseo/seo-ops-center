@@ -4,6 +4,7 @@ import test from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 
 const migration = readFileSync(new URL('../../migrations/135_sheet_sync_runs.sql', import.meta.url), 'utf8');
+const switchMigration = readFileSync(new URL('../../migrations/136_client_sheet_mirror_switch.sql', import.meta.url), 'utf8');
 const org = '00000000-0000-4000-a000-000000000001';
 const otherOrg = '00000000-0000-4000-a000-000000000002';
 const client = '00000000-0000-4000-a000-000000000003';
@@ -74,5 +75,34 @@ test('135 is rerunnable, restricts reads and writes, and atomically reserves and
 test('schema mirror contains the exact migration 135 section', () => {
     const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
     const marker = '-- Migration 135: Sheet mirror sync runs.';
-    assert.equal(schema.slice(schema.lastIndexOf(marker)).trim(), migration.trim());
+    assert.equal(schema.slice(schema.lastIndexOf(marker), schema.lastIndexOf('-- Migration 136:')).trim(), migration.trim());
+});
+
+
+test('136 defaults existing and new clients to off, requires a boolean and preserves opt-ins on rerun', async () => {
+    const db = new PGlite();
+    try {
+        await db.exec("create table clients (id int primary key, roadmap_sheet_id text); insert into clients values (1, 'sheet');");
+        await db.exec(switchMigration);
+        await db.exec('insert into clients (id) values (2)');
+        const clients = () => db.query('select * from clients order by id');
+        assert.deepEqual((await clients()).rows, [
+            { id: 1, roadmap_sheet_id: 'sheet', sheet_mirror_enabled: false },
+            { id: 2, roadmap_sheet_id: null, sheet_mirror_enabled: false },
+        ]);
+        await assert.rejects(db.exec('update clients set sheet_mirror_enabled = null'), { code: '23502' });
+        await db.exec('update clients set sheet_mirror_enabled = true where id = 1');
+        await db.exec(switchMigration);
+        assert.deepEqual((await clients()).rows, [
+            { id: 1, roadmap_sheet_id: 'sheet', sheet_mirror_enabled: true },
+            { id: 2, roadmap_sheet_id: null, sheet_mirror_enabled: false },
+        ]);
+    } finally {
+        await db.close();
+    }
+});
+
+test('schema mirror contains the exact migration 136 section', () => {
+    const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+    assert.equal(schema.slice(schema.lastIndexOf('-- Migration 136:')).trim(), switchMigration.trim());
 });

@@ -68,3 +68,7 @@ makes no Basecamp calls.
 The separate Swing Inn rename script, `rename_inactive_swing_inn.sql`, is
 prepared and has never been run. It requires Carlos's explicit approval before
 execution.
+
+## Swing Inn mirror opt-in
+
+`136_enable_swing_inn_mirror.sql` has never been run. It requires Carlos's explicit approval and migration 136 applied first. Review the opening preview and confirm Swing Inn has a saved sheet link. The verification query should show Swing Inn as the sole enabled client.

@@ -8,6 +8,7 @@ interface History {
     runs?: SyncLog[];
     enabled?: boolean;
     canSync?: boolean;
+    clientEnabled?: boolean;
     error?: string;
 }
 
@@ -20,7 +21,10 @@ async function loadHistory(url: string, signal?: AbortSignal): Promise<History> 
     }
 }
 
-export function ClientSheetSync({ clientId }: { clientId: string }) {
+export function ClientSheetSync({ clientId, configurationSaving }: {
+    clientId: string;
+    configurationSaving: boolean;
+}) {
     const url = `/api/clients/${encodeURIComponent(clientId)}/sheet-sync`;
     const [history, setHistory] = useState<History>();
     const [running, setRunning] = useState(false);
@@ -57,12 +61,13 @@ export function ClientSheetSync({ clientId }: { clientId: string }) {
                 <button
                     type="button"
                     onClick={() => void sync()}
-                    disabled={running}
+                    disabled={running || configurationSaving || history.clientEnabled !== true}
                     className="rounded-md border border-border px-3 py-1.5 font-medium hover:bg-muted focus-visible:outline-2 disabled:opacity-50"
                 >
                     {running ? 'Syncing…' : 'Sync now'}
                 </button>
             )}
+            {history?.enabled && history.clientEnabled === false && <p>Sheet mirror is off for this client</p>}
             <p role="status">{result}</p>
             <details open>
                 <summary className="cursor-pointer font-medium">Recent syncs</summary>

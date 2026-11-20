@@ -158,6 +158,22 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
         return () => controller.abort();
     }, [sheetEndpoint]);
 
+    async function saveSheetMirror(enabled: boolean) {
+        setSheetSaving(true);
+        try {
+            setSheetConfig(await requestSheetConfig(sheetEndpoint, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled }),
+            }));
+            setToast(enabled ? 'Sheet mirror enabled' : 'Sheet mirror disabled');
+        } catch (error) {
+            setToast(error instanceof Error ? error.message : 'Unable to save the sheet mirror setting.');
+        } finally {
+            setSheetSaving(false);
+        }
+    }
+
     async function saveSheetConfig(url: string | null) {
         setSheetSaving(true);
         try {
@@ -808,8 +824,32 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                         </button>
                     )}
                 </div>
+                <div className="flex items-center justify-between gap-3">
+                    <div>
+                        <p id="sheet-mirror-label" className="text-sm font-medium">Mirror to sheet</p>
+                        <p id="sheet-mirror-hint" className="text-xs text-muted-foreground">Nightly sync and Sync now only run when this is on.</p>
+                    </div>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-labelledby="sheet-mirror-label"
+                        aria-describedby="sheet-mirror-hint"
+                        aria-checked={sheetConfig?.sheet_mirror_enabled ?? false}
+                        disabled={!sheetConfig?.roadmap_sheet_id || sheetSaving}
+                        onClick={() => void saveSheetMirror(!sheetConfig?.sheet_mirror_enabled)}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+                    >
+                        {sheetConfig?.sheet_mirror_enabled
+                            ? <ToggleRight aria-hidden="true" className="h-6 w-6 text-green-500" />
+                            : <ToggleLeft aria-hidden="true" className="h-6 w-6" />}
+                    </button>
+                </div>
                 {sheetConfig?.roadmap_sheet_id && (
-                    <ClientSheetSync key={`${clientId}:${sheetConfig.roadmap_sheet_id}`} clientId={clientId} />
+                    <ClientSheetSync
+                        key={`${clientId}:${sheetConfig.roadmap_sheet_id}:${sheetConfig.sheet_mirror_enabled}`}
+                        clientId={clientId}
+                        configurationSaving={sheetSaving}
+                    />
                 )}
             </div>
 
