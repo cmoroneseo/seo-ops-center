@@ -1068,7 +1068,7 @@ export interface MarketingPlanItem {
     /** Stable catalog key. Null on rows created before template identity. */
     templateKey?: string;
     /** How the row was added. Absent until migration 087 is applied. */
-    source?: 'template' | 'onboarding' | 'custom' | 'basecamp';
+    source?: 'template' | 'onboarding' | 'custom' | 'basecamp' | 'sheet';
     createdAt: string;
     updatedAt: string;
 }

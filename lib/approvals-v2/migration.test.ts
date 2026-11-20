@@ -362,7 +362,8 @@ test('GBP accepts only page comments and preserves v1 title/body suggestions', a
 
 test('schema mirror includes exactly migration 132 and the removed field hash is absent', async () => {
     const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
-    assert.equal(schema.split('-- Migration 132: Approvals v2\n')[1], migration);
+    const section = schema.split('-- Migration 132: Approvals v2\n')[1]?.split(/^-- Migration \d+:/m)[0];
+    assert.equal(section?.trimEnd(), migration.trimEnd());
     const db = await database();
     try {
         assert.equal((await db.query(`select oid from pg_proc where proname='approval_field_hash'`)).rows.length, 0);
