@@ -1,30 +1,23 @@
-import {
-    buildBasecampTaskRows,
-    draftsForSteps,
-    linkImportedSteps,
-    type ProviderTodo,
-} from '../basecamp/import-tasks-route.ts';
+import { buildBasecampTaskRows } from '../basecamp/import-tasks-route.ts';
 import { providerParentListId } from '../basecamp/import-stage.ts';
 import { isBasecampRecordingConflict } from '../basecamp/task-recording-conflict.ts';
 import {
+    importBasecampTodoSteps,
+    readBasecampTodo,
+    readBasecampTodoSteps,
+    type BasecampLinkStore,
+    type BasecampTodoReader,
+} from '../basecamp/task-todo-link.ts';
+import {
     BASECAMP_STEP_MATCH_CONFLICT,
     groupByStepTitle,
-    mergeBasecampTodoSteps,
     normalizeStepTitle,
-    stepsForTodo,
     type BasecampTodoStep,
 } from '../basecamp/todo-steps.ts';
 import type { BasecampStep, BotActor, BotClientRecord, BotDeps, BotTaskRecord } from './handle.ts';
 import type { BotCreateCommand, BotSubtaskDraft } from './request.ts';
 
-export interface BotBasecampTasks {
-    recordingKind(projectId: string, id: string): Promise<'todo' | 'step' | null>;
-    getTodo(projectId: string, id: string): Promise<(ProviderTodo & { supportsSubtasks?: boolean }) | null>;
-    listSteps(projectId: string, todoId: string): Promise<BasecampTodoStep[]>;
-    findRecordings(ids: string[]): Promise<BotTaskRecord[]>;
-    listChildren(parent: BotTaskRecord): Promise<BotTaskRecord[]>;
-    updateTaskLink(task: BotTaskRecord, projectId: string, id: string, syncedAt: string): Promise<BotTaskRecord | null>;
-    insertImportedTasks(rows: Record<string, unknown>[]): Promise<BotTaskRecord[]>;
+export interface BotBasecampTasks extends BasecampTodoReader, BasecampLinkStore<BotTaskRecord> {
     createStep(projectId: string, todoId: string, title: string): Promise<{ id: number } | null>;
 }
 
@@ -83,14 +76,14 @@ async function linkTodo(input: LinkBasecampTodoInput): Promise<LinkedTaskResult 
         return failure(409, 'basecamp_project_not_configured', 'This client has no configured Basecamp project.');
     }
 
-    const kind = await basecampTasks.recordingKind(projectId, todoId);
-    if (kind === 'step') {
+    const recording = await readBasecampTodo(basecampTasks, projectId, todoId);
+    if (recording.kind === 'step') {
         return failure(400, 'basecamp_recording_is_step', 'basecampTodoId must identify a Basecamp to-do.');
     }
-    const todo = kind === 'todo' ? await basecampTasks.getTodo(projectId, todoId) : null;
-    if (!todo || String(todo.id) !== todoId || !todo.title?.trim()) {
+    if (recording.kind === 'missing') {
         return failure(404, 'basecamp_todo_not_found', 'The to-do was not found in this client’s Basecamp project.');
     }
+    const { todo } = recording;
 
     // Recording ownership must be checked across clients and organizations.
     const claims = await basecampTasks.findRecordings([todoId]);
@@ -109,10 +102,7 @@ async function linkTodo(input: LinkBasecampTodoInput): Promise<LinkedTaskResult 
 
     let steps: BasecampTodoStep[];
     try {
-        const listed = todo.supportsSubtasks === false ? [] : await basecampTasks.listSteps(projectId, todoId);
-        const embedded = Array.isArray(todo.steps) ? todo.steps : [];
-        steps = stepsForTodo(mergeBasecampTodoSteps([listed, embedded]), todoId)
-            .filter(step => String(step.id) !== todoId);
+        steps = await readBasecampTodoSteps(basecampTasks, projectId, todoId, todo);
     } catch {
         return failure(502, 'basecamp_steps_unavailable', 'The Basecamp steps could not be read. Retry with the same key.');
     }
@@ -150,45 +140,10 @@ async function linkTodo(input: LinkBasecampTodoInput): Promise<LinkedTaskResult 
         if (!root) throw new Error('Could not save the imported Basecamp task');
     }
 
-    const stepsByTitle = groupByStepTitle(steps);
-    const known = steps.length > 0 ? await basecampTasks.findRecordings(steps.map(step => String(step.id))) : [];
-    const claimCounts = new Map<string, number>();
-    for (const child of known) {
-        if (child.basecampTodoId) claimCounts.set(child.basecampTodoId, (claimCounts.get(child.basecampTodoId) ?? 0) + 1);
-    }
-    const claimedIds = new Set([...claimCounts.keys()].map(Number));
-    const local = steps.length > 0 ? await basecampTasks.listChildren(root) : [];
-    const localByTitle = groupByStepTitle(local);
-    const childrenByStepId = new Map(local
-        .filter(task => task.basecampTodoId && claimCounts.get(task.basecampTodoId) === 1
-            && (!task.basecampProjectId || task.basecampProjectId === projectId))
-        .map(task => [task.basecampTodoId, task]));
-
-    // Preserve existing app children when there is one unambiguous title match.
-    // Recording IDs still decide which provider steps need importing.
-    for (const step of steps) {
-        if (claimedIds.has(step.id)) continue;
-        const title = normalizeStepTitle(step.title);
-        const candidates = localByTitle.get(title);
-        const child = candidates?.[0];
-        if (stepsByTitle.get(title)?.length !== 1 || candidates?.length !== 1 || !child || child.basecampTodoId) continue;
-        const saved = await basecampTasks.updateTaskLink(child, projectId, String(step.id), now);
-        if (!saved) throw new Error('Basecamp step link changed during import');
-        claimedIds.add(step.id);
-        childrenByStepId.set(String(step.id), saved);
-    }
-    const drafts = await draftsForSteps({
-        steps, parentBasecampTodoId: Number(todoId), organizationId, clientId, userId: actor.userId,
-        projectId, category: root.category, priority: root.priority, now, mirrorCompletion: true,
+    const { stepsByTitle, childrenByStepId, imported } = await importBasecampTodoSteps({
+        store: basecampTasks, root, steps, projectId, todoId, userId: actor.userId, now, matchExistingTitles: true,
     });
-    const rows = linkImportedSteps({
-        drafts,
-        parents: [{ basecampTodoId: Number(todoId), taskId: root.id, stage: root.stage ?? null }],
-        alreadyImportedStepIds: claimedIds,
-    });
-    const imported = rows.length > 0 ? await basecampTasks.insertImportedTasks(rows) : [];
     const importedIds = new Set(imported.map(task => task.id));
-    for (const child of imported) childrenByStepId.set(child.basecampTodoId, child);
 
     const children: TaskResult[] = [];
     const basecamp: BasecampStep = { status: 'pushed', providerId: todoId };

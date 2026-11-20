@@ -85,28 +85,17 @@ function textIncludes(container: ParentNode, text: string): boolean {
     return [...container.querySelectorAll('span, button')].some(node => node.textContent?.includes(text));
 }
 
-test('Send to Basecamp keeps the saved to-do id instead of falling back to Not in Basecamp', async () => {
-    let reads = 0;
-    const updates: Task[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(JSON.stringify({ success: true, todoId: 77 }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch;
-
+async function mountDrawer(
+    initialTask: Task,
+    readTask: () => { task: Task; subtasks: Task[]; loggedHours: number },
+    onUpdate?: (task: Task) => void,
+) {
     const readers = {
         async getClientBasecampConfig() {
             return { projectId: '202', todolistId: '44' };
         },
         async getTask() {
-            reads += 1;
-            // The drawer opens against a task prop that has no to-do id. The
-            // reload after a successful send is what learns the id the route saved.
-            return {
-                task: reads === 1 ? openTask() : savedTask(),
-                subtasks: [],
-                loggedHours: 0,
-            };
+            return readTask();
         },
         async getTaskComments() {
             return [];
@@ -117,7 +106,7 @@ test('Send to Basecamp keeps the saved to-do id instead of falling back to Not i
     };
 
     function Host() {
-        const [current, setCurrent] = useState(openTask);
+        const [current, setCurrent] = useState(initialTask);
         return createElement(
             OrganizationContext.Provider,
             {
@@ -137,7 +126,7 @@ test('Send to Basecamp keeps the saved to-do id instead of falling back to Not i
                     onClose: () => undefined,
                     taskReaders: readers,
                     onUpdate: updated => {
-                        updates.push(updated);
+                        onUpdate?.(updated);
                         setCurrent(updated);
                     },
                 }),
@@ -154,6 +143,30 @@ test('Send to Basecamp keeps the saved to-do id instead of falling back to Not i
     await act(async () => {
         await Promise.resolve();
     });
+    return {
+        container,
+        close() {
+            act(() => root.unmount());
+            container.remove();
+        },
+    };
+}
+
+test('Send to Basecamp keeps the saved to-do id instead of falling back to Not in Basecamp', async t => {
+    let reads = 0;
+    const updates: Task[] = [];
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    globalThis.fetch = async (_input, init) => Response.json(init?.method === 'POST'
+        ? { success: true, todoId: 77 }
+        : { canRefresh: true });
+
+    const { container, close } = await mountDrawer(openTask(), () => ({
+        task: ++reads === 1 ? openTask() : savedTask(),
+        subtasks: [],
+        loggedHours: 0,
+    }), updated => updates.push(updated));
+    t.after(close);
 
     assert.equal(textIncludes(container, 'Not in Basecamp'), true);
     const button = [...container.querySelectorAll('button')].find(item => item.textContent?.includes('Send to Basecamp'));
@@ -170,8 +183,82 @@ test('Send to Basecamp keeps the saved to-do id instead of falling back to Not i
     const last = updates.at(-1);
     assert.equal(last?.basecampTodoId, 77);
     assert.equal(last?.basecampProjectId, 202);
+});
 
-    act(() => root.unmount());
-    container.remove();
-    globalThis.fetch = originalFetch;
+test('the drawer refreshes subtasks and reports the number imported', async t => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    let posts = 0;
+    let subtasks: Task[] = [];
+    globalThis.fetch = async (input, init) => {
+        if (init?.method !== 'POST') {
+            assert.equal(input, '/api/integrations/basecamp/refresh-steps?taskId=task-1');
+            return Response.json({ canRefresh: true });
+        }
+        assert.equal(input, '/api/integrations/basecamp/refresh-steps');
+        assert.deepEqual(JSON.parse(String(init.body)), { taskId: 'task-1' });
+        posts += 1;
+        subtasks = [{ ...openTask(), id: 'step-1', parentTaskId: 'task-1', title: 'New Basecamp step' }];
+        return Response.json({ todoId: '77', projectId: '202', imported: posts === 1 ? 1 : 0, linked: 0 });
+    };
+    const { container, close } = await mountDrawer(savedTask(), () => ({
+        task: savedTask(), subtasks, loggedHours: 0,
+    }));
+    t.after(close);
+
+    const refresh = [...container.querySelectorAll('button')].find(item => item.textContent?.includes('Refresh steps from Basecamp'));
+    assert.ok(refresh);
+    await act(async () => refresh.click());
+    assert.match(container.querySelector('[role=status]')?.textContent ?? '', /Imported 1 new step/);
+    assert.ok(container.textContent?.includes('New Basecamp step'));
+    await act(async () => refresh.click());
+    assert.equal(container.querySelector('[role=status]')?.textContent, 'Steps are up to date.');
+});
+
+test('the drawer keeps the pasted to-do on a link error and can retry successfully', async t => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    const url = 'https://3.basecamp.com/10/buckets/202/todos/77';
+    let posts = 0;
+    globalThis.fetch = async (input, init) => {
+        if (input !== '/api/integrations/basecamp/link') return Response.json([]);
+        assert.deepEqual(JSON.parse(String(init?.body)), { taskId: 'task-1', basecampTodoId: url });
+        posts += 1;
+        return posts === 1
+            ? Response.json({ error: 'This to-do already has a conflicting link.' }, { status: 409 })
+            : Response.json({ todoId: '77', projectId: '202', imported: 0, linked: 0 });
+    };
+    const { container, close } = await mountDrawer(openTask(), () => ({
+        task: posts > 1 ? savedTask() : openTask(), subtasks: [], loggedHours: 0,
+    }));
+    t.after(close);
+    const link = [...container.querySelectorAll('button')].find(item => item.textContent?.includes('Link existing Basecamp to-do'));
+    assert.ok(link);
+    await act(async () => link.click());
+    const basecamp = link.closest('section');
+    assert.ok(basecamp);
+    const field = basecamp.querySelector<HTMLInputElement>('form input');
+    assert.ok(field);
+    field.value = url;
+    const submit = field.form?.querySelector<HTMLButtonElement>('button[type="submit"]');
+    assert.ok(submit);
+    await act(async () => submit.click());
+    assert.equal(posts, 1);
+    assert.equal(basecamp.querySelector('[role=alert]')?.textContent, 'This to-do already has a conflicting link.');
+    assert.equal(field.value, url);
+    await act(async () => submit.click());
+    assert.equal(basecamp.querySelector('[role=status]')?.textContent, 'Basecamp to-do linked. Steps are up to date.');
+    assert.equal(textIncludes(container, 'Refresh steps from Basecamp'), true);
+});
+
+test('the drawer omits refresh for a step even when it has no local parent', async t => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    globalThis.fetch = async () => Response.json({ canRefresh: false });
+    const { container, close } = await mountDrawer(savedTask(), () => ({
+        task: savedTask(), subtasks: [], loggedHours: 0,
+    }));
+    t.after(close);
+    assert.equal(textIncludes(container, 'Refresh steps from Basecamp'), false);
+    assert.equal(textIncludes(container, 'Link existing Basecamp to-do'), false);
 });

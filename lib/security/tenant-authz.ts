@@ -51,6 +51,10 @@ type ClientMemberAuthorization =
         error: string;
     };
 
+type TaskMemberAuthorization =
+    | (Extract<ClientMemberAuthorization, { ok: true }> & { taskId: string })
+    | Extract<ClientMemberAuthorization, { ok: false }>;
+
 type OrganizationAdminAuthorization =
     | {
         ok: true;
@@ -308,10 +312,10 @@ export async function requireClientIntegrationManager(
     return requireIntegrationManager(member);
 }
 
-/** Resolves a task to its canonical client and requires integration-manager authority. */
-export async function requireTaskIntegrationManager(
+/** Resolves a task to its canonical client and verifies organization membership. */
+export async function requireTaskOrgMember(
     taskIdInput: unknown,
-): Promise<ManageTaskAuthorization> {
+): Promise<TaskMemberAuthorization> {
     const taskId = normalizeString(taskIdInput);
     if (!taskId) return { ok: false, status: 400, error: 'Missing taskId' };
 
@@ -329,9 +333,17 @@ export async function requireTaskIntegrationManager(
     if (!task.client_id) return { ok: false, status: 400, error: 'Task has no client' };
 
     const member = await requireClientMemberForActor(actor, task.client_id, task.organization_id);
+    return member.ok ? { ...member, taskId } : member;
+}
+
+/** Resolves a task to its canonical client and requires integration-manager authority. */
+export async function requireTaskIntegrationManager(
+    taskIdInput: unknown,
+): Promise<ManageTaskAuthorization> {
+    const member = await requireTaskOrgMember(taskIdInput);
     if (!member.ok) return member;
     const manager = await requireIntegrationManager(member);
-    return manager.ok ? { ...manager, taskId } : manager;
+    return manager.ok ? { ...manager, taskId: member.taskId } : manager;
 }
 
 /** Resolves a time log and requires integration-manager authority in its canonical org. */
