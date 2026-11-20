@@ -466,7 +466,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
     cards.push({
         id: 'google-sheets',
         name: 'Google Sheets',
-        description: 'Client SEO roadmap sheet (backup / client services view)',
+        description: 'Client SEO roadmap sheet',
         tone: sheetConfig?.roadmap_sheet_id ? 'connected' : 'neutral',
         status: sheetConfig?.roadmap_sheet_id ? 'Linked' : 'Click to set up',
     });
@@ -770,7 +770,7 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                     <IntegrationIcon service="google-sheets" />
                     <div>
                         <span className="font-medium text-sm">Google Sheets</span>
-                        <p className="text-xs text-muted-foreground">Client SEO roadmap sheet (backup / client services view)</p>
+                        <p className="text-xs text-muted-foreground">Client SEO roadmap sheet</p>
                     </div>
                 </div>
                 {sheetLoadError && <p role="alert" className="text-sm text-destructive">{sheetLoadError}</p>}
