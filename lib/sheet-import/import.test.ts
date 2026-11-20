@@ -164,6 +164,6 @@ test('import sources have no integration or bot write dependencies', () => {
     sources.push(new URL('../../scripts/sheets/import-sheet-rows.ts', directory));
     for (const source of sources) {
         const code = readFileSync(source, 'utf8');
-        assert.doesNotMatch(code, /['"][^'"]*(?:\/|^)(?:basecamp|bots)(?:\/|['"])|['"][^'"]*\/supabase\/tasks(?:\/|['"])|basecamp\/push/i, source.pathname);
+        assert.doesNotMatch(code, /['"](?:[^'"]*\/)?(?:basecamp|bots|supabase\/tasks)(?:\/|['"])/i, source.pathname);
     }
 });
