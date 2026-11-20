@@ -9,6 +9,7 @@ import { matchBotTask } from './task-lookup.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import {
     BotTimerLookupError,
+    basecampStepFromResponse,
     capOverdueBotTimers,
     handleBotRequest,
     type BotActor,
@@ -349,6 +350,26 @@ test('only the seo-manager key can create a task, and it is assigned to the owne
     assert.equal(stamped.length, 1);
     assert.equal(allowed.mem.tasks.filter(item => item.parentTaskId).length, 2);
     assert.equal(allowed.mem.pushed.length, 1);
+});
+
+test('bot task creation reports skipped Basecamp subtasks on a successful parent push', async () => {
+    const { deps } = world();
+    const reason = 'Some subtasks stayed in SEO Ops because their Basecamp step matches were ambiguous or already linked.';
+    deps.pushTodo = async () => basecampStepFromResponse(Response.json({
+        success: true, todoId: '77', subtasksSkipped: 2, reason,
+    }));
+
+    const response = await handleBotRequest(request(BOT_TASKS_PATH, {
+        idempotencyKey: 'create-with-skipped-steps',
+        clientId: CLIENT,
+        taskTitle: 'August blogs',
+        subtasks: [{ title: 'Draft' }],
+    }), deps);
+
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).task.basecamp, {
+        status: 'pushed', providerId: '77', subtasksSkipped: 2, reason,
+    });
 });
 
 test('a subtask can be created under an existing parent', async () => {

@@ -63,6 +63,10 @@ An exact title that already exists is returned with `created: false`. It is not 
 
 The parent's Basecamp to-do is created or reused on the client's SEO Plan list, the same way the app pushes a task. Subtasks become steps on that to-do. Sync off, or no SEO Plan list: the tasks stay in SEO Ops.
 
+When the parent already has a Basecamp to-do, the push checks its steps for each unlinked subtask. Titles must match exactly after trimming whitespace and ignoring case. A unique, unclaimed match is linked in SEO Ops and left untouched in Basecamp. A subtask with no match gets a new step.
+
+The push leaves subtasks unlinked when multiple Basecamp steps match, multiple unlinked subtasks match the same step, or another task already links to the matching step. The response reports the count in `task.basecamp.subtasksSkipped` and explains the conflict in `task.basecamp.reason`. If the Basecamp step read fails, `task.basecamp.status` is `failed` and the push creates no steps.
+
 ```bash
 curl -X POST https://seo-ops-center.vercel.app/api/bots/tasks \
   -H 'Content-Type: application/json' \
