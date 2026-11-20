@@ -66,7 +66,7 @@ import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
 import { seoPlanReadOnly } from '@/lib/seo-plan/read-only';
 import { PanelSkeleton } from '@/components/seo-plan/PanelSkeleton';
 import { PlanOverviewPanel } from '@/components/seo-plan/PlanOverviewPanel';
-import { SetupChecklist } from '@/components/onboarding/SetupChecklist';
+import { ClientSetup } from '@/components/onboarding/SetupChecklist';
 import { prefetchClientWorkspace } from '@/lib/seo-plan/prefetch';
 import { TaskToolbar } from '@/components/seo-plan/TaskToolbar';
 import {
@@ -561,8 +561,9 @@ export default function ClientDetailPage() {
                 <p className="text-sm text-muted-foreground">{UNAVAILABLE_MODULE_NOTICE}</p>
             )}
 
-            {activeTab === 'overview' && organization?.id && (
-                <SetupChecklist
+            {activeTab === 'overview' && organization?.id === client.organizationId && (
+                <ClientSetup
+                    key={`${organization.id}:${client.id}`}
                     clientId={client.id}
                     organizationId={organization.id}
                     clientName={client.clientName}

@@ -4,6 +4,7 @@
  */
 
 import { normalizeSeedKeywords } from '../topical-map/seed-keywords';
+import { googleAccessHref, type GoogleAccess } from './google-access';
 
 export const SETUP_STEP_ORDER = [
     'details',
@@ -11,6 +12,8 @@ export const SETUP_STEP_ORDER = [
     'competitors',
     'keywords',
     'search-console',
+    'ga4',
+    'gtm',
     'topic-map',
     'plan',
 ] as const;
@@ -27,6 +30,8 @@ const LABELS: Record<SetupStepId, string> = {
     competitors: 'Competitors',
     keywords: 'Keywords',
     'search-console': 'Connect Google Search Console',
+    ga4: 'Connect Google Analytics (GA4)',
+    gtm: 'Connect Google Tag Manager',
     'topic-map': 'Build topic map',
     plan: 'Build plan',
 };
@@ -38,6 +43,8 @@ const ACTIONS: Record<SetupStepId, string> = {
     competitors: 'Add competitors',
     keywords: 'Choose keywords',
     'search-console': 'Connect',
+    ga4: 'Connect',
+    gtm: 'Connect',
     'topic-map': 'Build topic map',
     plan: 'Build plan',
 };
@@ -55,6 +62,10 @@ function describe(id: SetupStepId, clientName: string): string {
             return `Pick the searches ${name} should show up for. We've suggested some to start.`;
         case 'search-console':
             return "Google's free tool that shows where the site ranks in search.";
+        case 'ga4':
+            return 'Choose the Analytics property that measures traffic and events for this client.';
+        case 'gtm':
+            return 'Choose the Tag Manager container for this client’s site.';
         case 'topic-map':
             return 'Turns the brand, competitors and keywords into a plan of pages to write.';
         case 'plan':
@@ -74,7 +85,7 @@ export interface SetupChecklistFacts {
     businessDescription: string | null;
     competitors: readonly string[] | null;
     keywords: readonly string[] | null;
-    searchConsoleConnected: boolean | null;
+    googleAccess: GoogleAccess | null;
     topicMapBuilt: boolean | null;
     marketingPlanItemCount: number | null;
     initiativeCount: number | null;
@@ -149,16 +160,6 @@ export function keywordsChosen(keywords: readonly string[]): boolean {
     return normalizeSeedKeywords(keywords).length > 0;
 }
 
-export function searchConsoleConnectedFromIntegration(
-    integration: { syncStatus?: string; selectedProperty?: string | null; needsPropertySetup?: boolean } | null | undefined | 'unknown',
-): boolean | null {
-    if (integration === 'unknown') return null;
-    if (!integration) return false;
-    if (integration.needsPropertySetup) return false;
-    if (integration.syncStatus !== 'active') return false;
-    return filled(integration.selectedProperty);
-}
-
 export function topicMapBuiltFrom(input: {
     status: 'missing' | 'unknown' | 'present';
     stages?: readonly string[];
@@ -218,7 +219,10 @@ export function setupStepHref(clientId: string, step: SetupStepId, campaignWorks
         case 'keywords':
             return workspaceHref(clientId, 'tab=topical-map&setup=keywords');
         case 'search-console':
-            return workspaceHref(clientId, 'tab=integrations&setup=search-console');
+            return googleAccessHref(clientId, 'gsc');
+        case 'ga4':
+        case 'gtm':
+            return googleAccessHref(clientId, step);
         case 'topic-map':
             return workspaceHref(clientId, 'tab=topical-map&setup=generate');
         case 'plan':
@@ -237,7 +241,9 @@ export function deriveSetupChecklist(
             : brandConfirmed(facts.brandName, facts.businessDescription),
         competitors: facts.competitors == null ? null : competitorsAdded(facts.competitors),
         keywords: facts.keywords == null ? null : keywordsChosen(facts.keywords),
-        'search-console': facts.searchConsoleConnected,
+        'search-console': facts.googleAccess ? facts.googleAccess.gsc === 'connected' : null,
+        ga4: facts.googleAccess ? facts.googleAccess.ga4 === 'connected' : null,
+        gtm: facts.googleAccess ? facts.googleAccess.gtm === 'connected' : null,
         'topic-map': facts.topicMapBuilt,
         plan: planBuilt(facts.marketingPlanItemCount, facts.initiativeCount),
     };

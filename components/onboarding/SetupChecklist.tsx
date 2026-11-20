@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowRight, Check, CheckCircle2, Circle, Lock } from 'lucide-react';
+import { GoogleAccessStrip } from './GoogleAccessStrip';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
+import { deriveGoogleAccess, type GoogleAccess } from '@/lib/onboarding/google-access';
 import {
     SETUP_LOAD_FAILED,
     deriveSetupChecklist,
     generationStages,
-    searchConsoleConnectedFromIntegration,
     setupChecklistPanel,
     setupChecklistRows,
     setupChecklistStorageKey,
@@ -191,28 +192,21 @@ export function SetupChecklistView({
     );
 }
 
-async function loadFacts(clientId: string, organizationId: string, clientName: string): Promise<SetupChecklistFacts> {
-    const [profileResult, mapResult, planResult, initiativeResult, integrationResult] = await Promise.all([
+type ChecklistFacts = Omit<SetupChecklistFacts, 'clientName' | 'googleAccess'>;
+
+async function loadFacts(clientId: string): Promise<ChecklistFacts> {
+    const [profileResult, mapResult, planResult, initiativeResult] = await Promise.all([
         getClientProfile(clientId).then(profile => ({ profile, failed: false })).catch(() => ({ profile: null, failed: true })),
         getTopicalMapByClient(clientId).then(loaded => ({ loaded, failed: false })).catch(() => ({ loaded: null, failed: true })),
         getMarketingPlan(clientId).then(plan => plan?.items?.length ?? 0).catch(() => null),
         listCampaignInitiatives(clientId).then(result => result.unavailable ? null : result.initiatives.length).catch(() => null),
-        fetch(`/api/integrations/status?clientId=${encodeURIComponent(clientId)}&orgId=${encodeURIComponent(organizationId)}`, { credentials: 'same-origin' })
-            .then(async response => response.ok ? response.json() as Promise<{ integrations?: ClientIntegration[] }> : null)
-            .catch(() => null),
     ]);
 
-    const gsc = integrationResult
-        ? (integrationResult.integrations ?? []).find(row => row.service === 'gsc') ?? null
-        : 'unknown';
-
     return {
-        clientName,
         brandName: profileResult.failed ? null : profileResult.profile?.brandName ?? '',
         businessDescription: profileResult.failed ? null : profileResult.profile?.businessDescription ?? '',
         competitors: profileResult.failed ? null : profileResult.profile?.rivals ?? [],
         keywords: profileResult.failed ? null : profileResult.profile?.keywords ?? [],
-        searchConsoleConnected: searchConsoleConnectedFromIntegration(gsc === 'unknown' ? 'unknown' : gsc),
         topicMapBuilt: mapResult.failed || !mapResult.loaded
             ? null
             : topicMapBuiltFrom(mapResult.loaded.map
@@ -223,50 +217,88 @@ async function loadFacts(clientId: string, organizationId: string, clientName: s
     };
 }
 
-export function SetupChecklist({
+function SetupChecklist({
     clientId,
-    organizationId,
     clientName,
+    googleAccess,
 }: {
     clientId: string;
-    organizationId: string;
     clientName: string;
+    googleAccess: GoogleAccess | null | undefined;
 }) {
     const [dismissed, setDismissed] = useState<boolean | null>(null);
-    const [status, setStatus] = useState<'loading' | 'failed' | 'ready'>('loading');
-    const [steps, setSteps] = useState<SetupStepView[]>([]);
+    const [facts, setFacts] = useState<ChecklistFacts | null>();
 
     useEffect(() => {
-        setDismissed(window.localStorage.getItem(setupChecklistStorageKey(clientId)) === '1');
+        try {
+            setDismissed(window.localStorage.getItem(setupChecklistStorageKey(clientId)) === '1');
+        } catch {
+            setDismissed(false);
+        }
     }, [clientId]);
 
     useEffect(() => {
         if (dismissed !== false) return;
         let cancelled = false;
-        setStatus('loading');
-        loadFacts(clientId, organizationId, clientName).then(facts => {
-            if (cancelled) return;
-            setSteps(deriveSetupChecklist(facts, { clientId, campaignWorkspace: campaignWorkspaceEnabled() }));
-            setStatus('ready');
+        loadFacts(clientId).then(facts => {
+            if (!cancelled) setFacts(facts);
         }).catch(() => {
-            if (!cancelled) setStatus('failed');
+            if (!cancelled) setFacts(null);
         });
         return () => { cancelled = true; };
-    }, [dismissed, clientId, organizationId, clientName]);
+    }, [dismissed, clientId]);
 
-    if (dismissed == null) return null;
-    const panel = setupChecklistPanel({ status: dismissed ? 'ready' : status, steps, dismissed });
-    if (panel === 'hidden') return null;
+    if (dismissed !== false) return null;
+    const status = facts === null ? 'failed' : facts === undefined || googleAccess === undefined ? 'loading' : 'ready';
+    const steps = facts && status === 'ready'
+        ? deriveSetupChecklist({ ...facts, clientName, googleAccess: googleAccess ?? null }, { clientId, campaignWorkspace: campaignWorkspaceEnabled() })
+        : [];
 
     return (
         <SetupChecklistView
             clientName={clientName}
             steps={steps}
-            panel={panel}
+            panel={setupChecklistPanel({ status, steps, dismissed })}
             onDismiss={() => {
-                window.localStorage.setItem(setupChecklistStorageKey(clientId), '1');
                 setDismissed(true);
+                try {
+                    window.localStorage.setItem(setupChecklistStorageKey(clientId), '1');
+                } catch {
+                    // The checklist can still be hidden for this visit.
+                }
             }}
         />
+    );
+}
+
+export function ClientSetup({ clientId, organizationId, clientName }: {
+    clientId: string;
+    organizationId: string;
+    clientName: string;
+}) {
+    const [googleAccess, setGoogleAccess] = useState<GoogleAccess | null>();
+
+    useEffect(() => {
+        const controller = new AbortController();
+        const params = new URLSearchParams({ clientId, orgId: organizationId });
+        fetch(`/api/integrations/status?${params}`, {
+            credentials: 'same-origin',
+            cache: 'no-store',
+            signal: controller.signal,
+        }).then(async response => {
+            if (!response.ok) throw new Error('Unable to load integrations');
+            const { integrations } = await response.json() as { integrations: ClientIntegration[] };
+            if (!controller.signal.aborted) setGoogleAccess(deriveGoogleAccess(integrations));
+        }).catch(() => {
+            if (!controller.signal.aborted) setGoogleAccess(null);
+        });
+        return () => controller.abort();
+    }, [clientId, organizationId]);
+
+    return (
+        <>
+            <GoogleAccessStrip clientId={clientId} access={googleAccess} />
+            <SetupChecklist clientId={clientId} clientName={clientName} googleAccess={googleAccess} />
+        </>
     );
 }
