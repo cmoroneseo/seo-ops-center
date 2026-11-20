@@ -1,6 +1,6 @@
 # Bot API
 
-SEO bots create tasks and run timers in SEO Ops Center over HTTP. Time is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`, user `360c97ac-54fc-41fb-b660-0566d63c2e1b`). A stopped timer is a normal SEO Ops time entry: a closed session on `time_logs`, then the same Basecamp timesheet path the task drawer uses.
+SEO bots look up clients, create tasks, and run timers in SEO Ops Center over HTTP. Time is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`, user `360c97ac-54fc-41fb-b660-0566d63c2e1b`). A stopped timer is a normal SEO Ops time entry: a closed session on `time_logs`, then the same Basecamp timesheet path the task drawer uses.
 
 Bots do not log minutes after the fact. There is no `minutes` or `hours` field. `POST /api/bots/time` is gone.
 
@@ -35,13 +35,37 @@ The response includes `token` once. Only the SHA-256 hash is stored. Revoke with
 
 A missing or unknown key is **401**. A bot key sent to any other route, including the removed `POST /api/bots/time`, is **403**.
 
-The key name is the bot. `seo-manager` is the only name that can create tasks. Any other live key (`technical-seo`, and so on) can start, pause, resume, and stop timers. The comparison is case-insensitive.
+The key name is the bot. `seo-manager` is the only name that can create tasks. Any live key can look up clients and start, pause, resume, and stop timers. The key name comparison is case-insensitive.
+
+## Look up clients
+
+`GET /api/bots/clients`
+
+Any non-revoked bot key can look up clients in its own organization. The lookup is read-only and needs only the bearer key and query parameters.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` | | Required when `id` is omitted. Use 2–200 characters after trimming whitespace. |
+| `id` | | Client UUID for a direct lookup. Takes precedence when both `id` and `name` are supplied. |
+| `match` | `exact` | Use `exact` for the full name or `contains` for a substring. Both match case-insensitively and treat search characters literally. |
+| `status` | `current` | `current` includes `active`, `onboarding`, `pending`, and `paused`. Use `all` to include inactive clients. Applies to both name and ID lookups. |
+| `limit` | `10` | Maximum results to return, from 1 to 25. |
+
+```bash
+curl --get https://seo-ops-center.vercel.app/api/bots/clients \
+  -H 'Authorization: Bearer <minted-bot-token>' \
+  --data-urlencode 'name=Ecoworkz'
+```
+
+The response contains `clients`, ordered by name, and a `truncated` flag that indicates when more matches exist. Each client has `id`, `name`, `website` (the stored domain, or `null`), the raw `status`, and `active`. `active` is `true` for the four current statuses. No matches return HTTP 200 with `{"clients": [], "truncated": false}`. Invalid query parameters return HTTP 400 with `invalid_request`.
 
 ## Create a task
 
 `POST /api/bots/tasks`
 
 Only the `seo-manager` key. Every other bot key is **403** `forbidden`.
+
+An `inactive` client returns **409** `client_inactive` before any write or Basecamp read, including when the request supplies `basecampTodoId`. Clients in `active`, `onboarding`, `pending`, and `paused` can receive tasks.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -295,6 +319,7 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 404 | `timer_not_running` | Pause found nothing running, or stop found nothing running or paused. |
 | 404 | `timer_not_paused` | Resume found no paused timer on that task. |
 | 409 | `ambiguous_client` | More than one client has that exact name. Send `clientId`. |
+| 409 | `client_inactive` | Task creation targeted an inactive client. |
 | 409 | `ambiguous_task` | More than one task has that title, or the ids and titles disagree. |
 | 409 | `timer_already_running` | This bot is already timing a different task, or resume was called while a timer is running. |
 | 409 | `timer_paused` | Start targeted a task that already has a paused timer. Resume it. |
@@ -305,4 +330,5 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 409 | `idempotency_in_progress` | The same key is already running. |
 | 409 | `actor_not_found` | Carlos Morones is not a member of the key's organization. |
 | 500 | `internal` | The write failed after the key was accepted. A retry of the same body resumes the same operation. |
+| 500 | `client_lookup_failed` | The client lookup could not be read. |
 | 500 | `timer_lookup_failed` | The timer could not be read. This is not a missing timer. Retry the same request. |

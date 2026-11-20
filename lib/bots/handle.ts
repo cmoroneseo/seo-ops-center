@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { completionCalendarDay } from '../tasks/completion-date.ts';
 import { taskStatusUpdate, type TaskStatusHistoryEntryLike } from '../tasks/status.ts';
+import { authenticateBotRequest, type BotKeyRecord } from './auth.ts';
 import { linkBasecampTodo, type BotBasecampTasks } from './basecamp-todo-link.ts';
 import { BOT_ACTOR_TIME_ZONE } from './keys.ts';
-import { bearerToken, isBotKeyToken } from './scope.ts';
 import {
     parseBotRequest,
     type BotCommand,
@@ -67,13 +67,6 @@ function resumeCapMessage(maxMs: number): string {
     return `This timer already has ${capPhrase(maxMs)} of running time. Stop it instead of resuming.`;
 }
 
-export interface BotKeyRecord {
-    id: string;
-    organizationId: string;
-    name: string;
-    revokedAt: string | null;
-}
-
 export interface BotActor {
     userId: string;
     name: string;
@@ -98,6 +91,7 @@ export interface BotClientRecord {
     id: string;
     organizationId: string;
     name: string;
+    status: string | null;
     basecampProjectId?: string | null;
 }
 
@@ -179,6 +173,7 @@ export interface BasecampStep {
 export interface BotDeps {
     now(): Date;
     authenticate(token: string): Promise<BotKeyRecord | null>;
+    recordKeyUse(keyId: string): Promise<void>;
     actor(organizationId: string): Promise<BotActor | null>;
     findOperation(botKeyId: string, idempotencyKey: string): Promise<BotOperationRecord | null>;
     insertOperation(input: {
@@ -521,6 +516,7 @@ async function executeCreate(
     key: BotKeyRecord,
     actor: BotActor,
     command: BotCreateCommand,
+    client: BotClientRecord | null | 'ambiguous',
     operation: BotOperationRecord,
     deps: BotDeps,
 ): Promise<{ status: number; body: unknown }> {
@@ -530,14 +526,12 @@ async function executeCreate(
             body: errorBody('forbidden', 'Only the seo-manager bot can create tasks.'),
         };
     }
-    const client = await deps.findClient(key.organizationId, command);
     if (client === 'ambiguous') {
         return { status: 409, body: errorBody('ambiguous_client', 'More than one client has that exact name.') };
     }
     if (!client || client.organizationId !== key.organizationId) {
         return { status: 404, body: errorBody('client_not_found', 'Client not found.') };
     }
-
     const labels = { labels: null as string[] | null };
     const categoryError = await categoryAllowed(deps, key.organizationId, client.id, command.category, labels);
     if (categoryError) return { status: 400, body: errorBody('invalid_request', categoryError) };
@@ -1281,23 +1275,38 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     if (request.method.toUpperCase() !== 'POST') {
         return json(errorBody('forbidden', 'This key cannot call that route.'), 403);
     }
-    const token = bearerToken(request.headers.get('authorization'));
-    if (!token) return json(errorBody('missing_api_key', 'Missing API key. Send Authorization: Bearer <key>.'), 401);
-    if (!isBotKeyToken(token)) return json(errorBody('invalid_api_key', 'Invalid API key.'), 401);
-
-    const key = await deps.authenticate(token);
-    if (!key || key.revokedAt) return json(errorBody('invalid_api_key', 'Invalid API key.'), 401);
+    const auth = await authenticateBotRequest(request, token => deps.authenticate(token));
+    if ('response' in auth) return auth.response;
+    const { key } = auth;
 
     let payload: unknown;
     try {
         payload = await request.json();
     } catch {
+        await deps.recordKeyUse(key.id);
         return json(errorBody('invalid_json', 'Request body must be JSON.'), 400);
     }
     const parsed = parseBotRequest(pathname, payload, deps.now());
-    if (!parsed.ok) return json(errorBody(parsed.code, parsed.error), parsed.status);
+    if (!parsed.ok) {
+        await deps.recordKeyUse(key.id);
+        return json(errorBody(parsed.code, parsed.error), parsed.status);
+    }
     const command: BotCommand = parsed.command;
 
+    let createClient: BotClientRecord | null | 'ambiguous' = null;
+    if (command.kind === 'create' && isSeoManagerBot(key.name)) {
+        try {
+            createClient = await deps.findClient(key.organizationId, command);
+        } catch {
+            return json(errorBody('internal', 'Bot request failed.'), 500);
+        }
+        if (createClient && createClient !== 'ambiguous'
+            && createClient.organizationId === key.organizationId && createClient.status === 'inactive') {
+            return json(errorBody('client_inactive', 'Tasks cannot be created for an inactive client.'), 409);
+        }
+    }
+
+    await deps.recordKeyUse(key.id);
     const actor = await deps.actor(key.organizationId);
     if (!actor) {
         return json(errorBody('actor_not_found', 'Carlos Morones is not a member of this organization, so the entry cannot be attributed.'), 409);
@@ -1357,7 +1366,7 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
 
     try {
         const result = command.kind === 'create'
-            ? await executeCreate(key, actor, command, operation, deps)
+            ? await executeCreate(key, actor, command, createClient, operation, deps)
             : command.kind === 'start'
                 ? await executeStart(key, actor, command, operation, deps, cappedJustNow)
                 : command.kind === 'pause'

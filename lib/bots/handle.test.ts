@@ -39,6 +39,8 @@ const actor: BotActor = {
 interface Mem {
     keyName: string;
     revoked: boolean;
+    usedKeys: string[];
+    clientStatus: string;
     tasks: BotTaskRecord[];
     rows: Array<Record<string, unknown>>;
     timers: RunningBotTimer[];
@@ -78,6 +80,8 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
     const mem: Mem = {
         keyName: 'seo-manager',
         revoked: false,
+        usedKeys: [],
+        clientStatus: 'active',
         tasks: [],
         rows: [],
         timers: [],
@@ -99,6 +103,9 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
         async authenticate(token) {
             if (mem.revoked || hashBotKey(token) !== hashBotKey(TOKEN)) return null;
             return { id: KEY, organizationId: ORG, name: mem.keyName, revokedAt: null };
+        },
+        async recordKeyUse(keyId) {
+            mem.usedKeys.push(keyId);
         },
         async actor() {
             return actor;
@@ -129,7 +136,7 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
             Object.assign(operation, patch);
         },
         async findClient() {
-            return { id: CLIENT, organizationId: ORG, name: 'Ecoworkz' };
+            return { id: CLIENT, organizationId: ORG, name: 'Ecoworkz', status: mem.clientStatus };
         },
         async clientCategories() {
             return mem.categories;
@@ -418,6 +425,7 @@ function todoLinkWorld(input: {
     kind?: 'todo' | 'step' | null;
     steps?: Array<{ id: number; title: string; parent?: { id: number }; completed?: boolean }>;
     keyName?: string;
+    clientStatus?: string;
 } = {}) {
     const { mem, deps } = world({ tasks: input.tasks ?? [], keyName: input.keyName ?? 'seo-manager' });
     const reads: string[][] = [];
@@ -426,6 +434,7 @@ function todoLinkWorld(input: {
     const steps = [...input.steps ?? []];
     deps.findClient = async () => ({
         id: CLIENT, organizationId: ORG, name: 'Ecoworkz',
+        status: input.clientStatus ?? 'active',
         basecampProjectId: input.projectId === undefined ? '202' : input.projectId,
     });
     deps.basecampTasks = {
@@ -486,6 +495,20 @@ function todoLinkWorld(input: {
     }
     return { mem, deps, link, reads, writes, createdSteps };
 }
+
+test('bot rejects an inactive client before reading or writing Basecamp or recording the operation', async () => {
+    const { link, mem, reads, writes, createdSteps } = todoLinkWorld({ clientStatus: 'inactive' });
+    const response = await link({ subtasks: [{ title: 'Draft' }] });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, 'client_inactive');
+    assert.deepEqual(reads, []);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(createdSteps, []);
+    assert.deepEqual(mem.rows, []);
+    assert.deepEqual(mem.pushed, []);
+    assert.deepEqual(mem.operations, []);
+    assert.deepEqual(mem.usedKeys, []);
+});
 
 test('bot links an existing unlinked task to a to-do from any list in the configured project', async () => {
     const root = task({ id: 'root', title: 'Local title' });
@@ -752,6 +775,42 @@ test('bot leaves task links untouched when the Basecamp step list is unavailable
     assert.deepEqual(mem.rows, []);
     assert.deepEqual(createdSteps, []);
     assert.deepEqual(mem.pushed, []);
+});
+
+test('inactive clients cannot get tasks, including subtasks under a new or existing parent', async () => {
+    const parent = task({ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', title: 'August blogs' });
+    for (const draft of [
+        { clientName: 'Ecoworkz', taskTitle: 'Brief' },
+        { clientId: CLIENT, taskTitle: 'September blogs', subtasks: [{ title: 'Brief' }] },
+        { clientId: CLIENT, parentTaskId: parent.id, taskTitle: 'Brief' },
+        { clientId: CLIENT, taskTitle: parent.title },
+    ]) {
+        const { mem, deps } = world({ clientStatus: 'inactive', tasks: [parent] });
+        const response = await handleBotRequest(request(BOT_TASKS_PATH, {
+            idempotencyKey: 'inactive-client',
+            ...draft,
+        }), deps);
+        assert.equal(response.status, 409);
+        const body = await response.json();
+        assert.equal(body.code, 'client_inactive');
+        assert.match(body.error, /inactive/i);
+        assert.deepEqual(mem.rows, []);
+        assert.deepEqual(mem.pushed, []);
+        assert.deepEqual(mem.operations, []);
+        assert.deepEqual(mem.usedKeys, []);
+    }
+});
+
+test('bots can still create tasks for onboarding, pending, and paused clients', async () => {
+    for (const clientStatus of ['onboarding', 'pending', 'paused']) {
+        const { mem, deps } = world({ clientStatus });
+        const response = await handleBotRequest(request(BOT_TASKS_PATH, {
+            idempotencyKey: 'current-client', clientId: CLIENT, taskTitle: 'Brief',
+        }), deps);
+        assert.equal(response.status, 200, clientStatus);
+        assert.equal(mem.rows.length, 1);
+        assert.equal(mem.pushed.length, 1);
+    }
 });
 
 test('a timer starts only on an existing task and a second start on that task is the same timer', async () => {

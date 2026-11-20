@@ -140,6 +140,7 @@ function world(startedAt: string, row: Row = {}) {
         async authenticate() {
             return { id: KEY, organizationId: ORG, name: 'technical-seo', revokedAt: null };
         },
+        async recordKeyUse() {},
         async actor() {
             return { userId: CARLOS, name: 'Carlos Morones', email: 'carlos@example.test', organizationId: ORG };
         },
