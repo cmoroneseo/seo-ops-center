@@ -60,6 +60,22 @@ test('a subtask under an existing parent is a create, and a timer cannot create'
     if (!timer.ok) assert.equal(timer.code, 'unknown_field');
 });
 
+test('basecampTodoId is normalized and participates in the create request hash', () => {
+    const body = { idempotencyKey: 'link-basecamp-todo', clientId: CLIENT };
+    const number = parse(BOT_TASKS_PATH, { ...body, basecampTodoId: 77 });
+    const string = parse(BOT_TASKS_PATH, { ...body, basecampTodoId: ' 0077 ' });
+    const different = parse(BOT_TASKS_PATH, { ...body, basecampTodoId: 78 });
+    assert.ok(number.ok && number.command.kind === 'create' && string.ok && different.ok);
+    assert.equal(number.command.basecampTodoId, '77');
+    assert.equal(number.command.taskTitle, undefined);
+    assert.equal(number.command.requestHash, string.command.requestHash);
+    assert.notEqual(number.command.requestHash, different.command.requestHash);
+
+    const timer = parse(BOT_TIMER_START_PATH, { ...body, taskTitle: 'Brief', basecampTodoId: 77 });
+    assert.ok(!timer.ok);
+    assert.equal(timer.code, 'unknown_field');
+});
+
 test('stop accepts completion and rejects a future day', () => {
     const parsed = parse(BOT_TIMER_STOP_PATH, {
         idempotencyKey: 'stop-brief',

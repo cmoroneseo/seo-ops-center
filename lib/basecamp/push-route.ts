@@ -2,7 +2,14 @@ import {
     authorizeBasecampProject,
     type BasecampProjectAccessSource,
 } from './project-access.ts';
-import { stepsForTodo, type BasecampTodoStep } from './todo-steps.ts';
+import { isBasecampRecordingConflict } from './task-recording-conflict.ts';
+import {
+    BASECAMP_STEP_MATCH_CONFLICT,
+    groupByStepTitle,
+    normalizeStepTitle,
+    stepsForTodo,
+    type BasecampTodoStep,
+} from './todo-steps.ts';
 
 type TaskAuthorization =
     | {
@@ -52,7 +59,7 @@ interface PushStore {
         projectId: string,
         todoId: string,
         syncedAt: string,
-    ): Promise<string | null>;
+    ): Promise<{ code: string; message: string } | null>;
     markTaskSynced(
         taskId: string,
         organizationId: string,
@@ -122,10 +129,6 @@ function numericId(value: unknown): string | null {
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     const normalized = String(value).trim();
     return /^\d+$/.test(normalized) ? normalized : null;
-}
-
-function normalizeStepTitle(title: string): string {
-    return title.trim().toLowerCase();
 }
 
 /**
@@ -308,7 +311,10 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                             String(created.id),
                             dependencies.now(),
                         );
-                        if (updateError) return json({ error: updateError }, 500);
+                        if (isBasecampRecordingConflict(updateError)) {
+                            return json({ error: 'This Basecamp to-do is already linked to a task.' }, 409);
+                        }
+                        if (updateError) return json({ error: updateError.message }, 500);
                     }
 
                     const moved = await moveProjectTime(dependencies, task, projectId, String(created.id));
@@ -356,8 +362,8 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                         });
                     }
 
-                    const stepsByTitle = new Map<string, BasecampTodoStep[]>();
-                    const subtaskTitleCounts = new Map<string, number>();
+                    let stepsByTitle = new Map<string, BasecampTodoStep[]>();
+                    const subtasksByTitle = groupByStepTitle(unlinked);
                     const linkedStepIds = new Set(preserved.map(subtask => numericId(subtask.basecampTodoId)));
                     if (existingTodoId && unlinked.length > 0 && dependencies.provider.createStep) {
                         const steps = await dependencies.provider.listSteps?.(projectId, existingTodoId).catch(() => null);
@@ -370,19 +376,10 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                 ...subtaskSummary,
                             }, 502);
                         }
-                        for (const step of stepsForTodo(steps, existingTodoId)) {
-                            const title = normalizeStepTitle(step.title);
-                            const matches = stepsByTitle.get(title) ?? [];
-                            matches.push(step);
-                            stepsByTitle.set(title, matches);
-                        }
-                        for (const subtask of unlinked) {
-                            const title = normalizeStepTitle(subtask.title);
-                            subtaskTitleCounts.set(title, (subtaskTitleCounts.get(title) ?? 0) + 1);
-                        }
-                        const candidateIds = [...subtaskTitleCounts].flatMap(([title, count]) => {
+                        stepsByTitle = groupByStepTitle(stepsForTodo(steps, existingTodoId));
+                        const candidateIds = [...subtasksByTitle].flatMap(([title, candidates]) => {
                             const matches = stepsByTitle.get(title);
-                            return count === 1 && matches?.length === 1 ? [String(matches[0].id)] : [];
+                            return candidates.length === 1 && matches?.length === 1 ? [String(matches[0].id)] : [];
                         });
                         if (candidateIds.length > 0) {
                             if (!store.listLinkedStepIds) throw new Error('Basecamp step link lookup is unavailable');
@@ -398,10 +395,10 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                             const match = matches[0];
                             // Skip ambiguous or already-linked matches without choosing an owner
                             // or creating a duplicate. A unique, free match only gets a local link.
-                            if (match && (matches.length > 1 || (subtaskTitleCounts.get(title) ?? 0) > 1
+                            if (match && (matches.length > 1 || (subtasksByTitle.get(title)?.length ?? 0) > 1
                                 || linkedStepIds.has(String(match.id)))) {
                                 subtaskSummary.subtasksSkipped = (subtaskSummary.subtasksSkipped ?? 0) + 1;
-                                subtaskSummary.reason = 'Some subtasks stayed in SEO Ops because their Basecamp step matches were ambiguous or already linked.';
+                                subtaskSummary.reason = BASECAMP_STEP_MATCH_CONFLICT;
                                 continue;
                             }
                             const step = match ?? await dependencies.provider.createStep(
@@ -418,8 +415,6 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                     ...subtaskSummary,
                                 }, 502);
                             }
-                            // Only new steps participate in completion sync on this push.
-                            if (!match) createdStepIds.set(subtask.id, String(step.id));
                             const stepLinkError = await store.updateTaskLink(
                                 subtask.id,
                                 task.organizationId,
@@ -428,7 +423,14 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                 String(step.id),
                                 dependencies.now(),
                             );
-                            if (stepLinkError) return json({ error: stepLinkError }, 500);
+                            if (isBasecampRecordingConflict(stepLinkError)) {
+                                subtaskSummary.subtasksSkipped = (subtaskSummary.subtasksSkipped ?? 0) + 1;
+                                subtaskSummary.reason = BASECAMP_STEP_MATCH_CONFLICT;
+                                continue;
+                            }
+                            if (stepLinkError) return json({ error: stepLinkError.message }, 500);
+                            // Only newly created, successfully linked steps get completion sync here.
+                            if (!match) createdStepIds.set(subtask.id, String(step.id));
                         }
                     }
                     for (const subtask of subtasks) {

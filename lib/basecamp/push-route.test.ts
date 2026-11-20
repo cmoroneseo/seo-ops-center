@@ -391,6 +391,7 @@ async function pushExistingTodo(input: {
     steps?: Array<{ id: number; title: string; parent?: { id: number } }>;
     claimed?: string[];
     stepReadFails?: boolean;
+    linkConflictId?: string;
 }) {
     const { createBasecampPushPost } = await loadRouteModule();
     const createdSteps: string[] = [];
@@ -409,6 +410,12 @@ async function pushExistingTodo(input: {
             },
             updateTaskLink: async (taskId, orgId, clientId, projectId, stepId) => {
                 assert.deepEqual([orgId, clientId, projectId], ['org-a', 'client-a', '202']);
+                if (stepId === input.linkConflictId) {
+                    return {
+                        code: '23505',
+                        message: 'duplicate key value violates unique constraint "tasks_basecamp_recording_unique"',
+                    };
+                }
                 linked.push([taskId, stepId]);
                 return null;
             },
@@ -508,6 +515,33 @@ test('push fails without creating steps when the Basecamp step read fails', asyn
     });
     assert.deepEqual(result.createdSteps, []);
     assert.deepEqual(result.linked, []);
+});
+
+test('push skips a step claimed during the link write and continues with other subtasks', async () => {
+    const result = await pushExistingTodo({
+        titles: ['Brief', 'Draft'],
+        steps: [{ id: 81, title: 'Brief' }],
+        linkConflictId: '81',
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.success, true);
+    assert.equal(result.body.subtasksSkipped, 1);
+    assert.match(String(result.body.reason), /already linked/i);
+    assert.deepEqual(result.createdSteps, ['Draft']);
+    assert.deepEqual(result.linked, [['child-2', '101']]);
+    assert.deepEqual(result.completedSteps, ['101']);
+});
+
+test('push leaves a newly created step alone if another task claims it before the link write', async () => {
+    const result = await pushExistingTodo({ titles: ['Brief'], linkConflictId: '101' });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.subtasksSkipped, 1);
+    assert.match(String(result.body.reason), /already linked/i);
+    assert.deepEqual(result.createdSteps, ['Brief']);
+    assert.deepEqual(result.linked, []);
+    assert.deepEqual(result.completedSteps, []);
 });
 
 test('create push keeps imported Basecamp ids when nesting existing tasks', async () => {

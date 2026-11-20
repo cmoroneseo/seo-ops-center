@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
             return {
                 async insertTasks(rows) {
                     const { error } = await admin.from('tasks').insert(rows);
-                    return error?.message ?? null;
+                    return error;
                 },
                 async logCompletions(payload) {
                     // One event per finished to-do, dated when it was

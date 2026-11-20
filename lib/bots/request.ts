@@ -57,6 +57,7 @@ export interface BotCreateCommand extends BotTaskTarget {
     requestHash: string;
     category?: string;
     dueDate?: string;
+    basecampTodoId?: string;
     subtasks: BotSubtaskDraft[];
 }
 
@@ -247,7 +248,7 @@ function unknownFields(record: Record<string, unknown>, allowed: Set<string>): B
 
 const CREATE_FIELDS = new Set([
     'idempotencyKey', 'clientId', 'clientName', 'taskId', 'taskTitle',
-    'parentTaskId', 'parentTitle', 'category', 'dueDate', 'subtasks',
+    'parentTaskId', 'parentTitle', 'category', 'dueDate', 'subtasks', 'basecampTodoId',
 ]);
 
 const START_FIELDS = new Set([
@@ -314,9 +315,21 @@ function parseCreate(record: Record<string, unknown>): BotRequestParse {
     if (unknown) return unknown;
     const key = idempotencyKeyOf(record);
     if ('ok' in key) return key;
-    const target = targetOf(record, true);
+    let basecampTodoId: string | undefined;
+    if ('basecampTodoId' in record) {
+        const raw = typeof record.basecampTodoId === 'number' ? String(record.basecampTodoId) : text(record.basecampTodoId);
+        const id = raw && /^\d+$/.test(raw) ? Number(raw) : NaN;
+        if (!Number.isSafeInteger(id) || id <= 0) {
+            return fail(400, 'invalid_request', 'basecampTodoId must be a positive integer.');
+        }
+        if ('parentTaskId' in record || 'parentTitle' in record) {
+            return fail(400, 'invalid_request', 'basecampTodoId is only for top-level tasks.');
+        }
+        basecampTodoId = String(id);
+    }
+    const target = targetOf(record, !basecampTodoId);
     if ('ok' in target) return target;
-    if (!target.taskTitle) return fail(400, 'invalid_request', 'create requires taskTitle.');
+    if (!target.taskTitle && !basecampTodoId) return fail(400, 'invalid_request', 'create requires taskTitle.');
     if (target.taskId) return fail(400, 'invalid_request', 'Creating a task does not take taskId. Send taskTitle.');
     const category = categoryOf(record.category);
     if ('ok' in category) return category;
@@ -333,6 +346,7 @@ function parseCreate(record: Record<string, unknown>): BotRequestParse {
             kind: 'create',
             idempotencyKey: key.key,
             ...target,
+            ...(basecampTodoId ? { basecampTodoId } : {}),
             ...(category.category ? { category: category.category } : {}),
             ...(dueDate.dueDate ? { dueDate: dueDate.dueDate } : {}),
             subtasks: subtasks.subtasks,

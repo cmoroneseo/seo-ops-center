@@ -1,4 +1,5 @@
 import { isTaskStage } from '../tasks/stage.ts';
+import { isBasecampRecordingConflict } from './task-recording-conflict.ts';
 import {
     assignOnboardingPositions,
     EMPTY_ONBOARDING_SCOPE,
@@ -117,7 +118,7 @@ type ClientAuthorization =
     | { ok: false; status: number; error: string };
 
 interface ImportWriter {
-    insertTasks(rows: Array<Record<string, unknown>>): Promise<string | null>;
+    insertTasks(rows: Array<Record<string, unknown>>): Promise<{ code: string; message: string } | null>;
     /**
      * Completions for to-dos that arrived already finished.
      *
@@ -559,6 +560,32 @@ export async function buildBasecampTaskRows(input: {
     return { ok: true, rows, steps };
 }
 
+async function insertImportRows(writer: ImportWriter, rows: Array<Record<string, unknown>>) {
+    const inserted: typeof rows = [];
+    const skippedRecordingIds: number[] = [];
+    const errors: string[] = [];
+
+    async function insertBatch(batch: typeof rows) {
+        const error = await writer.insertTasks(batch);
+        if (!error) {
+            inserted.push(...batch);
+        } else if (!isBasecampRecordingConflict(error)) {
+            errors.push(error.message);
+        } else if (batch.length === 1) {
+            skippedRecordingIds.push(Number(batch[0].basecamp_todo_id));
+        } else {
+            // The conflicting insert was atomic. Retry smaller batches so
+            // one claimed recording does not discard the other rows.
+            const midpoint = Math.ceil(batch.length / 2);
+            await insertBatch(batch.slice(0, midpoint));
+            await insertBatch(batch.slice(midpoint));
+        }
+    }
+
+    for (const batch of chunk(rows)) await insertBatch(batch);
+    return { inserted, skippedRecordingIds, errors };
+}
+
 export function createBasecampImportTasksPost(dependencies: Dependencies) {
     return async function postBasecampImport(req: Request): Promise<Response> {
         try {
@@ -648,9 +675,6 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 known.map(record => record.basecampTodoId).filter(id => stepIds.has(id)),
             );
 
-            const errors: string[] = [];
-            const insertedRows: Array<Record<string, unknown>> = [];
-            const failedParentIds = new Set<number>();
             // Already-imported to-dos are left out of this list, so a second
             // import cannot move a task someone already dragged to another stage.
             const newParentRows = built.rows.filter(row => !parentsByTodo.has(Number(row.basecamp_todo_id)));
@@ -669,46 +693,36 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 }
                 rowsToInsert = assignOnboardingPositions(newParentRows, maxPosition);
             }
-            for (const part of chunk(rowsToInsert)) {
-                const error = await writer.insertTasks(part);
-                if (error) {
-                    errors.push(error);
-                    for (const row of part) failedParentIds.add(Number(row.basecamp_todo_id));
-                } else {
-                    // Only rows that actually landed. A failed chunk must not
-                    // announce completions for work that was never imported.
-                    insertedRows.push(...part);
-                }
-            }
+            const parentImport = await insertImportRows(writer, rowsToInsert);
 
-            const insertedParentIds = insertedRows.map(row => Number(row.basecamp_todo_id));
-            if (writer.findRecordings && insertedParentIds.length > 0) {
-                const created = await writer.findRecordings(
+            // A concurrent winner in this client can still receive any unclaimed steps.
+            const parentIdsToLoad = [
+                ...parentImport.inserted.map(row => Number(row.basecamp_todo_id)),
+                ...parentImport.skippedRecordingIds,
+            ];
+            if (writer.findRecordings && parentIdsToLoad.length > 0) {
+                const saved = await writer.findRecordings(
                     authorization.organizationId,
                     authorization.clientId,
-                    insertedParentIds,
+                    parentIdsToLoad,
                 );
-                for (const [todoId, record] of indexTopLevel(created)) {
+                for (const [todoId, record] of indexTopLevel(saved)) {
                     parentsByTodo.set(todoId, record);
                 }
             }
 
             const childRows = linkImportedSteps({
                 drafts: built.steps,
-                parents: [...parentsByTodo.entries()]
-                    .filter(([todoId]) => !failedParentIds.has(todoId))
-                    .map(([basecampTodoId, record]) => ({
-                        basecampTodoId,
-                        taskId: record.id,
-                        stage: record.stage,
-                    })),
+                parents: [...parentsByTodo.entries()].map(([basecampTodoId, record]) => ({
+                    basecampTodoId,
+                    taskId: record.id,
+                    stage: record.stage,
+                })),
                 alreadyImportedStepIds,
             });
-            for (const part of chunk(childRows)) {
-                const error = await writer.insertTasks(part);
-                if (error) errors.push(error);
-                else insertedRows.push(...part);
-            }
+            const childImport = await insertImportRows(writer, childRows);
+            const insertedRows = [...parentImport.inserted, ...childImport.inserted];
+            const errors = [...parentImport.errors, ...childImport.errors];
 
             const imported = insertedRows.length;
 
