@@ -20610,3 +20610,10 @@ revoke all on function public.reserve_sheet_sync_run(uuid, uuid, uuid, text, tex
     from public, anon, authenticated;
 grant execute on function public.reserve_sheet_sync_run(uuid, uuid, uuid, text, text, uuid)
     to service_role;
+
+-- Migration 136: Per-client sheet mirror switch.
+--
+-- Clients opt in individually after linking a roadmap sheet.
+
+alter table public.clients
+    add column if not exists sheet_mirror_enabled boolean not null default false;

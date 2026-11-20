@@ -14,8 +14,12 @@ export async function GET(_request: Request, { params }: Context) {
     const enabled = isMirrorEnabled();
     const canSync = auth.role === 'owner' || auth.role === 'admin' || auth.role === 'member';
     try {
-        const runs = await liveMirrorStore().listRuns(id, auth.organizationId);
-        return Response.json({ runs, enabled, canSync });
+        const store = liveMirrorStore();
+        const [client, runs] = await Promise.all([
+            store.loadClient(id, auth.organizationId),
+            store.listRuns(id, auth.organizationId),
+        ]);
+        return Response.json({ runs, enabled, canSync, clientEnabled: client?.sheet_mirror_enabled ?? false });
     } catch {
         return Response.json({ error: 'Could not load recent sheet syncs', enabled, canSync }, { status: 500 });
     }
@@ -27,6 +31,7 @@ export async function POST(_request: Request, { params }: Context) {
         return await runManualMirror(id, {
             enabled: isMirrorEnabled(),
             authorize: requireClientOrgMember,
+            loadClient: (clientId, organizationId) => liveMirrorStore().loadClient(clientId, organizationId),
             sync: handleManualMirror,
         });
     } catch {

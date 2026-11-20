@@ -3,6 +3,7 @@ import { buildMirror, type MirrorTab } from './model';
 import type { MirrorStore, Trigger } from './store';
 
 export const MIRROR_OFF = 'Sheet mirror is off';
+export const CLIENT_MIRROR_OFF = 'Sheet mirror is off for this client';
 export const MISSING_CREDENTIALS = 'Google service account credentials are missing or invalid';
 
 export function mirrorEnabled(env: { SHEETS_MIRROR_ENABLED?: string }): boolean {
@@ -24,6 +25,7 @@ interface SyncDeps {
 export async function syncClientSheet(clientId: string, deps: SyncDeps) {
     if (!deps.enabled) return { status: 'skipped', reason: 'disabled' } as const;
     const client = await deps.store.loadClient(clientId, deps.organizationId);
+    if (client && !client.sheet_mirror_enabled) return { status: 'skipped', reason: 'client_disabled' } as const;
     if (!client?.roadmap_sheet_id) return { status: 'skipped', reason: 'missing_sheet' } as const;
     const runId = deps.runId ?? randomUUID();
     const reservation = await deps.store.reserve(runId, client, deps.trigger, deps.requestedBy ?? null);

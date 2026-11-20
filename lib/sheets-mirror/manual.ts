@@ -1,9 +1,11 @@
 import type { requireClientOrgMember } from '../security/tenant-authz';
-import { MIRROR_OFF, type syncClientSheet } from './run';
+import type { MirrorStore } from './store';
+import { CLIENT_MIRROR_OFF, MIRROR_OFF, type syncClientSheet } from './run';
 
 export async function runManualMirror(clientId: string, deps: {
     enabled: boolean;
     authorize: typeof requireClientOrgMember;
+    loadClient: MirrorStore['loadClient'];
     sync: (clientId: string, organizationId: string, userId: string) => Promise<Awaited<ReturnType<typeof syncClientSheet>> | { status: 'unconfigured'; error: string }>;
 }): Promise<Response> {
     const auth = await deps.authorize(clientId);
@@ -13,6 +15,11 @@ export async function runManualMirror(clientId: string, deps: {
     }
     if (!deps.enabled) return Response.json({ error: MIRROR_OFF, enabled: false }, { status: 409 });
 
+    const client = await deps.loadClient(clientId, auth.organizationId);
+    if (client && !client.sheet_mirror_enabled) {
+        return Response.json({ error: CLIENT_MIRROR_OFF, clientEnabled: false }, { status: 409 });
+    }
+
     const result = await deps.sync(clientId, auth.organizationId, auth.userId);
     if (result.status === 'skipped') {
         switch (result.reason) {
@@ -20,6 +27,8 @@ export async function runManualMirror(clientId: string, deps: {
                 return Response.json({ error: 'Wait two minutes between manual sheet syncs' }, { status: 429 });
             case 'missing_sheet':
                 return Response.json({ error: 'Link a Google Sheet in Integrations first' }, { status: 409 });
+            case 'client_disabled':
+                return Response.json({ error: CLIENT_MIRROR_OFF, clientEnabled: false }, { status: 409 });
             case 'disabled':
                 return Response.json({ error: MIRROR_OFF, enabled: false }, { status: 409 });
             default:
