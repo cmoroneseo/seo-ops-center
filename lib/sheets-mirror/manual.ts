@@ -19,7 +19,7 @@ export async function runManualMirror(clientId: string, deps: {
             case 'rate_limited':
                 return Response.json({ error: 'Wait two minutes between manual sheet syncs' }, { status: 429 });
             case 'missing_sheet':
-                return Response.json({ error: 'Save a Client SEO sheet first' }, { status: 409 });
+                return Response.json({ error: 'Link a Google Sheet in Integrations first' }, { status: 409 });
             case 'disabled':
                 return Response.json({ error: MIRROR_OFF, enabled: false }, { status: 409 });
             default:

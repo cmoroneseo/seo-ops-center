@@ -10,6 +10,7 @@ import { GscConnectionCard } from './GscConnectionCard';
 import { GooglePropertyPicker } from './GooglePropertyPicker';
 import { BasecampImportModal } from './BasecampImportModal';
 import { BasecampPlanListFields } from './BasecampPlanListFields';
+import { ClientSheetSync } from './ClientSheetSync';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { cn } from '@/lib/utils';
 import { ga4PickerRequested } from '@/lib/agency-dashboard/ga4-link';
@@ -764,7 +765,6 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                 })}
             </div>
 
-            {/* Basecamp Sync */}
             <div hidden={selectedService !== 'google-sheets'} id="integration-panel-google-sheets" role="region" aria-labelledby="integration-card-google-sheets" className="rounded-2xl border border-border/50 bg-card p-5 sm:p-6 space-y-5">
                 <div className="flex items-center gap-3">
                     <IntegrationIcon service="google-sheets" />
@@ -808,6 +808,9 @@ export function IntegrationsTab({ clientId, clientName, website }: Props) {
                         </button>
                     )}
                 </div>
+                {sheetConfig?.roadmap_sheet_id && (
+                    <ClientSheetSync key={`${clientId}:${sheetConfig.roadmap_sheet_id}`} clientId={clientId} />
+                )}
             </div>
 
             <div hidden={selectedService !== 'basecamp'} id="integration-panel-basecamp" role="region" aria-labelledby="integration-card-basecamp" className="rounded-2xl border border-border/50 bg-card p-5 sm:p-6 space-y-5">

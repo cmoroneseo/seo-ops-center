@@ -115,7 +115,7 @@ const sheets = [
     [5, 'Roadmap (prev)'], [6, 'App – Other (prev)'], [7, INFO_TAB],
 ].map(([sheetId, title]) => ({ properties: { sheetId, title, gridProperties: { rowCount: 10, columnCount: 14 } } }));
 
-test('metadata only, then snapshot and resize app tabs, then clear and write raw strings', async () => {
+test('snapshot and resize app tabs, hide App IDs on existing and new tabs, then write raw strings', async () => {
     const calls: { url: string; body: Record<string, unknown> | undefined }[] = [];
     await writeMirror('sheet', tabs, {
         serviceAccountEmail: 'svc@example.test',
@@ -131,11 +131,19 @@ test('metadata only, then snapshot and resize app tabs, then clear and write raw
     const writes = calls.slice(1).map(call => call.body);
     assert.deepEqual(writes[0]?.requests, [
         { deleteSheet: { sheetId: 4 } },
-        { duplicateSheet: { sourceSheetId: 3, newSheetName: `${ROADMAP_TAB} (prev)` } },
+        { duplicateSheet: { sourceSheetId: 3, newSheetId: 8, newSheetName: `${ROADMAP_TAB} (prev)` } },
         { updateSheetProperties: { properties: { sheetId: 3, gridProperties: { rowCount: 10, columnCount: 14, frozenRowCount: 1 } },
             fields: 'gridProperties(frozenRowCount,rowCount,columnCount)' } },
-        { addSheet: { properties: { title: TASKS_TAB, gridProperties: { rowCount: 2, columnCount: 11, frozenRowCount: 1 } } } },
-        { duplicateSheet: { sourceSheetId: 7, newSheetName: `${INFO_TAB} (prev)` } },
+        { updateDimensionProperties: {
+            range: { sheetId: 3, dimension: 'COLUMNS', startIndex: 8, endIndex: 9 },
+            properties: { hiddenByUser: true }, fields: 'hiddenByUser',
+        } },
+        { addSheet: { properties: { sheetId: 9, title: TASKS_TAB, gridProperties: { rowCount: 2, columnCount: 11, frozenRowCount: 1 } } } },
+        { updateDimensionProperties: {
+            range: { sheetId: 9, dimension: 'COLUMNS', startIndex: 10, endIndex: 11 },
+            properties: { hiddenByUser: true }, fields: 'hiddenByUser',
+        } },
+        { duplicateSheet: { sourceSheetId: 7, newSheetId: 10, newSheetName: `${INFO_TAB} (prev)` } },
         { updateSheetProperties: { properties: { sheetId: 7, gridProperties: { rowCount: 10, columnCount: 14, frozenRowCount: 1 } },
             fields: 'gridProperties(frozenRowCount,rowCount,columnCount)' } },
     ]);
@@ -221,6 +229,21 @@ test('cron enqueues only the first client and every queue step processes one cli
     await runMirrorQueue(messages[1], { enabled: true, sync, publish });
     assert.deepEqual(synced, [id, other]);
     assert.equal(messages.length, 2);
+});
+
+test('the queue publishes the next client when sync throws', async (t) => {
+    const log = t.mock.method(console, 'error', () => {});
+    const messages: MirrorMessage[] = [];
+    await runMirrorQueue(chain, {
+        enabled: true,
+        async sync(clientId) {
+            assert.equal(clientId, id);
+            throw new Error('internal database details');
+        },
+        async publish(message) { messages.push(message); },
+    });
+    assert.deepEqual(messages, [{ ...chain, index: 1 }]);
+    assert.deepEqual(log.mock.calls.map(call => call.arguments), [['Client sheet mirror sync failed']]);
 });
 
 test('sync logs success and failure, and a client without a saved sheet skips all writes', async () => {

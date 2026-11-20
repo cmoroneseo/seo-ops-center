@@ -104,6 +104,10 @@ export async function runMirrorQueue(payload: unknown, deps: ChainDeps & {
     // A redelivery can advance the chain without snapshotting a finished run twice.
     const hex = createHash('sha256').update(`${chainId}:${index}`).digest('hex');
     const runId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-    await deps.sync(clients[index], runId);
+    try {
+        await deps.sync(clients[index], runId);
+    } catch {
+        console.error('Client sheet mirror sync failed');
+    }
     if (index + 1 < clients.length) await deps.publish({ ...message, index: index + 1 });
 }

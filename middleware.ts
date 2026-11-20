@@ -44,11 +44,6 @@ export async function middleware(request: NextRequest) {
         return NextResponse.next()
     }
 
-    // Sheet mirror cron and queue requests authenticate in their route handlers.
-    if (pathname === '/api/cron/sync-client-sheets' || pathname === '/api/queues/client-sheet-mirror') {
-        return NextResponse.next()
-    }
-
     // The metrics handler validates the cron secret or client-scoped session itself.
     if (request.nextUrl.pathname === '/api/sync/metrics') return NextResponse.next();
 
@@ -141,7 +136,8 @@ export async function middleware(request: NextRequest) {
     const isWebhookRoute = pathname.startsWith('/api/integrations/basecamp/webhook') ||
         pathname.startsWith('/api/cron/') ||
         pathname === '/api/queues/gsc-v2-backfill' ||
-        pathname === '/api/queues/bing-webmaster-sync'
+        pathname === '/api/queues/bing-webmaster-sync' ||
+        pathname === '/api/queues/client-sheet-mirror'
 
     // Portal sign-in is invite + magic link. The hub itself still requires a session.
     const isPortalEntry = isPortalLoginPath(pathname)

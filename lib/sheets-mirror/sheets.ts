@@ -64,29 +64,44 @@ export async function writeMirror(sheetId: string, tabs: MirrorTab[], deps: Shee
     const response = await request('?fields=sheets.properties');
     const metadata = await response.json() as { sheets?: { properties: SheetProperties }[] };
     const sheets = new Map(metadata.sheets?.map(({ properties }) => [properties.title, properties]));
+    const existingIds = new Set([...sheets.values()].map(sheet => sheet.sheetId));
+    let nextSheetId = 1;
+    function allocateSheetId() {
+        while (existingIds.has(nextSheetId)) nextSheetId++;
+        return nextSheetId++;
+    }
     const operations: object[] = [];
     const targets: string[] = [];
     for (const { title, rows } of tabs) {
         const current = sheets.get(title);
+        const sheetId = current?.sheetId ?? allocateSheetId();
         const rowCount = Math.max(2, rows.length, current?.gridProperties?.rowCount ?? 0);
         const columnCount = rows.reduce((count, row) => Math.max(count, row.length), current?.gridProperties?.columnCount ?? 1);
         const gridProperties = { frozenRowCount: 1, rowCount, columnCount };
         targets.push(title);
         if (!current) {
-            operations.push({ addSheet: { properties: { title, gridProperties } } });
-            continue;
+            operations.push({ addSheet: { properties: { sheetId, title, gridProperties } } });
+        } else {
+            const snapshotTitle = `${title} (prev)`;
+            targets.push(snapshotTitle);
+            const oldSnapshot = sheets.get(snapshotTitle);
+            if (oldSnapshot) operations.push({ deleteSheet: { sheetId: oldSnapshot.sheetId } });
+            operations.push(
+                { duplicateSheet: { sourceSheetId: sheetId, newSheetId: allocateSheetId(), newSheetName: snapshotTitle } },
+                { updateSheetProperties: {
+                    properties: { sheetId, gridProperties },
+                    fields: 'gridProperties(frozenRowCount,rowCount,columnCount)',
+                } },
+            );
         }
-        const snapshotTitle = `${title} (prev)`;
-        targets.push(snapshotTitle);
-        const oldSnapshot = sheets.get(snapshotTitle);
-        if (oldSnapshot) operations.push({ deleteSheet: { sheetId: oldSnapshot.sheetId } });
-        operations.push(
-            { duplicateSheet: { sourceSheetId: current.sheetId, newSheetName: snapshotTitle } },
-            { updateSheetProperties: {
-                properties: { sheetId: current.sheetId, gridProperties },
-                fields: 'gridProperties(frozenRowCount,rowCount,columnCount)',
-            } },
-        );
+        if (title === ROADMAP_TAB || title === TASKS_TAB) {
+            const appIdColumn = rows[0]?.indexOf('App ID') ?? -1;
+            if (appIdColumn >= 0) operations.push({ updateDimensionProperties: {
+                range: { sheetId, dimension: 'COLUMNS', startIndex: appIdColumn, endIndex: appIdColumn + 1 },
+                properties: { hiddenByUser: true },
+                fields: 'hiddenByUser',
+            } });
+        }
     }
     await request(':batchUpdate', { requests: operations }, targets);
 
