@@ -343,6 +343,7 @@ const SERVICE_LABELS: Record<string, string> = {
     gbp: 'Google Business Profile',
     ahrefs: 'Ahrefs',
     basecamp: 'Basecamp',
+    'google-sheets': 'Google Sheets',
 };
 
 function IntegrationEventRow({ event }: { event: ClientActivityEvent }) {

@@ -531,6 +531,8 @@ export interface ClientProject {
     organizationId: string;
     clientName: string;
     domain?: string;
+    roadmapSheetUrl?: string | null;
+    roadmapSheetId?: string | null;
     logoUrl?: string;
     launchDate?: string;
     /** Replaces `launchDate` as the engagement clock when the start was corrected. */

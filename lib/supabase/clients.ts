@@ -37,6 +37,8 @@ export function rowToClientProject(row: any): ClientProject {
         organizationId: row.organization_id,
         clientName: row.name,
         domain: row.domain ?? undefined,
+        roadmapSheetUrl: row.roadmap_sheet_url,
+        roadmapSheetId: row.roadmap_sheet_id,
         logoUrl: row.logo_url ?? undefined,
         launchDate,
         onboardingDate: row.onboarding_date ?? undefined,
