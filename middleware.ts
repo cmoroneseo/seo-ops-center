@@ -1,10 +1,10 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { botRequestDecision } from '@/lib/bots/scope'
+import { BOT_CLIENTS_PATH, botRequestDecision } from '@/lib/bots/scope'
 import { classifyActor, clientPortalAllowedPath, contactErrorKind, isPortalLoginPath } from '@/lib/portal/access-policy'
 
 export async function middleware(request: NextRequest) {
-    // A bot key is not a session. It may POST task create and timer start/stop, and nothing else.
+    // Bot handlers verify their own bearer keys.
     const botDecision = botRequestDecision({
         pathname: request.nextUrl.pathname,
         method: request.method,
@@ -19,6 +19,9 @@ export async function middleware(request: NextRequest) {
     if (botDecision === 'allow') return NextResponse.next()
 
     const { pathname } = request.nextUrl
+    // Let the lookup handler return its API-key error for missing or malformed credentials.
+    if (request.method === 'GET' && pathname === BOT_CLIENTS_PATH) return NextResponse.next()
+
     // Client GBP review. The share token is the credential. Do not attach a session,
     // and do not cache or send a referrer that could leak the token.
     if (pathname.startsWith('/r/') || pathname.startsWith('/api/public/approvals')) {
