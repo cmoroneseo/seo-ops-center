@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { normalizeBasecampTodoStep } from './todo-steps.ts';
 
 type RouteModule = typeof import('./push-route.ts');
 
@@ -359,6 +360,7 @@ test('retrying a partial create reuses the linked parent and skips already-linke
             getTodo: async (_projectId, todoId) => ({ id: todoId }),
             listTodolists: async () => [{ id: 44 }],
             createTodo: async () => { throw new Error('must not duplicate the linked parent'); },
+            listSteps: async () => [],
             createStep: async (_projectId, parentId, title) => {
                 assert.equal(parentId, '77');
                 createdSteps.push(title);
@@ -382,6 +384,164 @@ test('retrying a partial create reuses the linked parent and skips already-linke
     assert.deepEqual(createdSteps, ['Retry this step']);
     assert.equal((await response.json()).subtasksPreserved, 1);
     assert.deepEqual(completed, ['202', '77']);
+});
+
+async function pushExistingTodo(input: {
+    titles: string[];
+    steps?: Array<{ id: number; title: string; parent?: { id: number } }>;
+    claimed?: string[];
+    stepReadFails?: boolean;
+    linkConflictId?: string;
+}) {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const createdSteps: string[] = [];
+    const linked: Array<[string, string]> = [];
+    const completedSteps: string[] = [];
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => ({ ...canonicalTask, status: 'todo' }),
+            listSubtasks: async () => input.titles.map((title, index) => ({
+                id: `child-${index + 1}`, title, status: 'done', basecampTodoId: null,
+            })),
+            listLinkedStepIds: async (projectId: string, stepIds: string[]) => {
+                assert.equal(projectId, '202');
+                return (input.claimed ?? []).filter(id => stepIds.includes(id));
+            },
+            updateTaskLink: async (taskId, orgId, clientId, projectId, stepId) => {
+                assert.deepEqual([orgId, clientId, projectId], ['org-a', 'client-a', '202']);
+                if (stepId === input.linkConflictId) {
+                    return {
+                        code: '23505',
+                        message: 'duplicate key value violates unique constraint "tasks_basecamp_recording_unique"',
+                    };
+                }
+                linked.push([taskId, stepId]);
+                return null;
+            },
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async (_projectId, todoId) => ({ id: todoId }),
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async () => { throw new Error('must reuse the linked to-do'); },
+            listSteps: async (projectId: string, todoId: string) => {
+                assert.deepEqual([projectId, todoId], ['202', '77']);
+                if (input.stepReadFails) throw new Error('Basecamp unavailable');
+                return (input.steps ?? []).map(step => normalizeBasecampTodoStep(step)!);
+            },
+            createStep: async (projectId, todoId, title) => {
+                assert.deepEqual([projectId, todoId], ['202', '77']);
+                createdSteps.push(title);
+                return { id: 100 + createdSteps.length };
+            },
+            completeTodo: async () => false,
+            completeStep: async (_projectId, stepId) => {
+                completedSteps.push(stepId);
+                return true;
+            },
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: 'task-a' }));
+    return { status: response.status, body: await responseBody(response), createdSteps, linked, completedSteps };
+}
+
+test('push links exact and case-insensitive trimmed titles without changing existing steps', async () => {
+    const result = await pushExistingTodo({
+        titles: ['Connect Analytics', '  QA the Page  '],
+        steps: [{ id: 81, title: 'Connect Analytics' }, { id: 82, title: 'qa the page' }],
+    });
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.createdSteps, []);
+    assert.deepEqual(result.linked, [['child-1', '81'], ['child-2', '82']]);
+    assert.deepEqual(result.completedSteps, []);
+});
+
+test('push creates a step when the title only matches under a different to-do', async () => {
+    const result = await pushExistingTodo({
+        titles: ['Connect Analytics'],
+        steps: [{ id: 81, title: 'Connect Analytics', parent: { id: 78 } }],
+    });
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.createdSteps, ['Connect Analytics']);
+    assert.deepEqual(result.linked, [['child-1', '101']]);
+    assert.deepEqual(result.completedSteps, ['101']);
+});
+
+test('push skips titles shared by multiple Basecamp steps or multiple unlinked subtasks', async () => {
+    const result = await pushExistingTodo({
+        titles: ['Brief', 'Draft', ' draft '],
+        steps: [{ id: 81, title: 'Brief' }, { id: 82, title: 'BRIEF' }, { id: 83, title: 'Draft' }],
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.subtasksSkipped, 3);
+    assert.match(String(result.body.reason), /ambiguous/i);
+    assert.deepEqual(result.createdSteps, []);
+    assert.deepEqual(result.linked, []);
+});
+
+test('push links, creates, and skips claimed matches in the same batch', async () => {
+    const result = await pushExistingTodo({
+        titles: ['Connect Analytics', 'Connect Search Console', 'QA'],
+        steps: [{ id: 81, title: 'Connect Analytics' }, { id: 82, title: 'QA' }],
+        claimed: ['82'],
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.subtasksSkipped, 1);
+    assert.match(String(result.body.reason), /already linked/i);
+    assert.deepEqual(result.createdSteps, ['Connect Search Console']);
+    assert.deepEqual(result.linked, [['child-1', '81'], ['child-2', '101']]);
+    assert.deepEqual(result.completedSteps, ['101']);
+});
+
+test('push fails without creating steps when the Basecamp step read fails', async () => {
+    const result = await pushExistingTodo({ titles: ['Brief'], stepReadFails: true });
+
+    assert.equal(result.status, 502);
+    assert.deepEqual(result.body, {
+        success: false, partial: true, todoId: '77', error: 'Basecamp subtasks could not be read',
+    });
+    assert.deepEqual(result.createdSteps, []);
+    assert.deepEqual(result.linked, []);
+});
+
+test('push skips a step claimed during the link write and continues with other subtasks', async () => {
+    const result = await pushExistingTodo({
+        titles: ['Brief', 'Draft'],
+        steps: [{ id: 81, title: 'Brief' }],
+        linkConflictId: '81',
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.success, true);
+    assert.equal(result.body.subtasksSkipped, 1);
+    assert.match(String(result.body.reason), /already linked/i);
+    assert.deepEqual(result.createdSteps, ['Draft']);
+    assert.deepEqual(result.linked, [['child-2', '101']]);
+    assert.deepEqual(result.completedSteps, ['101']);
+});
+
+test('push leaves a newly created step alone if another task claims it before the link write', async () => {
+    const result = await pushExistingTodo({ titles: ['Brief'], linkConflictId: '101' });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.subtasksSkipped, 1);
+    assert.match(String(result.body.reason), /already linked/i);
+    assert.deepEqual(result.createdSteps, ['Brief']);
+    assert.deepEqual(result.linked, []);
+    assert.deepEqual(result.completedSteps, []);
 });
 
 test('create push keeps imported Basecamp ids when nesting existing tasks', async () => {

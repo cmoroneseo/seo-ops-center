@@ -13,6 +13,7 @@ import {
     updateBasecampTodoAssignees,
     updateBasecampTodoDueDate,
     createBasecampTodoStep,
+    listBasecampTodoSteps,
     basecampSubtaskSupport,
     findProjectTimesheetRecordingId,
     listBasecampProjectTimesheetEntries,
@@ -27,6 +28,11 @@ import { seoPlanPushTodolistId } from './plan-lists.ts';
 import { classifyBasecampRecording, completableRecordingKind } from '../seo-plan/basecamp-nest.ts';
 
 type AuthorizeTask = Parameters<typeof createBasecampPushPost>[0]['authorizeTask'];
+
+export async function basecampRecordingKind(projectId: string, recordingId: string) {
+    const body = await getBasecampRecording(projectId, recordingId);
+    return completableRecordingKind(classifyBasecampRecording(body));
+}
 
 /**
  * The to-do push the task drawer uses. Callers supply who is allowed to push.
@@ -117,6 +123,16 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                         basecampTodoId: subtask.basecamp_todo_id,
                     }));
                 },
+                async listLinkedStepIds(projectId, stepIds) {
+                    // A step may be linked to a task outside the current client.
+                    const { data, error } = await admin
+                        .from('tasks')
+                        .select('basecamp_todo_id')
+                        .eq('basecamp_project_id', Number(projectId))
+                        .in('basecamp_todo_id', stepIds);
+                    if (error) throw error;
+                    return (data ?? []).map(row => String(row.basecamp_todo_id));
+                },
                 async updateTaskLink(taskId, organizationId, clientId, projectId, todoId, syncedAt) {
                     const { error } = await admin
                         .from('tasks')
@@ -128,7 +144,7 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                         .eq('id', taskId)
                         .eq('organization_id', organizationId)
                         .eq('client_id', clientId);
-                    return error?.message ?? null;
+                    return error;
                 },
                 async markTaskSynced(taskId, organizationId, clientId, syncedAt) {
                     const { error } = await admin
@@ -245,14 +261,11 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
             createTodo: (projectId, todolistId, params) => (
                 createBasecampTodo(projectId, todolistId, params)
             ),
+            listSteps: (projectId, todoId) => listBasecampTodoSteps(projectId, todoId, { strict: true }),
             createStep: (projectId, parentTodoId, title) => (
                 createBasecampTodoStep(projectId, parentTodoId, title)
             ),
-            async recordingKind(projectId, recordingId) {
-                const body = await getBasecampRecording(projectId, recordingId);
-                if (body == null) return null;
-                return completableRecordingKind(classifyBasecampRecording(body));
-            },
+            recordingKind: basecampRecordingKind,
             completeTodo: (projectId, todoId) => completeBasecampTodo(projectId, todoId),
             reopenTodo: (projectId, todoId) => reopenBasecampTodo(projectId, todoId),
             completeStep: (_projectId, stepId) => completeBasecampStep(stepId),

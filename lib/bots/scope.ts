@@ -1,6 +1,7 @@
 /** Bearer tokens minted for SEO bots. Not a Supabase key. */
 export const BOT_KEY_PREFIX = 'seo_bot_';
 
+export const BOT_CLIENTS_PATH = '/api/bots/clients';
 export const BOT_TASKS_PATH = '/api/bots/tasks';
 export const BOT_TIMER_START_PATH = '/api/bots/timer/start';
 export const BOT_TIMER_STOP_PATH = '/api/bots/timer/stop';
@@ -28,7 +29,7 @@ export function isBotKeyToken(token: string | null | undefined): boolean {
 }
 
 /**
- * A bot key may POST task create, approval create, and the timer start/pause/resume/stop routes, and nothing else.
+ * A bot key may GET the client lookup and POST the listed bot routes.
  * Missing or non-bot credentials are ignored so session and cron auth keep working.
  */
 export function botRequestDecision(input: {
@@ -37,6 +38,8 @@ export function botRequestDecision(input: {
     authorization: string | null | undefined;
 }): 'allow' | 'forbid' | 'ignore' {
     if (!isBotKeyToken(bearerToken(input.authorization))) return 'ignore';
-    if (input.method.toUpperCase() === 'POST' && BOT_POST_PATHS.has(input.pathname)) return 'allow';
+    const method = input.method.toUpperCase();
+    if (method === 'GET' && input.pathname === BOT_CLIENTS_PATH) return 'allow';
+    if (method === 'POST' && BOT_POST_PATHS.has(input.pathname)) return 'allow';
     return 'forbid';
 }

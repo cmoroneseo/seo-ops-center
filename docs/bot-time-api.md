@@ -1,10 +1,10 @@
 # Bot API
 
-SEO bots create tasks and run timers in SEO Ops Center over HTTP. Time is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`, user `360c97ac-54fc-41fb-b660-0566d63c2e1b`). A stopped timer is a normal SEO Ops time entry: a closed session on `time_logs`, then the same Basecamp timesheet path the task drawer uses.
+SEO bots look up clients, create tasks, and run timers in SEO Ops Center over HTTP. Time is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`, user `360c97ac-54fc-41fb-b660-0566d63c2e1b`). A stopped timer is a normal SEO Ops time entry: a closed session on `time_logs`, then the same Basecamp timesheet path the task drawer uses.
 
 Bots do not log minutes after the fact. There is no `minutes` or `hours` field. `POST /api/bots/time` is gone.
 
-A task this API creates is assigned to Carlos. The insert sets `assignee_id` and `assignee_ids` to his user id, `created_by` to the same id, and `status_history` to a `todo` entry by him. `priority` is `medium` and `tags` is empty. The SEO Plan reads `assignee_ids`. `assignee_id` is set to the same user so it is not left null.
+Tasks created from bot input are assigned to Carlos. The insert sets `assignee_id` and `assignee_ids` to his user id, `created_by` to the same id, and `status_history` to a `todo` entry by him. `priority` is `medium` and `tags` is empty. A top-level to-do imported from Basecamp is also assigned to Carlos and carries the provider's completion state. Imported steps carry their Basecamp completion state and arrive unassigned.
 
 This is not a Supabase key. A bot key cannot read the database, delete rows, or change settings. The service role stays on the server.
 
@@ -35,7 +35,29 @@ The response includes `token` once. Only the SHA-256 hash is stored. Revoke with
 
 A missing or unknown key is **401**. A bot key sent to any other route, including the removed `POST /api/bots/time`, is **403**.
 
-The key name is the bot. `seo-manager` is the only name that can create tasks. Any other live key (`technical-seo`, and so on) can start, pause, resume, and stop timers. The comparison is case-insensitive.
+The key name is the bot. `seo-manager` is the only name that can create tasks. Any live key can look up clients and start, pause, resume, and stop timers. The key name comparison is case-insensitive.
+
+## Look up clients
+
+`GET /api/bots/clients`
+
+Any non-revoked bot key can look up clients in its own organization. The lookup is read-only and needs only the bearer key and query parameters.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` | | Required when `id` is omitted. Use 2–200 characters after trimming whitespace. |
+| `id` | | Client UUID for a direct lookup. Takes precedence when both `id` and `name` are supplied. |
+| `match` | `exact` | Use `exact` for the full name or `contains` for a substring. Both match case-insensitively and treat search characters literally. |
+| `status` | `current` | `current` includes `active`, `onboarding`, `pending`, and `paused`. Use `all` to include inactive clients. Applies to both name and ID lookups. |
+| `limit` | `10` | Maximum results to return, from 1 to 25. |
+
+```bash
+curl --get https://seo-ops-center.vercel.app/api/bots/clients \
+  -H 'Authorization: Bearer <minted-bot-token>' \
+  --data-urlencode 'name=Ecoworkz'
+```
+
+The response contains `clients`, ordered by name, and a `truncated` flag that indicates when more matches exist. Each client has `id`, `name`, `website` (the stored domain, or `null`), the raw `status`, and `active`. `active` is `true` for the four current statuses. No matches return HTTP 200 with `{"clients": [], "truncated": false}`. Invalid query parameters return HTTP 400 with `invalid_request`.
 
 ## Create a task
 
@@ -43,13 +65,16 @@ The key name is the bot. `seo-manager` is the only name that can create tasks. A
 
 Only the `seo-manager` key. Every other bot key is **403** `forbidden`.
 
+An `inactive` client returns **409** `client_inactive` before any write or Basecamp read, including when the request supplies `basecampTodoId`. Clients in `active`, `onboarding`, `pending`, and `paused` can receive tasks.
+
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `idempotencyKey` | yes | 8–200 characters: letters, numbers, `:`, `_`, `.`, `-`. |
 | `clientId` or `clientName` | one of them | `clientName` is an exact match inside the key's organization. |
-| `taskTitle` | yes | The task to create. Exact and case-sensitive. |
+| `taskTitle` | unless `basecampTodoId` is sent | Matches an existing task by exact, case-sensitive title. When importing a new task, this field overrides the Basecamp title. |
+| `basecampTodoId` | no | Positive integer or string of digits for an existing top-level to-do in this client's configured Basecamp project. Omit both parent fields when sending it. |
 | `parentTaskId` or `parentTitle` | no | Creates one subtask under that existing top-level task. `parentTitle` is exact. Send `parentTaskId` when more than one parent has that title. |
-| `subtasks` | no | A list of `{ title, category?, dueDate? }`, at most 20, titles unique in the call. Creates those subtasks under `taskTitle`. Do not send this together with a parent. |
+| `subtasks` | no | A list of `{ title, category?, dueDate? }`, at most 20, titles unique in the call. Applies to the top-level task. Omit both parent fields when sending it. |
 | `category` | no | Stored on `tasks.category` when the task is created. Omit it and the task is unlabeled. `content`, `technical`, `local`, `links`, `strategy`, `admin`, and `reporting` are always accepted. A label the client already uses, such as `SEO`, is accepted only as that exact string. |
 | `dueDate` | no | `YYYY-MM-DD`. Also sent as the Basecamp due date when the to-do is created. |
 
@@ -58,10 +83,15 @@ One call does one of these:
 - a solo task (`taskTitle` only)
 - a parent and its subtasks (`taskTitle` plus `subtasks`)
 - one subtask under an existing parent (`parentTaskId` or `parentTitle`, plus `taskTitle`)
+- a link to an existing Basecamp to-do (`basecampTodoId`, with optional `taskTitle` and `subtasks`)
 
 An exact title that already exists is returned with `created: false`. It is not duplicated. A title that matches more than one task is **409**.
 
-The parent's Basecamp to-do is created or reused on the client's SEO Plan list, the same way the app pushes a task. Subtasks become steps on that to-do. Sync off, or no SEO Plan list: the tasks stay in SEO Ops.
+Without `basecampTodoId`, the app creates or reuses the parent's Basecamp to-do on the client's SEO Plan list. Subtasks become steps on that to-do. If sync is off or the SEO Plan list is missing, the tasks stay in SEO Ops.
+
+When the parent already has a Basecamp to-do, the push checks its steps for each unlinked subtask. Titles must match exactly after trimming whitespace and ignoring case. A unique, unclaimed match is linked in SEO Ops and left untouched in Basecamp. A subtask with no match gets a new step.
+
+The push leaves subtasks unlinked when multiple Basecamp steps match, multiple unlinked subtasks match the same step, or another task already links to the matching step. The response reports the count in `task.basecamp.subtasksSkipped` and explains the conflict in `task.basecamp.reason`. If the Basecamp step read fails, `task.basecamp.status` is `failed` and the push creates no steps.
 
 ```bash
 curl -X POST https://seo-ops-center.vercel.app/api/bots/tasks \
@@ -78,6 +108,34 @@ curl -X POST https://seo-ops-center.vercel.app/api/bots/tasks \
     ]
   }'
 ```
+
+### Link an existing Basecamp to-do
+
+Send `basecampTodoId` to link an existing top-level task or import a new one. The to-do can be on any list in the client's configured Basecamp project, including Onboarding. This path requires only the configured project and creates no Basecamp to-do.
+
+An exact `taskTitle` match links an unlinked app task. If the to-do already belongs to a task in this client and the title identifies no conflicting task, the response returns that task with `created: false` and preserves its title. With no matching task or existing link, the app imports the Basecamp title, description, due date, and completion state. A supplied `taskTitle` or `dueDate` overrides the corresponding value on the new app task.
+
+Migration 137 enforces one task per Basecamp recording in the database, including to-dos and steps. If a concurrent request claims a recording during a link or import, the bot returns `409 basecamp_todo_linked`.
+
+Missing Basecamp steps are imported by recording ID. Requested subtasks reuse a unique step by trimmed, case-insensitive title, and new titles can create steps on the linked to-do. Ambiguous or already-claimed matches are reported in `task.basecamp.subtasksSkipped`. The response includes `task.linked: true` for this explicit link path and `false` for standard task creation. Returned subtasks include `basecampStepId` when the linked recording is known to be a step.
+
+```json
+{
+  "idempotencyKey": "link-onboarding-12345",
+  "clientName": "Ecoworkz",
+  "basecampTodoId": "12345",
+  "subtasks": [{ "title": "Connect Search Console" }]
+}
+```
+
+| Status | Code | Condition |
+| --- | --- | --- |
+| 400 | `invalid_request` | Invalid `basecampTodoId`, or supplied with a parent field. |
+| 400 | `basecamp_recording_is_step` | The ID is a Basecamp step. |
+| 404 | `basecamp_todo_not_found` | No to-do with that ID was found in the configured project. |
+| 409 | `basecamp_project_not_configured` | The client has no configured Basecamp project. |
+| 409 | `basecamp_todo_linked` | The to-do is linked to a different task, client, or organization, the requested task has a different link, or a concurrent write claimed a recording during the request. |
+| 502 | `basecamp_steps_unavailable` or `basecamp_step_sync_failed` | The step list could not be read or a new step could not be created. Retry with the same idempotency key. |
 
 ## Start a timer
 
@@ -261,6 +319,7 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 404 | `timer_not_running` | Pause found nothing running, or stop found nothing running or paused. |
 | 404 | `timer_not_paused` | Resume found no paused timer on that task. |
 | 409 | `ambiguous_client` | More than one client has that exact name. Send `clientId`. |
+| 409 | `client_inactive` | Task creation targeted an inactive client. |
 | 409 | `ambiguous_task` | More than one task has that title, or the ids and titles disagree. |
 | 409 | `timer_already_running` | This bot is already timing a different task, or resume was called while a timer is running. |
 | 409 | `timer_paused` | Start targeted a task that already has a paused timer. Resume it. |
@@ -271,4 +330,5 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 409 | `idempotency_in_progress` | The same key is already running. |
 | 409 | `actor_not_found` | Carlos Morones is not a member of the key's organization. |
 | 500 | `internal` | The write failed after the key was accepted. A retry of the same body resumes the same operation. |
+| 500 | `client_lookup_failed` | The client lookup could not be read. |
 | 500 | `timer_lookup_failed` | The timer could not be read. This is not a missing timer. Retry the same request. |

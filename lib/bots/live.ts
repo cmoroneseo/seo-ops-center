@@ -1,7 +1,11 @@
 import { createAdminClient } from '../supabase/admin.ts';
-import { createLiveBasecampPushPost } from '../basecamp/push-live.ts';
+import { basecampRecordingKind, createLiveBasecampPushPost } from '../basecamp/push-live.ts';
+import { basecampSubtaskSupport, createBasecampTodoStep, getBasecampTodo, listBasecampTodoSteps } from '../basecamp/api.ts';
+import { readBasecampPlanLists } from '../basecamp/plan-lists.ts';
+import { normalizeJsonObject } from '../basecamp/project-access.ts';
 import { createLiveBasecampTimesheetPost } from '../basecamp/timesheet-live.ts';
-import { BOT_ACTOR_EMAIL, hashBotKey } from './keys.ts';
+import { verifyBotKey } from './auth.ts';
+import { BOT_ACTOR_EMAIL } from './keys.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import { matchBotTask } from './task-lookup.ts';
 import { botStretchSegmentId, closedRunningMs } from './timer.ts';
@@ -12,7 +16,6 @@ import {
     type BotActor,
     type BotClientRecord,
     type BotDeps,
-    type BotKeyRecord,
     type BotOperationRecord,
     type BotTaskRecord,
     type BotTimerStretch,
@@ -22,7 +25,7 @@ import {
 
 type Role = 'owner' | 'admin' | 'member' | 'viewer';
 
-const TASK_COLUMNS = 'id, organization_id, client_id, project_id, title, status, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
+const TASK_COLUMNS = 'id, organization_id, client_id, project_id, title, status, stage, priority, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
 
 function admin() {
     return createAdminClient();
@@ -36,6 +39,8 @@ function taskRecord(row: Record<string, unknown>): BotTaskRecord {
         projectId: typeof row.project_id === 'string' ? row.project_id : null,
         title: String(row.title),
         status: typeof row.status === 'string' ? row.status : 'todo',
+        stage: typeof row.stage === 'string' ? row.stage : null,
+        priority: typeof row.priority === 'string' ? row.priority : null,
         completedAt: typeof row.completed_at === 'string' ? row.completed_at : null,
         statusHistory: Array.isArray(row.status_history) ? row.status_history : [],
         basecampTodoId: row.basecamp_todo_id == null ? null : String(row.basecamp_todo_id),
@@ -282,20 +287,9 @@ export function liveBotDeps(
     const admin = options.admin ?? createAdminClient;
     return {
         now: () => new Date(),
-        async authenticate(token) {
-            const { data, error } = await admin()
-                .from('bot_api_keys')
-                .select('id, organization_id, name, revoked_at, key_hash')
-                .eq('key_hash', hashBotKey(token))
-                .maybeSingle();
-            if (error || !data || data.revoked_at) return null;
-            await admin().from('bot_api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', data.id);
-            return {
-                id: data.id,
-                organizationId: data.organization_id,
-                name: data.name,
-                revokedAt: null,
-            } satisfies BotKeyRecord;
+        authenticate: token => verifyBotKey(token, admin),
+        async recordKeyUse(keyId) {
+            await admin().from('bot_api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', keyId);
         },
         async actor(organizationId) {
             const { data: user, error } = await admin()
@@ -360,7 +354,7 @@ export function liveBotDeps(
         async findClient(organizationId, command) {
             let query = admin()
                 .from('clients')
-                .select('id, organization_id, name')
+                .select('id, organization_id, name, status, custom_fields')
                 .eq('organization_id', organizationId)
                 .limit(2);
             if (command.clientId) query = query.eq('id', command.clientId);
@@ -374,10 +368,14 @@ export function liveBotDeps(
             if (rows.length > 1) return 'ambiguous';
             const row = rows[0];
             if (!row) return null;
+            const { projectId } = readBasecampPlanLists(normalizeJsonObject(row.custom_fields));
+            const project = Number(projectId);
             const client: BotClientRecord = {
                 id: row.id,
                 organizationId: row.organization_id,
                 name: row.name,
+                status: row.status,
+                basecampProjectId: Number.isSafeInteger(project) && project > 0 ? String(project) : null,
             };
             return client;
         },
@@ -760,6 +758,55 @@ export function liveBotDeps(
             return logs;
         },
         pushTodo: (taskId, actor) => push(actor, taskId, 'create_todo'),
+        basecampTasks: {
+            recordingKind: basecampRecordingKind,
+            async getTodo(projectId, todoId) {
+                const todo = await getBasecampTodo(projectId, todoId);
+                return todo ? { ...todo, supportsSubtasks: basecampSubtaskSupport(todo) } : null;
+            },
+            listSteps: (projectId, todoId) => listBasecampTodoSteps(projectId, todoId, { strict: true }),
+            createStep: createBasecampTodoStep,
+            async findRecordings(ids) {
+                const client = admin();
+                const matches: BotTaskRecord[] = [];
+                for (let index = 0; index < ids.length; index += 100) {
+                    const { data, error } = await client.from('tasks').select(TASK_COLUMNS)
+                        .in('basecamp_todo_id', ids.slice(index, index + 100));
+                    if (error) throw error;
+                    matches.push(...(data ?? []).map(taskRecord));
+                }
+                return matches;
+            },
+            async listChildren(parent) {
+                const { data, error } = await admin().from('tasks').select(TASK_COLUMNS)
+                    .eq('organization_id', parent.organizationId)
+                    .eq('client_id', parent.clientId)
+                    .eq('parent_task_id', parent.id);
+                if (error) throw error;
+                return (data ?? []).map(taskRecord);
+            },
+            async updateTaskLink(task, projectId, id, syncedAt) {
+                const { data, error } = await admin().from('tasks')
+                    .update({
+                        basecamp_todo_id: Number(id),
+                        basecamp_project_id: Number(projectId),
+                        last_synced_at: syncedAt,
+                    })
+                    .eq('organization_id', task.organizationId)
+                    .eq('client_id', task.clientId)
+                    .eq('id', task.id)
+                    .is('basecamp_todo_id', null)
+                    .select(TASK_COLUMNS)
+                    .maybeSingle();
+                if (error) throw error;
+                return data ? taskRecord(data) : null;
+            },
+            async insertImportedTasks(rows) {
+                const { data, error } = await admin().from('tasks').insert(rows).select(TASK_COLUMNS);
+                if (error) throw error;
+                return (data ?? []).map(taskRecord);
+            },
+        },
         completeTodo: (taskId, actor) => push(actor, taskId, 'complete_todo'),
         async syncTimesheet(timeLogId, actor) {
             const post = createLiveBasecampTimesheetPost(candidate => authorizeTimeLog(actor, candidate));

@@ -42,6 +42,7 @@ import { localTimeZone, workedWindowForEdit } from '@/lib/timer/manual-segment';
 import { basecampSendHint, manualTimeDefaults, manualTimeWrite } from '@/lib/timer/manual-entry';
 import { ReviewToggle } from '@/components/timer/ReviewToggle';
 import { TaskApprovalsPanel } from '@/components/gbp-approvals/TaskApprovalsPanel';
+import { TaskBasecampActions } from './TaskBasecampActions';
 
 interface TaskDetailModalProps {
     task: Task | null;
@@ -232,7 +233,8 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
     // The row can already hold a to-do id while the task prop still doesn't.
     // Remember it here so the button does not flip back to "Not in Basecamp"
     // when a parent ignores the updated task or has not re-rendered yet.
-    const [linkedTodoId, setLinkedTodoId] = useState<string | null>(null);
+    const [savedTodoLink, setSavedTodoLink] = useState<{ taskId: string; todoId: string } | null>(null);
+    const linkedTodoId = savedTodoLink?.taskId === task?.id ? savedTodoLink?.todoId : undefined;
     const [pushingTodo, setPushingTodo] = useState(false);
     const [todoPushOutcome, setTodoPushOutcome] = useState<PushOutcome | null>(null);
     const [subtaskNestNote, setSubtaskNestNote] = useState<string | null>(null);
@@ -342,7 +344,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
         promptedCompletion.current = false;
         setCompletionError(null);
         completionOperationId.current = null;
-        setLinkedTodoId(null);
+        setSavedTodoLink(null);
         setTodoPushOutcome(null);
     }, [task?.id]);
 
@@ -403,7 +405,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             setSubtasksReady(true);
             const latest = taskRef.current;
             const fetchedTodoId = basecampTodoIdFrom(taskData.task.basecampTodoId);
-            if (fetchedTodoId) setLinkedTodoId(fetchedTodoId);
+            if (fetchedTodoId) setSavedTodoLink({ taskId: requestedId, todoId: fetchedTodoId });
             if (latest) {
                 onUpdateRef.current?.(taskWithBasecampLink(latest, {
                     basecampTodoId: taskData.task.basecampTodoId,
@@ -459,7 +461,7 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'create_todo', taskId: task.id }),
             });
-            const body = await res.json().catch(() => null) as { todoId?: unknown; success?: boolean; partial?: boolean; subtasksSkipped?: unknown; subtasksPreserved?: unknown } | null;
+            const body = await res.json().catch(() => null) as { todoId?: unknown; success?: boolean; partial?: boolean; subtasksSkipped?: unknown; subtasksPreserved?: unknown; reason?: unknown } | null;
             const outcome = pushOutcomeFor(res.status, body);
             setTodoPushOutcome(outcome);
             const returnedId = basecampTodoIdFrom(body?.todoId);
@@ -467,9 +469,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             // again from the refetch below, so a parent that still holds the
             // pre-send task cannot paint "Not in Basecamp" with no error.
             if (returnedId && (outcome === 'pushed' || body?.success === true || body?.partial === true)) {
-                setLinkedTodoId(returnedId);
                 const current = taskRef.current;
-                if (current) {
+                if (current?.id === task.id) {
+                    setSavedTodoLink({ taskId: task.id, todoId: returnedId });
                     onUpdateRef.current?.(taskWithBasecampLink(current, {
                         basecampTodoId: returnedId,
                         basecampProjectId: basecampTodoTarget?.projectId,
@@ -479,7 +481,9 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
             const skipped = body && typeof body.subtasksSkipped === 'number' ? body.subtasksSkipped : 0;
             const preserved = body && typeof body.subtasksPreserved === 'number' ? body.subtasksPreserved : 0;
             setSubtaskNestNote(skipped > 0
-                ? `Sent the to-do. This list did not accept nested subtasks, so ${skipped} stayed in SEO PM only.`
+                ? typeof body?.reason === 'string'
+                    ? body.reason
+                    : `Sent the to-do. This list did not accept nested subtasks, so ${skipped} stayed in SEO PM only.`
                 : preserved > 0
                     ? `Sent the pillar. ${preserved} existing Basecamp ${preserved === 1 ? 'to-do stays' : 'to-dos stay'} linked on ${preserved === 1 ? 'its task' : 'their tasks'}.`
                     : null);
@@ -1371,37 +1375,32 @@ export function TaskDetailModal({ task, isOpen, onClose, onUpdate, onDelete, cur
                             </div>
                         </div>
 
-                        {/*
-                          Only when this client takes Basecamp to-dos and this
-                          task has none. A task that already synced says nothing.
-                        */}
-                        {!hideBasecampSend && basecampTodoTarget && !(task.basecampTodoId || linkedTodoId) && (
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                                    <RefreshCw className="h-3 w-3" /> Basecamp
-                                </label>
-                                <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/20 px-3 py-2">
-                                    <span className="text-[11px] text-muted-foreground">Not in Basecamp</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => void handlePushTodo()}
-                                        disabled={pushingTodo}
-                                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
-                                    >
-                                        <RefreshCw className={cn('h-3 w-3', pushingTodo && 'animate-spin')} />
-                                        {pushingTodo ? 'Sending' : 'Send to Basecamp'}
-                                    </button>
-                                </div>
-                                {todoPushOutcome && todoPushOutcome !== 'pushed' && (
-                                    <p className="text-[11px] leading-relaxed text-destructive">
-                                        {PUSH_OUTCOME_MESSAGE[todoPushOutcome]}
-                                    </p>
-                                )}
-                                {subtaskNestNote && (
-                                    <p className="text-[11px] leading-relaxed text-muted-foreground">{subtaskNestNote}</p>
-                                )}
-                            </div>
-                        )}
+                        <TaskBasecampActions
+                            key={task.id}
+                            taskId={task.id}
+                            todoId={linkedTodoId ?? basecampTodoIdFrom(task.basecampTodoId)}
+                            active={isOpen}
+                            topLevel={!task.parentTaskId}
+                            hasClient={Boolean(task.clientId)}
+                            send={!hideBasecampSend && basecampTodoTarget && !(task.basecampTodoId || linkedTodoId) ? {
+                                pending: pushingTodo,
+                                run: () => void handlePushTodo(),
+                                error: todoPushOutcome && todoPushOutcome !== 'pushed' ? PUSH_OUTCOME_MESSAGE[todoPushOutcome] : undefined,
+                                note: subtaskNestNote,
+                            } : undefined}
+                            onSynced={async link => {
+                                const current = taskRef.current;
+                                if (current?.id !== task.id) return;
+                                if (link) {
+                                    setSavedTodoLink({ taskId: task.id, todoId: link.todoId });
+                                    onUpdateRef.current?.(taskWithBasecampLink(current, {
+                                        basecampTodoId: link.todoId,
+                                        basecampProjectId: link.projectId,
+                                    }));
+                                }
+                                await loadTaskData();
+                            }}
+                        />
 
                         {/* Time Log */}
                         <div className="space-y-2">

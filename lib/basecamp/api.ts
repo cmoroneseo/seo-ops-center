@@ -547,12 +547,13 @@ export async function createBasecampTodo(
  * List the checklist steps on a to-do.
  * `GET /recordings/{todoId}/subtasks.json` is the same collection the create
  * path posts to. Pages follow `Link` until a cycle. A failed page stops the
- * walk and returns whatever was already read; the caller can still merge the
- * steps embedded on the to-do itself.
+ * walk and returns whatever was already read so imports can merge the steps
+ * embedded on the to-do itself. Pushes use strict reads before creating steps.
  */
 export async function listBasecampTodoSteps(
     projectId: number | string,
     todoId: number | string,
+    { strict = false }: { strict?: boolean } = {},
 ): Promise<BasecampTodoStep[]> {
     try {
         safeId(projectId, 'projectId');
@@ -562,13 +563,17 @@ export async function listBasecampTodoSteps(
         while (url && !seen.has(url)) {
             seen.add(url);
             const res = await basecampFetch(url);
-            if (!res.ok) break;
-            collected.push(...basecampStepPageItems(await res.json()));
+            if (!res.ok) {
+                if (strict) throw new Error(`Basecamp listTodoSteps failed: ${res.status}`);
+                break;
+            }
+            collected.push(...basecampStepPageItems(await res.json(), strict));
             url = nextPageUrl(res.headers.get('Link'), seen);
         }
         return mergeBasecampTodoSteps([collected]);
     } catch (err) {
         console.error('[Basecamp] listTodoSteps error:', err);
+        if (strict) throw err;
         return [];
     }
 }

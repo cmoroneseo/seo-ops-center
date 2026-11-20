@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { completionCalendarDay } from '../tasks/completion-date.ts';
 import { taskStatusUpdate, type TaskStatusHistoryEntryLike } from '../tasks/status.ts';
+import { authenticateBotRequest, type BotKeyRecord } from './auth.ts';
+import { linkBasecampTodo, type BotBasecampTasks } from './basecamp-todo-link.ts';
 import { BOT_ACTOR_TIME_ZONE } from './keys.ts';
-import { bearerToken, isBotKeyToken } from './scope.ts';
 import {
     parseBotRequest,
     type BotCommand,
@@ -66,13 +67,6 @@ function resumeCapMessage(maxMs: number): string {
     return `This timer already has ${capPhrase(maxMs)} of running time. Stop it instead of resuming.`;
 }
 
-export interface BotKeyRecord {
-    id: string;
-    organizationId: string;
-    name: string;
-    revokedAt: string | null;
-}
-
 export interface BotActor {
     userId: string;
     name: string;
@@ -97,6 +91,8 @@ export interface BotClientRecord {
     id: string;
     organizationId: string;
     name: string;
+    status: string | null;
+    basecampProjectId?: string | null;
 }
 
 export interface BotTaskRecord {
@@ -106,6 +102,8 @@ export interface BotTaskRecord {
     projectId: string | null;
     title: string;
     status: string;
+    stage?: string | null;
+    priority?: string | null;
     completedAt: string | null;
     statusHistory: TaskStatusHistoryEntryLike[];
     basecampTodoId: string | null;
@@ -169,11 +167,13 @@ export interface BasecampStep {
     status: 'pushed' | 'skipped' | 'failed' | 'not_sent';
     reason?: string;
     providerId?: string;
+    subtasksSkipped?: number;
 }
 
 export interface BotDeps {
     now(): Date;
     authenticate(token: string): Promise<BotKeyRecord | null>;
+    recordKeyUse(keyId: string): Promise<void>;
     actor(organizationId: string): Promise<BotActor | null>;
     findOperation(botKeyId: string, idempotencyKey: string): Promise<BotOperationRecord | null>;
     insertOperation(input: {
@@ -271,6 +271,7 @@ export interface BotDeps {
         note: string | null;
     }): Promise<FinalizedBotLog[] | null>;
     pushTodo(taskId: string, actor: BotActor): Promise<BasecampStep>;
+    basecampTasks: BotBasecampTasks;
     syncTimesheet(timeLogId: string, actor: BotActor): Promise<BasecampStep>;
     completeTodo(taskId: string, actor: BotActor): Promise<BasecampStep>;
 }
@@ -332,7 +333,13 @@ export async function basecampStepFromResponse(response: Response): Promise<Base
         ? String(providerValue)
         : undefined;
     if (response.ok && body?.success !== false) {
-        return { status: 'pushed', ...(providerId ? { providerId } : {}) };
+        const subtasksSkipped = typeof body?.subtasksSkipped === 'number' ? body.subtasksSkipped : 0;
+        const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason : undefined;
+        return {
+            status: 'pushed',
+            ...(providerId ? { providerId } : {}),
+            ...(subtasksSkipped > 0 ? { subtasksSkipped, ...(reason ? { reason } : {}) } : {}),
+        };
     }
     const reason = typeof body?.error === 'string' && body.error.trim()
         ? body.error
@@ -433,10 +440,83 @@ async function insertOrFind(input: {
     return { task: again, created: false };
 }
 
+async function findOrInsertSubtask(
+    deps: BotDeps,
+    key: BotKeyRecord,
+    actor: BotActor,
+    parent: BotTaskRecord,
+    draft: BotSubtaskDraft,
+    index: number,
+    stamp: () => string | null,
+) {
+    const command = { taskTitle: draft.title, parentTaskId: parent.id };
+    const existing = await deps.findTask(key.organizationId, parent.clientId, command);
+    if (existing === 'ambiguous') {
+        return { status: 409, body: errorBody('ambiguous_task', 'More than one subtask has that exact title under that parent.') };
+    }
+    if (existing && !isTaskLookupError(existing)) return { task: existing, created: false };
+    if (isTaskLookupError(existing) && existing.reason !== 'missing') {
+        return { status: existing.status, body: errorBody(existing.code, existing.error) };
+    }
+    return insertOrFind({
+        deps, key, actor, clientId: parent.clientId,
+        title: draft.title,
+        category: draft.category,
+        dueDate: draft.dueDate,
+        parentTaskId: parent.id,
+        sortOrder: index,
+        botOperationId: stamp(),
+        command,
+    });
+}
+
+async function createdTaskResponse(input: {
+    deps: BotDeps;
+    operation: BotOperationRecord;
+    key: BotKeyRecord;
+    actor: BotActor;
+    root: BotTaskRecord;
+    created: boolean;
+    linked: boolean;
+    basecamp: BasecampStep;
+    children: Array<{ task: BotTaskRecord; created: boolean; basecampStepId?: string }>;
+}): Promise<{ status: number; body: unknown }> {
+    const { deps, operation, key, actor, root, created, linked, basecamp, children } = input;
+    if (operation.taskId !== root.id) await deps.saveOperation(operation.id, { taskId: root.id });
+
+    return {
+        status: 200,
+        body: {
+            idempotencyKey: operation.idempotencyKey,
+            bot: key.name,
+            actor: actorBody(actor),
+            task: {
+                id: root.id,
+                title: root.title,
+                created,
+                linked,
+                status: root.status,
+                basecampTodoId: root.basecampTodoId,
+                basecamp,
+            },
+            ...(children.length > 0 ? {
+                subtasks: children.map(child => ({
+                    id: child.task.id,
+                    title: child.task.title,
+                    created: child.created,
+                    parentTaskId: root.id,
+                    ...(child.basecampStepId ? { basecampStepId: child.basecampStepId } : {}),
+                })),
+            } : {}),
+        },
+    };
+}
+
 async function executeCreate(
     key: BotKeyRecord,
     actor: BotActor,
     command: BotCreateCommand,
+    client: BotClientRecord | null | 'ambiguous',
     operation: BotOperationRecord,
     deps: BotDeps,
 ): Promise<{ status: number; body: unknown }> {
@@ -446,20 +526,31 @@ async function executeCreate(
             body: errorBody('forbidden', 'Only the seo-manager bot can create tasks.'),
         };
     }
-    const client = await deps.findClient(key.organizationId, command);
     if (client === 'ambiguous') {
         return { status: 409, body: errorBody('ambiguous_client', 'More than one client has that exact name.') };
     }
     if (!client || client.organizationId !== key.organizationId) {
         return { status: 404, body: errorBody('client_not_found', 'Client not found.') };
     }
-
     const labels = { labels: null as string[] | null };
     const categoryError = await categoryAllowed(deps, key.organizationId, client.id, command.category, labels);
     if (categoryError) return { status: 400, body: errorBody('invalid_request', categoryError) };
     for (const subtask of command.subtasks) {
         const subError = await categoryAllowed(deps, key.organizationId, client.id, subtask.category, labels);
         if (subError) return { status: 400, body: errorBody('invalid_request', subError) };
+    }
+
+    if (command.basecampTodoId) {
+        const result = await linkBasecampTodo({
+            command: { ...command, basecampTodoId: command.basecampTodoId },
+            client, actor, botKeyId: key.id, operationId: operation.id, now: deps.now().toISOString(), deps,
+            insertSubtask: (parent, draft, index) => findOrInsertSubtask(deps, key, actor, parent, draft, index, () => null),
+        });
+        if ('status' in result) return result;
+        return createdTaskResponse({
+            deps, operation, key, actor, root: result.task, created: result.created, linked: true,
+            children: result.children, basecamp: result.basecamp,
+        });
     }
 
     const found = await deps.findTask(key.organizationId, client.id, command);
@@ -524,63 +615,24 @@ async function executeCreate(
     }
 
     for (let index = 0; index < command.subtasks.length; index += 1) {
-        const draft: BotSubtaskDraft = command.subtasks[index];
-        const existing = await deps.findTask(key.organizationId, client.id, {
-            taskTitle: draft.title,
-            parentTaskId: root.id,
-        });
-        if (existing === 'ambiguous') {
-            return { status: 409, body: errorBody('ambiguous_task', 'More than one subtask has that exact title under that parent.') };
-        }
-        if (existing && !isTaskLookupError(existing)) {
-            children.push({ task: existing, created: false });
-            continue;
-        }
-        if (isTaskLookupError(existing) && existing.reason !== 'missing') {
-            return { status: existing.status, body: errorBody(existing.code, existing.error) };
-        }
-        const inserted = await insertOrFind({
-            deps, key, actor, clientId: client.id,
-            title: draft.title,
-            ...(draft.category ? { category: draft.category } : {}),
-            ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
-            parentTaskId: root.id,
-            sortOrder: index,
-            botOperationId: stamp(),
-            command: { taskTitle: draft.title, parentTaskId: root.id },
-        });
-        if ('status' in inserted) return inserted;
-        children.push({ task: inserted.task, created: inserted.created });
+        const child = await findOrInsertSubtask(deps, key, actor, root, command.subtasks[index], index, stamp);
+        if ('status' in child) return child;
+        children.push(child);
     }
 
     const todo = await deps.pushTodo(root.id, actor);
     root = await deps.getTask(root.id) ?? root;
-    if (operation.taskId !== root.id) await deps.saveOperation(operation.id, { taskId: root.id });
-
-    return {
-        status: 200,
-        body: {
-            idempotencyKey: command.idempotencyKey,
-            bot: key.name,
-            actor: actorBody(actor),
-            task: {
-                id: root.id,
-                title: root.title,
-                created: rootCreated,
-                status: root.status,
-                basecampTodoId: root.basecampTodoId,
-                basecamp: todo,
-            },
-            ...(children.length > 0 ? {
-                subtasks: children.map(child => ({
-                    id: child.task.id,
-                    title: child.task.title,
-                    created: child.created,
-                    parentTaskId: root.id,
-                })),
-            } : {}),
-        },
-    };
+    const childrenWithLinks = await Promise.all(children.map(async child => {
+        // A previously unlinked child's id written by the parent push is a step.
+        // A preexisting link can also point to a standalone to-do.
+        if (child.task.basecampTodoId || (todo.status !== 'pushed' && todo.status !== 'failed')) return child;
+        const current = await deps.getTask(child.task.id);
+        return { ...child, basecampStepId: current?.basecampTodoId ?? undefined };
+    }));
+    return createdTaskResponse({
+        deps, operation, key, actor, root, created: rootCreated, linked: false,
+        children: childrenWithLinks, basecamp: todo,
+    });
 }
 
 async function resolveExistingTask(
@@ -1223,23 +1275,38 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     if (request.method.toUpperCase() !== 'POST') {
         return json(errorBody('forbidden', 'This key cannot call that route.'), 403);
     }
-    const token = bearerToken(request.headers.get('authorization'));
-    if (!token) return json(errorBody('missing_api_key', 'Missing API key. Send Authorization: Bearer <key>.'), 401);
-    if (!isBotKeyToken(token)) return json(errorBody('invalid_api_key', 'Invalid API key.'), 401);
-
-    const key = await deps.authenticate(token);
-    if (!key || key.revokedAt) return json(errorBody('invalid_api_key', 'Invalid API key.'), 401);
+    const auth = await authenticateBotRequest(request, token => deps.authenticate(token));
+    if ('response' in auth) return auth.response;
+    const { key } = auth;
 
     let payload: unknown;
     try {
         payload = await request.json();
     } catch {
+        await deps.recordKeyUse(key.id);
         return json(errorBody('invalid_json', 'Request body must be JSON.'), 400);
     }
     const parsed = parseBotRequest(pathname, payload, deps.now());
-    if (!parsed.ok) return json(errorBody(parsed.code, parsed.error), parsed.status);
+    if (!parsed.ok) {
+        await deps.recordKeyUse(key.id);
+        return json(errorBody(parsed.code, parsed.error), parsed.status);
+    }
     const command: BotCommand = parsed.command;
 
+    let createClient: BotClientRecord | null | 'ambiguous' = null;
+    if (command.kind === 'create' && isSeoManagerBot(key.name)) {
+        try {
+            createClient = await deps.findClient(key.organizationId, command);
+        } catch {
+            return json(errorBody('internal', 'Bot request failed.'), 500);
+        }
+        if (createClient && createClient !== 'ambiguous'
+            && createClient.organizationId === key.organizationId && createClient.status === 'inactive') {
+            return json(errorBody('client_inactive', 'Tasks cannot be created for an inactive client.'), 409);
+        }
+    }
+
+    await deps.recordKeyUse(key.id);
     const actor = await deps.actor(key.organizationId);
     if (!actor) {
         return json(errorBody('actor_not_found', 'Carlos Morones is not a member of this organization, so the entry cannot be attributed.'), 409);
@@ -1248,7 +1315,7 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     // Pause and stop apply a configured cap in their own response.
     // With no cap, a long running timer stays open until pause or stop.
     let cappedJustNow: FinalizedBotLog | null = null;
-    if (command.kind !== 'stop' && command.kind !== 'pause') {
+    if (command.kind !== 'stop' && command.kind !== 'pause' && !(command.kind === 'create' && command.basecampTodoId)) {
         try {
             cappedJustNow = await capThisBot(key.id, deps);
         } catch (error) {
@@ -1267,6 +1334,9 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
 
     const nowIso = deps.now().toISOString();
     if (operation?.status === 'pending') {
+        if (command.kind === 'create' && operation.requestHash !== command.requestHash) {
+            return json(errorBody('idempotency_conflict', 'This idempotency key was already used with a different request.'), 409);
+        }
         const age = deps.now().getTime() - Date.parse(operation.lockedAt);
         if (Number.isFinite(age) && age >= 0 && age < LOCK_MS) {
             return json(errorBody('idempotency_in_progress', 'This operation is still running. Retry the same request in a moment.'), 409);
@@ -1282,6 +1352,9 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
         });
         if (inserted === 'conflict') {
             operation = await deps.findOperation(key.id, command.idempotencyKey);
+            if (command.kind === 'create' && operation && operation.requestHash !== command.requestHash) {
+                return json(errorBody('idempotency_conflict', 'This idempotency key was already used with a different request.'), 409);
+            }
             if (operation?.status === 'completed' && operation.requestHash === command.requestHash) {
                 return json(operation.response, operation.httpStatus ?? 200, { 'Idempotent-Replayed': 'true' });
             }
@@ -1293,7 +1366,7 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
 
     try {
         const result = command.kind === 'create'
-            ? await executeCreate(key, actor, command, operation, deps)
+            ? await executeCreate(key, actor, command, createClient, operation, deps)
             : command.kind === 'start'
                 ? await executeStart(key, actor, command, operation, deps, cappedJustNow)
                 : command.kind === 'pause'

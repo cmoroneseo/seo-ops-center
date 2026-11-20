@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { NextRequest } from 'next/server';
 
+import { middleware as runMiddleware } from '../../middleware.ts';
 import { botRequestDecision } from './scope.ts';
 
 const token = 'Bearer seo_bot_example';
 
-test('a bot key may POST task create, approvals, and timer start/stop only', () => {
+test('a bot key may POST task create, approvals, and timer controls', () => {
     assert.equal(botRequestDecision({
         pathname: '/api/bots/tasks',
         method: 'POST',
@@ -72,6 +74,29 @@ test('a bot key may POST task create, approvals, and timer start/stop only', () 
         method: 'GET',
         authorization: 'Bearer some-other-secret',
     }), 'ignore');
+});
+
+test('the client lookup is the only route a bot key can GET', () => {
+    const pathname = '/api/bots/clients';
+    assert.equal(botRequestDecision({ pathname, method: 'GET', authorization: token }), 'allow');
+    for (const otherPath of ['/api/bots/tasks', '/api/bots/approvals', '/api/bots/keys', `${pathname}/extra`, '/api/clients']) {
+        assert.equal(botRequestDecision({ pathname: otherPath, method: 'GET', authorization: token }), 'forbid');
+    }
+    for (const method of ['POST', 'HEAD', 'DELETE']) {
+        assert.equal(botRequestDecision({ pathname, method, authorization: token }), 'forbid');
+    }
+});
+
+test('middleware forwards client lookup requests to the route for key validation', async () => {
+    const url = 'https://seo-ops.example.test/api/bots/clients?name=Alpha';
+    for (const authorization of [null, token, 'Bearer wrong-prefix']) {
+        const headers = new Headers();
+        if (authorization) headers.set('Authorization', authorization);
+        const response = await runMiddleware(new NextRequest(url, { headers }));
+        assert.equal(response.headers.get('x-middleware-next'), '1');
+    }
+    const response = await runMiddleware(new NextRequest(url, { method: 'POST', headers: { Authorization: token } }));
+    assert.equal(response.status, 403);
 });
 
 test('middleware rejects every other route before the session redirect', () => {

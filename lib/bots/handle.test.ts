@@ -4,11 +4,13 @@ import { randomUUID } from 'node:crypto';
 
 import { createBasecampTimesheetPost, resolveBasecampTimesheetRecording } from '../basecamp/timesheet-post-route.ts';
 import { createTimesheetPerformer } from '../basecamp/timesheet-perform.ts';
+import { mergeBasecampTodoSteps } from '../basecamp/todo-steps.ts';
 import { hashBotKey } from './keys.ts';
 import { matchBotTask } from './task-lookup.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import {
     BotTimerLookupError,
+    basecampStepFromResponse,
     capOverdueBotTimers,
     handleBotRequest,
     type BotActor,
@@ -37,6 +39,8 @@ const actor: BotActor = {
 interface Mem {
     keyName: string;
     revoked: boolean;
+    usedKeys: string[];
+    clientStatus: string;
     tasks: BotTaskRecord[];
     rows: Array<Record<string, unknown>>;
     timers: RunningBotTimer[];
@@ -76,6 +80,8 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
     const mem: Mem = {
         keyName: 'seo-manager',
         revoked: false,
+        usedKeys: [],
+        clientStatus: 'active',
         tasks: [],
         rows: [],
         timers: [],
@@ -97,6 +103,9 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
         async authenticate(token) {
             if (mem.revoked || hashBotKey(token) !== hashBotKey(TOKEN)) return null;
             return { id: KEY, organizationId: ORG, name: mem.keyName, revokedAt: null };
+        },
+        async recordKeyUse(keyId) {
+            mem.usedKeys.push(keyId);
         },
         async actor() {
             return actor;
@@ -127,7 +136,7 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
             Object.assign(operation, patch);
         },
         async findClient() {
-            return { id: CLIENT, organizationId: ORG, name: 'Ecoworkz' };
+            return { id: CLIENT, organizationId: ORG, name: 'Ecoworkz', status: mem.clientStatus };
         },
         async clientCategories() {
             return mem.categories;
@@ -288,6 +297,7 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
             if (item && !item.basecampTodoId) item.basecampTodoId = '77';
             return { status: 'pushed', providerId: '77' };
         },
+        basecampTasks: {} as BotDeps['basecampTasks'],
         async syncTimesheet(timeLogId) {
             mem.synced.push(timeLogId);
             const log = mem.logs.find(item => item.id === timeLogId);
@@ -334,10 +344,11 @@ test('only the seo-manager key can create a task, and it is assigned to the owne
     }), allowed.deps);
     assert.equal(created.status, 200);
     const body = await created.json() as {
-        task: { created: boolean; title: string };
+        task: { created: boolean; linked: boolean; title: string };
         subtasks: Array<{ title: string; created: boolean; parentTaskId: string }>;
     };
     assert.equal(body.task.created, true);
+    assert.equal(body.task.linked, false);
     assert.equal(body.subtasks.length, 2);
     assert.equal(allowed.mem.rows.length, 3);
     for (const row of allowed.mem.rows) {
@@ -349,6 +360,26 @@ test('only the seo-manager key can create a task, and it is assigned to the owne
     assert.equal(stamped.length, 1);
     assert.equal(allowed.mem.tasks.filter(item => item.parentTaskId).length, 2);
     assert.equal(allowed.mem.pushed.length, 1);
+});
+
+test('bot task creation reports skipped Basecamp subtasks on a successful parent push', async () => {
+    const { deps } = world();
+    const reason = 'Some subtasks stayed in SEO Ops because their Basecamp step matches were ambiguous or already linked.';
+    deps.pushTodo = async () => basecampStepFromResponse(Response.json({
+        success: true, todoId: '77', subtasksSkipped: 2, reason,
+    }));
+
+    const response = await handleBotRequest(request(BOT_TASKS_PATH, {
+        idempotencyKey: 'create-with-skipped-steps',
+        clientId: CLIENT,
+        taskTitle: 'August blogs',
+        subtasks: [{ title: 'Draft' }],
+    }), deps);
+
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).task.basecamp, {
+        status: 'pushed', providerId: '77', subtasksSkipped: 2, reason,
+    });
 });
 
 test('a subtask can be created under an existing parent', async () => {
@@ -366,6 +397,420 @@ test('a subtask can be created under an existing parent', async () => {
     assert.equal(child?.parentTaskId, parent.id);
     assert.equal(mem.rows[0]?.category, 'technical');
     assert.deepEqual(mem.pushed, [parent.id]);
+});
+
+test('standard task create returns a step id saved by the parent push', async () => {
+    const { mem, deps } = world();
+    const pushTodo = deps.pushTodo;
+    deps.pushTodo = async (id, actor) => {
+        const result = await pushTodo(id, actor);
+        mem.tasks = mem.tasks.map(item => item.parentTaskId === id
+            ? { ...item, basecampTodoId: '81' }
+            : item);
+        return result;
+    };
+    const response = await handleBotRequest(request(BOT_TASKS_PATH, {
+        idempotencyKey: 'create-with-basecamp-step',
+        clientId: CLIENT,
+        taskTitle: 'Parent',
+        subtasks: [{ title: 'Draft' }],
+    }), deps);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).subtasks[0].basecampStepId, '81');
+});
+
+function todoLinkWorld(input: {
+    tasks?: BotTaskRecord[];
+    projectId?: string | null;
+    kind?: 'todo' | 'step' | null;
+    steps?: Array<{ id: number; title: string; parent?: { id: number }; completed?: boolean }>;
+    keyName?: string;
+    clientStatus?: string;
+} = {}) {
+    const { mem, deps } = world({ tasks: input.tasks ?? [], keyName: input.keyName ?? 'seo-manager' });
+    const reads: string[][] = [];
+    const writes: string[][] = [];
+    const createdSteps: string[] = [];
+    const steps = [...input.steps ?? []];
+    deps.findClient = async () => ({
+        id: CLIENT, organizationId: ORG, name: 'Ecoworkz',
+        status: input.clientStatus ?? 'active',
+        basecampProjectId: input.projectId === undefined ? '202' : input.projectId,
+    });
+    deps.basecampTasks = {
+        async recordingKind(projectId, id) {
+            reads.push(['recording', projectId, id]);
+            if (projectId !== '202') return null;
+            return input.kind === undefined ? 'todo' : input.kind;
+        },
+        async getTodo(projectId, id) {
+            reads.push(['todo', projectId, id]);
+            return {
+                id: 77, title: 'From Basecamp', description: 'Original description',
+                due_on: '2026-11-10', completed: true,
+                parent: { id: 34, type: 'Todolist' }, steps,
+            };
+        },
+        async listSteps(projectId, id) {
+            reads.push(['steps', projectId, id]);
+            return mergeBasecampTodoSteps([steps]);
+        },
+        async findRecordings(ids) {
+            return mem.tasks.filter(item => item.basecampTodoId && ids.includes(item.basecampTodoId));
+        },
+        async listChildren(parent) {
+            return mem.tasks.filter(item => item.parentTaskId === parent.id);
+        },
+        async updateTaskLink(target, projectId, id) {
+            writes.push([target.id, projectId, id]);
+            if (target.basecampTodoId) return null;
+            Object.assign(target, { basecampProjectId: projectId, basecampTodoId: id });
+            return target;
+        },
+        async insertImportedTasks(rows) {
+            mem.rows.push(...rows);
+            const imported = rows.map(row => task({
+                id: randomUUID(),
+                title: String(row.title),
+                status: String(row.status),
+                basecampProjectId: String(row.basecamp_project_id),
+                basecampTodoId: String(row.basecamp_todo_id),
+                parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
+            }));
+            mem.tasks.push(...imported);
+            return imported;
+        },
+        async createStep(projectId, todoId, title) {
+            assert.deepEqual([projectId, todoId], ['202', '77']);
+            createdSteps.push(title);
+            const id = 180 + createdSteps.length;
+            steps.push({ id, title });
+            return { id };
+        },
+    };
+    function link(patch: Record<string, unknown> = {}) {
+        return handleBotRequest(request(BOT_TASKS_PATH, {
+            idempotencyKey: 'link-existing-basecamp', clientId: CLIENT, basecampTodoId: '77', ...patch,
+        }), deps);
+    }
+    return { mem, deps, link, reads, writes, createdSteps };
+}
+
+test('bot rejects an inactive client before reading or writing Basecamp or recording the operation', async () => {
+    const { link, mem, reads, writes, createdSteps } = todoLinkWorld({ clientStatus: 'inactive' });
+    const response = await link({ subtasks: [{ title: 'Draft' }] });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, 'client_inactive');
+    assert.deepEqual(reads, []);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(createdSteps, []);
+    assert.deepEqual(mem.rows, []);
+    assert.deepEqual(mem.pushed, []);
+    assert.deepEqual(mem.operations, []);
+    assert.deepEqual(mem.usedKeys, []);
+});
+
+test('bot links an existing unlinked task to a to-do from any list in the configured project', async () => {
+    const root = task({ id: 'root', title: 'Local title' });
+    const { link, mem, writes, reads, createdSteps } = todoLinkWorld({ tasks: [root] });
+    const response = await link({ taskTitle: 'Local title' });
+    assert.equal(response.status, 200);
+    const { task: linked } = await response.json();
+    assert.deepEqual(
+        [linked.id, linked.title, linked.created, linked.linked, linked.basecampTodoId],
+        [root.id, root.title, false, true, '77'],
+    );
+    assert.ok(reads.every(([, projectId, recordingId]) => projectId === '202' && recordingId === '77'));
+    assert.deepEqual(writes, [[root.id, '202', '77']]);
+    assert.deepEqual(mem.rows, []);
+    assert.deepEqual(mem.pushed, []);
+    assert.deepEqual(createdSteps, []);
+});
+
+test('bot imports a to-do under its original title or a requested title', async () => {
+    for (const title of [undefined, 'Custom title']) {
+        const { link, mem, writes } = todoLinkWorld();
+        const response = await link(title ? { taskTitle: title, dueDate: '2026-11-12' } : {});
+        assert.equal(response.status, 200);
+        const { task: imported } = await response.json();
+        assert.deepEqual([imported.title, imported.created, imported.linked, imported.status],
+            [title ?? 'From Basecamp', true, true, 'done']);
+        assert.equal(mem.rows[0].description, 'Original description');
+        assert.equal(mem.rows[0].due_date, title ? '2026-11-12' : '2026-11-10');
+        assert.equal(mem.rows[0].bot_operation_id, mem.operations[0].id);
+        assert.equal(mem.rows[0].basecamp_todo_id, 77);
+        assert.deepEqual(writes, []);
+        assert.deepEqual(mem.pushed, []);
+    }
+});
+
+test('bot retry returns the same linked task and checks the request hash', async () => {
+    const root = task({ id: 'root', title: 'Local title', basecampProjectId: '202', basecampTodoId: '77', status: 'done' });
+    const { link, mem, writes, reads, createdSteps } = todoLinkWorld({ tasks: [root] });
+    const first = await link({ taskTitle: root.title, basecampTodoId: 77 });
+    assert.equal(first.status, 200);
+    const expected = await first.json();
+    assert.equal(expected.task.created, false);
+    assert.equal(expected.task.linked, true);
+    const readCount = reads.length;
+    const retry = await link({ taskTitle: root.title });
+    assert.equal(retry.headers.get('Idempotent-Replayed'), 'true');
+    assert.deepEqual(await retry.json(), expected);
+    assert.equal(reads.length, readCount);
+    const changed = await link({ taskTitle: root.title, basecampTodoId: 78 });
+    assert.equal(changed.status, 409);
+    assert.equal((await changed.json()).code, 'idempotency_conflict');
+
+    const nonConflicting = await link({ idempotencyKey: 'new-link-attempt', taskTitle: 'Another title' });
+    assert.equal(nonConflicting.status, 200);
+    assert.equal((await nonConflicting.json()).task.id, root.id);
+    assert.deepEqual(mem.rows, []);
+    assert.deepEqual(mem.pushed, []);
+    assert.deepEqual(createdSteps, []);
+    assert.deepEqual(writes, []);
+});
+
+test('bot refuses conflicting Basecamp links without writing any tasks or steps', async () => {
+    const claimed = task({ id: 'root', title: 'Linked', basecampProjectId: '202', basecampTodoId: '77' });
+    const target = task({ id: 'target', title: 'Target' });
+    for (const tasks of [
+        [claimed, target],
+        [{ ...claimed, clientId: 'other-client' }, target],
+        [{ ...claimed, organizationId: 'other-org' }, target],
+        [{ ...target, basecampProjectId: '202', basecampTodoId: '76' }],
+        [claimed, { ...target, title: claimed.title }],
+    ]) {
+        const { link, mem, reads, writes, createdSteps } = todoLinkWorld({ tasks, steps: [{ id: 81, title: 'Brief' }] });
+        const response = await link({ taskTitle: tasks[1]?.title ?? target.title, subtasks: [{ title: 'Draft' }] });
+        assert.equal(response.status, 409);
+        assert.equal((await response.json()).code, 'basecamp_todo_linked');
+        assert.equal(reads.some(([kind]) => kind === 'steps'), false);
+        assert.deepEqual(mem.rows, []);
+        assert.deepEqual(writes, []);
+        assert.deepEqual(mem.pushed, []);
+        assert.deepEqual(createdSteps, []);
+    }
+});
+
+test('bot validates the id and parent fields before looking up the project recording', async () => {
+    const { link, mem, reads } = todoLinkWorld({ projectId: null });
+    for (const value of [null, false, 0, -1, 2.5, '2.5', 'abc', '', '9007199254740993']) {
+        const response = await link({ basecampTodoId: value });
+        assert.equal(response.status, 400);
+        assert.equal((await response.json()).code, 'invalid_request');
+    }
+    for (const parent of [{ parentTitle: 'Parent' }, { parentTaskId: CLIENT }]) {
+        const response = await link({ taskTitle: 'Local title', ...parent });
+        assert.equal(response.status, 400);
+        assert.equal((await response.json()).code, 'invalid_request');
+    }
+    assert.equal(mem.operations.length, 0);
+    const noProject = await link();
+    assert.equal(noProject.status, 409);
+    assert.equal((await noProject.json()).code, 'basecamp_project_not_configured');
+    assert.deepEqual(reads, []);
+});
+
+test('bot refuses missing or wrong-project to-dos, steps, and other bot keys', async () => {
+    const cases = [
+        { options: { kind: null }, patch: {}, status: 404, code: 'basecamp_todo_not_found' },
+        { options: { projectId: '999' }, patch: {}, status: 404, code: 'basecamp_todo_not_found' },
+        { options: {}, patch: { basecampTodoId: 78 }, status: 404, code: 'basecamp_todo_not_found' },
+        { options: { kind: 'step' as const }, patch: {}, status: 400, code: 'basecamp_recording_is_step' },
+        { options: { keyName: 'technical-seo' }, patch: {}, status: 403, code: 'forbidden' },
+    ];
+    for (const { options, patch, status, code } of cases) {
+        const { link, mem, writes, createdSteps } = todoLinkWorld(options);
+        const response = await link(patch);
+        assert.equal(response.status, status);
+        assert.equal((await response.json()).code, code);
+        assert.deepEqual(mem.rows, []);
+        assert.deepEqual(writes, []);
+        assert.deepEqual(mem.pushed, []);
+        assert.deepEqual(createdSteps, []);
+    }
+});
+
+test('bot imports steps by id, reuses trimmed case-insensitive titles, and only creates unmatched steps', async () => {
+    const root = task({ id: 'root', title: 'Local title', basecampProjectId: '202', basecampTodoId: '77' });
+    const known = task({ id: 'known', title: 'Renamed locally', parentTaskId: root.id, basecampProjectId: '202', basecampTodoId: '81' });
+    const unlinked = task({ id: 'draft', title: 'Draft', parentTaskId: root.id });
+    const { link, mem, writes, createdSteps } = todoLinkWorld({
+        tasks: [root, known, unlinked],
+        steps: [
+            { id: 81, title: 'Brief' },
+            { id: 82, title: 'draft' },
+            { id: 83, title: 'Review', completed: true },
+            { id: 84, title: 'Elsewhere', parent: { id: 99 } },
+        ],
+    });
+    const subtasks = [{ title: ' brief ' }, { title: 'DRAFT' }, { title: ' review ' }, { title: 'Publish' }];
+    const response = await link({ subtasks });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.subtasks.map((item: { basecampStepId: string }) => item.basecampStepId), ['81', '82', '83', '181']);
+    assert.deepEqual(body.subtasks.slice(0, 2).map((item: { id: string }) => item.id), [known.id, unlinked.id]);
+    assert.deepEqual(mem.rows.filter(row => row.basecamp_todo_id).map(row => row.basecamp_todo_id), [83]);
+    assert.equal(mem.rows[0].status, 'done');
+    assert.deepEqual(mem.tasks.filter(item => item.parentTaskId === root.id).map(item => item.basecampTodoId), ['81', '82', '83', '181']);
+    assert.deepEqual(createdSteps, ['Publish']);
+    assert.deepEqual(writes.slice(0, 1), [[unlinked.id, '202', '82']]);
+
+    const retry = await link({ idempotencyKey: 'retry-linked-steps', subtasks });
+    assert.equal(retry.status, 200);
+    assert.deepEqual((await retry.json()).subtasks.map((item: { created: boolean }) => item.created), [false, false, false, false]);
+    assert.equal(mem.tasks.length, 5);
+    assert.deepEqual(createdSteps, ['Publish']);
+    assert.deepEqual(mem.pushed, []);
+    assert.deepEqual(mem.completed, []);
+});
+
+for (const operation of ['link to-do', 'import to-do', 'link step', 'import steps', 'link new step'] as const) {
+    test(`bot returns a recording conflict if a concurrent request wins the ${operation} write`, async () => {
+        const root = task({ id: 'root', title: 'Local title' });
+        const child = task({ id: 'child', title: 'Draft', parentTaskId: root.id });
+        const onExistingTodo = operation === 'link step' || operation === 'import steps' || operation === 'link new step';
+        if (onExistingTodo) Object.assign(root, { basecampTodoId: '77', basecampProjectId: '202' });
+        const existingTasks = operation === 'import to-do' ? [] : operation === 'link step' ? [root, child] : [root];
+        const { link, mem, deps, createdSteps } = todoLinkWorld({
+            tasks: existingTasks,
+            steps: operation === 'link step' || operation === 'import steps' ? [{ id: 81, title: 'Draft' }] : [],
+        });
+        const failWrite = async () => {
+            throw {
+                code: '23505',
+                message: 'duplicate key value violates unique constraint "tasks_basecamp_recording_unique"',
+            };
+        };
+        if (operation === 'import to-do' || operation === 'import steps') {
+            deps.basecampTasks.insertImportedTasks = failWrite;
+        } else {
+            deps.basecampTasks.updateTaskLink = failWrite;
+        }
+
+        const response = await link({
+            ...(operation === 'link to-do' ? { taskTitle: root.title } : {}),
+            subtasks: [{ title: 'First new step' }, { title: 'Second new step' }],
+        });
+
+        assert.equal(response.status, 409);
+        assert.equal((await response.json()).code, 'basecamp_todo_linked');
+        assert.deepEqual(mem.pushed, []);
+        assert.deepEqual(mem.completed, []);
+        assert.deepEqual(createdSteps, operation === 'link new step' ? ['First new step'] : []);
+        assert.deepEqual(mem.tasks.map(item => item.basecampTodoId).filter(Boolean), onExistingTodo ? ['77'] : []);
+        assert.deepEqual(mem.rows.map(row => row.title), operation === 'link new step' ? ['First new step'] : []);
+    });
+}
+
+test('bot keeps unrelated uniqueness errors on the existing failure path', async () => {
+    const { link, deps } = todoLinkWorld();
+    deps.basecampTasks.insertImportedTasks = async () => {
+        throw {
+            code: '23505',
+            message: 'duplicate key value violates unique constraint "tasks_bot_operation_unique"',
+        };
+    };
+
+    const response = await link();
+    assert.equal(response.status, 500);
+    assert.equal((await response.json()).code, 'internal');
+});
+
+test('bot retry recovers a step created before the app could save its link', async () => {
+    const { link, mem, deps, createdSteps } = todoLinkWorld();
+    const updateTaskLink = deps.basecampTasks.updateTaskLink;
+    let failOnce = true;
+    deps.basecampTasks.updateTaskLink = async (...args) => {
+        if (failOnce) {
+            failOnce = false;
+            throw new Error('Local step link write failed');
+        }
+        return updateTaskLink(...args);
+    };
+    const payload = { subtasks: [{ title: 'Draft' }] };
+    const failed = await link(payload);
+    assert.equal(failed.status, 500);
+    const rootId = mem.tasks.find(item => item.basecampTodoId === '77')?.id;
+    const childId = mem.tasks.find(item => item.parentTaskId === rootId)?.id;
+    assert.ok(rootId && childId);
+
+    const differentRequest = await link({ basecampTodoId: 78, ...payload });
+    assert.equal(differentRequest.status, 409);
+    assert.equal((await differentRequest.json()).code, 'idempotency_conflict');
+
+    const retried = await link(payload);
+    assert.equal(retried.status, 200);
+    const body = await retried.json();
+    assert.deepEqual([body.task.id, body.task.created, body.task.linked], [rootId, false, true]);
+    assert.deepEqual([body.subtasks[0].id, body.subtasks[0].basecampStepId], [childId, '181']);
+    assert.equal(mem.tasks.length, 2);
+    assert.deepEqual(createdSteps, ['Draft']);
+    assert.deepEqual(mem.pushed, []);
+});
+
+test('bot skips ambiguous or claimed step titles and still imports distinct step ids', async () => {
+    const claimed = task({ id: 'claimed', title: 'QA', clientId: 'other-client', basecampTodoId: '83', basecampProjectId: '202' });
+    const { link, mem, createdSteps } = todoLinkWorld({
+        tasks: [claimed],
+        steps: [{ id: 81, title: 'Draft' }, { id: 82, title: 'draft' }, { id: 83, title: 'QA' }],
+    });
+    const response = await link({ subtasks: [{ title: 'Draft' }, { title: 'QA' }] });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.task.basecamp.subtasksSkipped, 2);
+    assert.deepEqual(mem.tasks.filter(item => item.parentTaskId === body.task.id).map(item => item.basecampTodoId), ['81', '82']);
+    assert.deepEqual(createdSteps, []);
+    assert.deepEqual(mem.pushed, []);
+});
+
+test('bot leaves task links untouched when the Basecamp step list is unavailable', async () => {
+    const root = task({ id: 'root', title: 'Local title' });
+    const { link, mem, deps, writes, createdSteps } = todoLinkWorld({ tasks: [root] });
+    deps.basecampTasks.listSteps = async () => { throw new Error('Provider unavailable'); };
+    const response = await link({ taskTitle: root.title, subtasks: [{ title: 'Draft' }] });
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).code, 'basecamp_steps_unavailable');
+    assert.deepEqual(writes, []);
+    assert.deepEqual(mem.rows, []);
+    assert.deepEqual(createdSteps, []);
+    assert.deepEqual(mem.pushed, []);
+});
+
+test('inactive clients cannot get tasks, including subtasks under a new or existing parent', async () => {
+    const parent = task({ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', title: 'August blogs' });
+    for (const draft of [
+        { clientName: 'Ecoworkz', taskTitle: 'Brief' },
+        { clientId: CLIENT, taskTitle: 'September blogs', subtasks: [{ title: 'Brief' }] },
+        { clientId: CLIENT, parentTaskId: parent.id, taskTitle: 'Brief' },
+        { clientId: CLIENT, taskTitle: parent.title },
+    ]) {
+        const { mem, deps } = world({ clientStatus: 'inactive', tasks: [parent] });
+        const response = await handleBotRequest(request(BOT_TASKS_PATH, {
+            idempotencyKey: 'inactive-client',
+            ...draft,
+        }), deps);
+        assert.equal(response.status, 409);
+        const body = await response.json();
+        assert.equal(body.code, 'client_inactive');
+        assert.match(body.error, /inactive/i);
+        assert.deepEqual(mem.rows, []);
+        assert.deepEqual(mem.pushed, []);
+        assert.deepEqual(mem.operations, []);
+        assert.deepEqual(mem.usedKeys, []);
+    }
+});
+
+test('bots can still create tasks for onboarding, pending, and paused clients', async () => {
+    for (const clientStatus of ['onboarding', 'pending', 'paused']) {
+        const { mem, deps } = world({ clientStatus });
+        const response = await handleBotRequest(request(BOT_TASKS_PATH, {
+            idempotencyKey: 'current-client', clientId: CLIENT, taskTitle: 'Brief',
+        }), deps);
+        assert.equal(response.status, 200, clientStatus);
+        assert.equal(mem.rows.length, 1);
+        assert.equal(mem.pushed.length, 1);
+    }
 });
 
 test('a timer starts only on an existing task and a second start on that task is the same timer', async () => {
