@@ -642,6 +642,58 @@ test('bot imports steps by id, reuses trimmed case-insensitive titles, and only 
     assert.deepEqual(mem.completed, []);
 });
 
+for (const operation of ['link to-do', 'import to-do', 'link step', 'import steps', 'link new step'] as const) {
+    test(`bot returns a recording conflict if a concurrent request wins the ${operation} write`, async () => {
+        const root = task({ id: 'root', title: 'Local title' });
+        const child = task({ id: 'child', title: 'Draft', parentTaskId: root.id });
+        const onExistingTodo = operation === 'link step' || operation === 'import steps' || operation === 'link new step';
+        if (onExistingTodo) Object.assign(root, { basecampTodoId: '77', basecampProjectId: '202' });
+        const existingTasks = operation === 'import to-do' ? [] : operation === 'link step' ? [root, child] : [root];
+        const { link, mem, deps, createdSteps } = todoLinkWorld({
+            tasks: existingTasks,
+            steps: operation === 'link step' || operation === 'import steps' ? [{ id: 81, title: 'Draft' }] : [],
+        });
+        const failWrite = async () => {
+            throw {
+                code: '23505',
+                message: 'duplicate key value violates unique constraint "tasks_basecamp_recording_unique"',
+            };
+        };
+        if (operation === 'import to-do' || operation === 'import steps') {
+            deps.basecampTasks.insertImportedTasks = failWrite;
+        } else {
+            deps.basecampTasks.updateTaskLink = failWrite;
+        }
+
+        const response = await link({
+            ...(operation === 'link to-do' ? { taskTitle: root.title } : {}),
+            subtasks: [{ title: 'First new step' }, { title: 'Second new step' }],
+        });
+
+        assert.equal(response.status, 409);
+        assert.equal((await response.json()).code, 'basecamp_todo_linked');
+        assert.deepEqual(mem.pushed, []);
+        assert.deepEqual(mem.completed, []);
+        assert.deepEqual(createdSteps, operation === 'link new step' ? ['First new step'] : []);
+        assert.deepEqual(mem.tasks.map(item => item.basecampTodoId).filter(Boolean), onExistingTodo ? ['77'] : []);
+        assert.deepEqual(mem.rows.map(row => row.title), operation === 'link new step' ? ['First new step'] : []);
+    });
+}
+
+test('bot keeps unrelated uniqueness errors on the existing failure path', async () => {
+    const { link, deps } = todoLinkWorld();
+    deps.basecampTasks.insertImportedTasks = async () => {
+        throw {
+            code: '23505',
+            message: 'duplicate key value violates unique constraint "tasks_bot_operation_unique"',
+        };
+    };
+
+    const response = await link();
+    assert.equal(response.status, 500);
+    assert.equal((await response.json()).code, 'internal');
+});
+
 test('bot retry recovers a step created before the app could save its link', async () => {
     const { link, mem, deps, createdSteps } = todoLinkWorld();
     const updateTaskLink = deps.basecampTasks.updateTaskLink;

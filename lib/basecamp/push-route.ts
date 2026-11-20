@@ -2,6 +2,7 @@ import {
     authorizeBasecampProject,
     type BasecampProjectAccessSource,
 } from './project-access.ts';
+import { isBasecampRecordingConflict } from './task-recording-conflict.ts';
 import {
     BASECAMP_STEP_MATCH_CONFLICT,
     groupByStepTitle,
@@ -58,7 +59,7 @@ interface PushStore {
         projectId: string,
         todoId: string,
         syncedAt: string,
-    ): Promise<string | null>;
+    ): Promise<{ code: string; message: string } | null>;
     markTaskSynced(
         taskId: string,
         organizationId: string,
@@ -310,7 +311,10 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                             String(created.id),
                             dependencies.now(),
                         );
-                        if (updateError) return json({ error: updateError }, 500);
+                        if (isBasecampRecordingConflict(updateError)) {
+                            return json({ error: 'This Basecamp to-do is already linked to a task.' }, 409);
+                        }
+                        if (updateError) return json({ error: updateError.message }, 500);
                     }
 
                     const moved = await moveProjectTime(dependencies, task, projectId, String(created.id));
@@ -411,8 +415,6 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                     ...subtaskSummary,
                                 }, 502);
                             }
-                            // Only new steps participate in completion sync on this push.
-                            if (!match) createdStepIds.set(subtask.id, String(step.id));
                             const stepLinkError = await store.updateTaskLink(
                                 subtask.id,
                                 task.organizationId,
@@ -421,7 +423,14 @@ export function createBasecampPushPost(dependencies: Dependencies) {
                                 String(step.id),
                                 dependencies.now(),
                             );
-                            if (stepLinkError) return json({ error: stepLinkError }, 500);
+                            if (isBasecampRecordingConflict(stepLinkError)) {
+                                subtaskSummary.subtasksSkipped = (subtaskSummary.subtasksSkipped ?? 0) + 1;
+                                subtaskSummary.reason = BASECAMP_STEP_MATCH_CONFLICT;
+                                continue;
+                            }
+                            if (stepLinkError) return json({ error: stepLinkError.message }, 500);
+                            // Only newly created, successfully linked steps get completion sync here.
+                            if (!match) createdStepIds.set(subtask.id, String(step.id));
                         }
                     }
                     for (const subtask of subtasks) {

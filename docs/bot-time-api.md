@@ -91,6 +91,8 @@ Send `basecampTodoId` to link an existing top-level task or import a new one. Th
 
 An exact `taskTitle` match links an unlinked app task. If the to-do already belongs to a task in this client and the title identifies no conflicting task, the response returns that task with `created: false` and preserves its title. With no matching task or existing link, the app imports the Basecamp title, description, due date, and completion state. A supplied `taskTitle` or `dueDate` overrides the corresponding value on the new app task.
 
+Migration 137 enforces one task per Basecamp recording in the database, including to-dos and steps. If a concurrent request claims a recording during a link or import, the bot returns `409 basecamp_todo_linked`.
+
 Missing Basecamp steps are imported by recording ID. Requested subtasks reuse a unique step by trimmed, case-insensitive title, and new titles can create steps on the linked to-do. Ambiguous or already-claimed matches are reported in `task.basecamp.subtasksSkipped`. The response includes `task.linked: true` for this explicit link path and `false` for standard task creation. Returned subtasks include `basecampStepId` when the linked recording is known to be a step.
 
 ```json
@@ -108,7 +110,7 @@ Missing Basecamp steps are imported by recording ID. Requested subtasks reuse a 
 | 400 | `basecamp_recording_is_step` | The ID is a Basecamp step. |
 | 404 | `basecamp_todo_not_found` | No to-do with that ID was found in the configured project. |
 | 409 | `basecamp_project_not_configured` | The client has no configured Basecamp project. |
-| 409 | `basecamp_todo_linked` | The to-do is linked to a different task, client, or organization, or the requested task has a different link. |
+| 409 | `basecamp_todo_linked` | The to-do is linked to a different task, client, or organization, the requested task has a different link, or a concurrent write claimed a recording during the request. |
 | 502 | `basecamp_steps_unavailable` or `basecamp_step_sync_failed` | The step list could not be read or a new step could not be created. Retry with the same idempotency key. |
 
 ## Start a timer

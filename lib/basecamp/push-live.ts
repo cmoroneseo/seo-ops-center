@@ -144,7 +144,7 @@ export function createLiveBasecampPushPost(authorizeTask: AuthorizeTask) {
                         .eq('id', taskId)
                         .eq('organization_id', organizationId)
                         .eq('client_id', clientId);
-                    return error?.message ?? null;
+                    return error;
                 },
                 async markTaskSynced(taskId, organizationId, clientId, syncedAt) {
                     const { error } = await admin
