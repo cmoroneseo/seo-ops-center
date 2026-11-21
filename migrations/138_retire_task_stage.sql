@@ -1,5 +1,5 @@
 -- Migration 138: retire task stages while retaining stored data.
--- NOT APPLIED. Do not run this against the production Supabase project. The owner reviews and applies it separately.
+-- APPLIED 2026-11-21 (PT) to production Supabase project sgszojorcftyaknruckh.
 
 alter table public.tasks drop constraint if exists tasks_stage_check;
 alter table public.tasks alter column stage drop not null;

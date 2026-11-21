@@ -1,8 +1,7 @@
 -- 130_topical_map_record_answer_brief.sql
 -- Answer-ready brief on topical map records.
 --
--- NOT APPLIED. Do not run this against any Supabase project.
--- The owner reviews and applies it separately.
+-- APPLIED 2026-11-12 (PT) to production Supabase project sgszojorcftyaknruckh.
 --
 -- One nullable jsonb column. No default. No backfill. Existing rows stay null.
 -- Row level security is unchanged.
