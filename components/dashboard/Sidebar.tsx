@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
     Archive,
@@ -51,6 +51,9 @@ import {
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcher, type SwitcherClient } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
+import { activeSidebarProjectId, isProjectsGridActive } from '@/lib/nav/sidebar-projects';
+import { projectsHref } from '@/lib/projects/project-links';
+import { SidebarProjects } from '@/components/dashboard/SidebarProjects';
 import { ApprovalBadge } from '@/components/approvals-v2/Badge';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 
@@ -255,55 +258,76 @@ export function Sidebar() {
                 {sections.map(section => {
                     const overflowActive = section.overflow?.some(link => isClientLinkActive(selected.pathname, selected.search, link, flags)) ?? false;
                     return (
-                        <div key={section.id} className="space-y-0.5">
-                            <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
-                                {section.label}
-                            </div>
-                            {section.links.map(link => {
-                                const active = isClientLinkActive(selected.pathname, selected.search, link, flags);
-                                const children = link.children ?? [];
-                                if (children.length === 0) {
-                                    return <NavLink key={link.id} link={link} active={active} />;
-                                }
-                                return (
-                                    <div key={link.id} className="space-y-0.5" role="group" aria-label={link.label}>
-                                        <NavLink link={link} active={active} />
-                                        {children.map(child => (
+                        <Fragment key={section.id}>
+                            <div className="space-y-0.5">
+                                <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
+                                    {section.label}
+                                </div>
+                                {section.links.map(link => {
+                                    const active = isClientLinkActive(selected.pathname, selected.search, link, flags);
+                                    const children = link.children ?? [];
+                                    if (children.length === 0) {
+                                        return <NavLink key={link.id} link={link} active={active} />;
+                                    }
+                                    return (
+                                        <div key={link.id} className="space-y-0.5" role="group" aria-label={link.label}>
+                                            <NavLink link={link} active={active} />
+                                            {children.map(child => (
+                                                <NavLink
+                                                    key={child.id}
+                                                    link={child}
+                                                    nested
+                                                    active={isClientLinkActive(selected.pathname, selected.search, child, flags)}
+                                                />
+                                            ))}
+                                        </div>
+                                    );
+                                })}
+                                {section.overflow && section.overflow.length > 0 && (
+                                    <div ref={moreRef}>
+                                        <button
+                                            type="button"
+                                            title="More"
+                                            aria-expanded={menu === 'more'}
+                                            onClick={() => setMenu(current => current === 'more' ? null : 'more')}
+                                            className={navClass(overflowActive)}
+                                        >
+                                            {(overflowActive) && (
+                                                <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />
+                                            )}
+                                            <MoreHorizontal className="h-4 w-4 shrink-0" aria-hidden />
+                                            <span className="hidden truncate xl:inline">More...</span>
+                                        </button>
+                                        {menu === 'more' && section.overflow.map(link => (
                                             <NavLink
-                                                key={child.id}
-                                                link={child}
-                                                nested
-                                                active={isClientLinkActive(selected.pathname, selected.search, child, flags)}
+                                                key={link.id}
+                                                link={link}
+                                                active={isClientLinkActive(selected.pathname, selected.search, link, flags)}
                                             />
                                         ))}
                                     </div>
-                                );
-                            })}
-                            {section.overflow && section.overflow.length > 0 && (
-                                <div ref={moreRef}>
-                                    <button
-                                        type="button"
-                                        title="More"
-                                        aria-expanded={menu === 'more'}
-                                        onClick={() => setMenu(current => current === 'more' ? null : 'more')}
-                                        className={navClass(overflowActive)}
-                                    >
-                                        {(overflowActive) && (
-                                            <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />
-                                        )}
-                                        <MoreHorizontal className="h-4 w-4 shrink-0" aria-hidden />
-                                        <span className="hidden truncate xl:inline">More...</span>
-                                    </button>
-                                    {menu === 'more' && section.overflow.map(link => (
+                                )}
+                            </div>
+                            {section.id === (pipelineNav ? 'delivery' : 'workspace') && selected.clientId && (
+                                <>
+                                    <div className="xl:hidden">
                                         <NavLink
-                                            key={link.id}
-                                            link={link}
-                                            active={isClientLinkActive(selected.pathname, selected.search, link, flags)}
+                                            link={{ id: 'projects', label: 'Projects', href: projectsHref(selected.clientId) }}
+                                            active={isProjectsGridActive(selected.pathname, selected.search, selected.clientId)
+                                                || activeSidebarProjectId(selected.pathname, selected.search, selected.clientId) !== null}
                                         />
-                                    ))}
-                                </div>
+                                    </div>
+                                    <div className="hidden xl:block">
+                                        <SidebarProjects
+                                            clientId={selected.clientId}
+                                            organizationId={organization?.id}
+                                            pathname={selected.pathname}
+                                            search={selected.search}
+                                        />
+                                    </div>
+                                </>
                             )}
-                        </div>
+                        </Fragment>
                     );
                 })}
             </nav>

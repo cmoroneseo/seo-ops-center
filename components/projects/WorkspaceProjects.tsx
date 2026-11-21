@@ -17,6 +17,7 @@ import { projectsHref } from '@/lib/projects/project-links';
 import {
     listCampaignInitiatives, saveCampaignInitiative, updateCampaignInitiativeStatus, updateCampaignInitiativeTitle,
 } from '@/lib/supabase/campaign-initiatives';
+import { notifyProjectsChanged } from '@/lib/nav/sidebar-projects';
 import { createTask, getTasksByClient } from '@/lib/supabase/tasks';
 import type { Task } from '@/lib/types';
 
@@ -55,6 +56,7 @@ function NewProjectForm({ clientId, organizationId, onSaved }: {
         setError('');
         try {
             await saveCampaignInitiative({ clientId, assertedOrganizationId: organizationId, draft });
+            notifyProjectsChanged(clientId);
             onSaved();
         } catch {
             setError('Could not create the project. Try again.');
@@ -99,6 +101,7 @@ function ProjectStatus({ project }: { project: CampaignInitiative }) {
                 clientId: project.clientId, assertedOrganizationId: project.organizationId,
                 initiativeId: project.id, state: next, verification,
             });
+            notifyProjectsChanged(project.clientId);
             setState(next);
             if (verification) setVerified(true);
             setConfirming(false);
@@ -201,6 +204,7 @@ function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload
                         clientId: project.clientId, assertedOrganizationId: project.organizationId,
                         initiativeId: project.id, title,
                     });
+                    notifyProjectsChanged(project.clientId);
                     onRenamed(title);
                 }} />
                 <p className="text-sm text-muted-foreground">{project.category ? CATEGORY_LABEL[project.category] : 'No category'}</p>

@@ -166,7 +166,6 @@ export function clientSections(
     }
     workspace.push(
         link('tasks', 'Tasks', 'tasks'),
-        link('projects', 'Projects', 'projects'),
         link('deliverables', 'Deliverables', 'deliverables'),
         { id: 'time', label: 'Time', href: '/timesheets' },
         { id: 'reports', label: 'Reports', href: reportsNavHref() },
@@ -217,7 +216,6 @@ function pipelineClientSections(
     }
     delivery.push(
         link('tasks', 'Tasks', 'tasks'),
-        link('projects', 'Projects', 'projects'),
         { id: 'reports', label: 'Reports', href: reportsNavHref() },
     );
 
