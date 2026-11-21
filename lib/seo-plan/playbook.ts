@@ -1,9 +1,6 @@
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template';
 import { catalogAddBlocked, onboardingChecklist } from './onboarding';
 import { drawerWording } from './playbook-plain';
-import { endOfMonthDay } from './plan-add';
-import { PHASE_STAGE_COPY, PLAN_PHASES, type BoardStage, type PlanBoard } from './plan-phases';
-import { monthKeyFromDay, planMonthTitle } from './plan-sections';
 import { STAGE_ADD_MAX_TITLE_LENGTH, STAGE_ADD_MAX_TITLES } from './stage-add-lines';
 
 /**
@@ -35,8 +32,6 @@ export const PLAYBOOK_COPY = {
     checklist: 'Starting checklist',
     library: 'Saved work list',
     saved: 'Your saved tasks',
-    onboardingDetail: 'Starting tasks for a new client.',
-    backlogDetail: 'Tasks with no date yet.',
     thisMonthDetail: 'Tasks due at the end of this month.',
 } as const;
 
@@ -51,18 +46,13 @@ export const PLAYBOOK_GROUP_TITLES: Record<string, string> = {
     local: 'Showing up nearby',
 };
 
-export function playbookStageButtonLabel(stageTitle: string): string {
-    return `${PLAYBOOK_COPY.button} to ${stageTitle}`;
+export function playbookProjectButtonLabel(projectTitle: string): string {
+    return `${PLAYBOOK_COPY.button} to ${projectTitle}`;
 }
 
 export function playbookAddLabel(count: number): string {
     if (count === 1) return 'Add 1 task';
     return `Add ${count} tasks`;
-}
-
-export function playbookMonthDetail(month: string, today: string): string {
-    if (month === monthKeyFromDay(today)) return PLAYBOOK_COPY.thisMonthDetail;
-    return `Tasks due at the end of ${planMonthTitle(month)}.`;
 }
 
 export interface PlaybookOrgTask {
@@ -117,17 +107,8 @@ export interface PlaybookExisting {
 
 export type PlaybookRowState = 'plan' | 'same' | 'open' | 'chosen';
 
-export interface PlaybookChoice {
-    id: string;
-    label: string;
-    detail: string;
-    stage: BoardStage;
-    dueDate: string | null;
-}
-
 export interface PlaybookAddCall {
     initiativeId?: string | null;
-    stage: BoardStage;
     titles: string[];
     dueDate?: string | null;
     items?: { title: string; depth: 0 | 1 }[];
@@ -321,71 +302,12 @@ export function playbookAddTitles(items: readonly PlaybookItem[], existing: read
     return titles;
 }
 
-export function playbookChoices(board: PlanBoard, month: string, today: string): PlaybookChoice[] {
-    if (board === 'phases') {
-        return PLAN_PHASES.map(id => ({
-            id,
-            label: PHASE_STAGE_COPY[id].title,
-            detail: PHASE_STAGE_COPY[id].description,
-            stage: id,
-            dueDate: null,
-        }));
-    }
-    const current = month === monthKeyFromDay(today);
-    const label = current ? 'This month' : planMonthTitle(month);
-    return [
-        {
-            id: 'onboarding',
-            label: 'Onboarding',
-            detail: PLAYBOOK_COPY.onboardingDetail,
-            stage: 'onboarding',
-            dueDate: null,
-        },
-        {
-            id: 'this_month',
-            label,
-            detail: playbookMonthDetail(month, today),
-            stage: 'backlog',
-            dueDate: endOfMonthDay(month),
-        },
-        {
-            id: 'backlog',
-            label: 'Backlog',
-            detail: PLAYBOOK_COPY.backlogDetail,
-            stage: 'backlog',
-            dueDate: null,
-        },
-    ];
-}
-
-/** The stage the drawer was opened from, or the first stage on that board. */
-export function playbookChoiceId(board: PlanBoard, openedFrom: string | null): string {
-    if (board === 'phases') {
-        if (openedFrom === 'growth' || openedFrom === 'scale') return openedFrom;
-        return 'foundation';
-    }
-    if (openedFrom === 'onboarding' || openedFrom === 'backlog') return openedFrom;
-    return 'this_month';
-}
-
-export function playbookChoice(board: PlanBoard, month: string, today: string, id: string): PlaybookChoice | null {
-    return playbookChoices(board, month, today).find(choice => choice.id === id) ?? null;
-}
-
 /** One create call per batch the existing add path will accept. */
-export function playbookAddCalls(titles: readonly string[], choice: PlaybookChoice, initiativeId?: string | null): PlaybookAddCall[] {
+export function playbookAddCalls(titles: readonly string[], initiativeId?: string | null): PlaybookAddCall[] {
     const calls: PlaybookAddCall[] = [];
     for (let index = 0; index < titles.length; index += STAGE_ADD_MAX_TITLES) {
         const chunk = titles.slice(index, index + STAGE_ADD_MAX_TITLES);
-        calls.push(choice.dueDate
-            ? {
-                ...(initiativeId !== undefined ? { initiativeId } : {}),
-                stage: choice.stage,
-                titles: chunk,
-                dueDate: choice.dueDate,
-                items: chunk.map(title => ({ title, depth: 0 })),
-            }
-            : { ...(initiativeId !== undefined ? { initiativeId } : {}), stage: choice.stage, titles: chunk });
+        calls.push({ ...(initiativeId !== undefined ? { initiativeId } : {}), titles: chunk });
     }
     return calls;
 }

@@ -1,12 +1,7 @@
-import { isPlanPhase } from './plan-phases';
-
 /**
  * When an SEO Plan task is allowed to push to Basecamp.
  *
- * A backlog task with no due date never pushes. A due date qualifies it.
- * Onboarding and the phase stages (Foundation, Growth, Scale) qualify
- * without a due date. Clients with no Basecamp project are a no-op decided
- * by the caller; this predicate is only about the task.
+ * Dated work and tasks assigned to a project qualify for plan sync.
  */
 
 export const PLAN_BASECAMP_PUSH_DEBOUNCE_MS = 2000;
@@ -30,34 +25,18 @@ export interface PlanBasecampSyncState {
 }
 
 export interface PlanTaskPushInput {
-    stage: string | null;
     dueDate: string | null;
+    initiativeId?: string | null;
 }
 
-/** Onboarding, a phase stage, or any task that has a due date. Undated backlog stays local. */
 export function planTaskQualifiesForBasecampPush(task: PlanTaskPushInput): boolean {
-    if (typeof task.dueDate === 'string' && task.dueDate.trim().length > 0) return true;
-    return task.stage === 'onboarding' || isPlanPhase(task.stage);
+    return Boolean(task.dueDate?.trim() || task.initiativeId);
 }
 
-/**
- * A row on the work plan. Onboarding, Backlog, and the three phase stages.
- * Stage by itself does not mean "this row belongs to the plan push."
- */
-export function isSeoPlanTask(stage: string | null | undefined): boolean {
-    return stage === 'onboarding' || stage === 'backlog' || isPlanPhase(stage);
-}
-
-/**
- * Basecamp reopen is ignored only for a row this silent push has recorded.
- * Every task has a stage, so stage alone would also stop the Tasks page,
- * planner, and the older Send to Basecamp control from reopening.
- */
 export function planTaskIgnoresBasecampReopen(
-    stage: string | null | undefined,
     syncState: string | null | undefined,
 ): boolean {
-    return isSeoPlanTask(stage) && (syncState === 'ok' || syncState === 'failed');
+    return syncState === 'ok' || syncState === 'failed';
 }
 
 export interface PlanBasecampBannerInput {
@@ -130,8 +109,8 @@ export function formatBasecampHttpFailure(
 export interface NightlyRetryRow {
     id: string;
     state: string | null;
-    stage: string | null;
     dueDate: string | null;
+    initiativeId?: string | null;
     /** The client still has a Basecamp project and sync turned on. */
     hasProject: boolean;
 }
@@ -141,7 +120,7 @@ export function nightlyBasecampRetryIds(rows: readonly NightlyRetryRow[]): strin
     const ids: string[] = [];
     for (const row of rows) {
         if (row.state !== 'failed' || !row.hasProject) continue;
-        if (!planTaskQualifiesForBasecampPush({ stage: row.stage, dueDate: row.dueDate })) continue;
+        if (!planTaskQualifiesForBasecampPush(row)) continue;
         ids.push(row.id);
     }
     return ids;
@@ -174,15 +153,15 @@ export interface PlanBasecampReadout {
 /** Read-only shape the plan side panel can show. It does not push. */
 export function planBasecampReadout(input: {
     taskId: string;
-    stage: string | null;
     dueDate: string | null;
+    initiativeId?: string | null;
     sync: PlanBasecampSyncState | null;
     basecampTodoId: string | null;
     banner: PlanBasecampBanner;
 }): PlanBasecampReadout {
     return {
         taskId: input.taskId,
-        qualifies: planTaskQualifiesForBasecampPush({ stage: input.stage, dueDate: input.dueDate }),
+        qualifies: planTaskQualifiesForBasecampPush(input),
         state: input.sync?.state ?? null,
         error: input.sync?.error ?? null,
         attemptedAt: input.sync?.attemptedAt ?? null,

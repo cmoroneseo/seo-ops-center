@@ -54,6 +54,7 @@ test('an explicit saved list still builds every library row, and onboarding stay
     assert.equal(library.some(row => row.roadmap_included === true), false);
 
     const onboarding = planSeedInserts({ seed: 'onboarding', ...ids, scope: { gbp: true, listings: true } });
+    assert.ok([...library, ...onboarding].every(row => !Object.hasOwn(row, 'stage')));
     const expected = onboardingSeedItems({ gbp: true, listings: true });
     assert.equal(onboarding.length, expected.length);
     assert.equal(onboarding.every(row => row.source === 'onboarding' && row.roadmap_phase === 'onboarding' && row.roadmap_included === true), true);

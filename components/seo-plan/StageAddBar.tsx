@@ -15,13 +15,13 @@ import { subtaskLinesError } from '@/lib/tasks/live-url';
 export function StageAddBar({
     label,
     placeholder,
-    stage,
+    groupId,
     parentTaskId,
     onAdd,
 }: {
     label: string;
     placeholder: string;
-    stage: string;
+    groupId: string;
     parentTaskId?: string;
     onAdd: (titles: string[]) => Promise<void>;
 }) {
@@ -63,7 +63,7 @@ export function StageAddBar({
                 aria-label={label}
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? errorId : undefined}
-                data-add={stage}
+                data-add={groupId}
                 {...(parentTaskId ? { 'data-add-parent': parentTaskId } : {})}
                 autoComplete="off"
                 onChange={event => {

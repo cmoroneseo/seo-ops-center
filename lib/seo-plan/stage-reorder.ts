@@ -1,38 +1,18 @@
-import { projectGroupId, NO_PROJECT_GROUP } from './project-groups';
 import type { PartOfChoice } from '../tasks/part-of';
+import { NO_PROJECT_GROUP, projectGroupId } from './project-groups';
 import { isPendingStageTaskId } from './stage-add';
-import { compareStageListTasks, groupTasksByStage, type StageListTask } from './stage-list';
-import { isTaskStage } from '../tasks/stage';
-import { TASK_STAGES } from '../types';
-import { isBoardStage, isPlanPhase, PLAN_PHASES, type BoardStage } from './plan-phases';
+import { groupTaskTrees, type StageListTask } from './stage-list';
 
-/**
- * Where a dragged task should land.
- * `index` is the slot among the destination siblings after this task is removed.
- * A parent means nest under that pillar. No parent means a top-level row in `stage`.
- */
 export interface StageReorderMove {
     taskId: string;
-    stage: BoardStage;
     parentTaskId: string | null;
     index: number;
-    /** Reorder by position across stored stages, keeping each task’s stage and parent. */
     projectGroup?: string;
-    /** Loaded by the server for No project, and supplied by the board for its optimistic preview. */
     projects?: readonly Pick<PartOfChoice, 'id'>[];
-    /**
-     * Set when a cross-section drag should write tasks.due_date.
-     * Null clears it. Omitted leaves the due date alone.
-     * The reorder RPC does not store this; the route writes it separately
-     * and does not push the change to Basecamp.
-     */
-    dueDate?: string | null;
 }
 
-/** One row the atomic rewrite must persist. Positions are 1-based inside the sibling group. */
 export interface StageReorderWrite {
     id: string;
-    stage: BoardStage;
     position: number;
     parentTaskId: string | null;
 }
@@ -42,245 +22,94 @@ export type StageReorderPlan =
     | { ok: false; error: string };
 
 export const STAGE_REORDER_NOT_FOUND = 'Not found';
-export const STAGE_REORDER_ONE_LEVEL = 'Tasks can only nest one level deep';
-export const STAGE_REORDER_PILLAR = 'A pillar moves with its subtasks and cannot be nested';
-export const STAGE_REORDER_RECURRING = 'That task cannot be nested';
-export const STAGE_REORDER_SELF = 'A task cannot be nested under itself';
-export const STAGE_REORDER_STAGE = 'Choose a stage.';
+export type StageMoveDirection = 'up' | 'down' | 'unnest';
 
-export type StageMoveDirection = 'up' | 'down' | 'previous-stage' | 'next-stage' | 'unnest';
-
-export type StageDropHint =
-    | { type: 'nest'; taskId: string }
-    | { type: 'insert'; stage: BoardStage; parentTaskId: string | null; beforeTaskId: string | null };
-
-interface Placement {
-    stage: BoardStage;
-    parentTaskId: string | null;
-    index: number;
-    siblings: StageListTask[];
-}
-
-interface Model {
-    byId: Map<string, StageListTask>;
-    pillars: Set<string>;
-    place(id: string): Placement | null;
-    children(parentId: string): StageListTask[];
-    tops(stage: BoardStage): StageListTask[];
-}
-
-function stageOf(task: StageListTask): BoardStage {
-    if (isPlanPhase(task.stage)) return task.stage;
-    return isTaskStage(task.stage) ? task.stage : 'backlog';
-}
-
-function finitePosition(value: number | null): number | null {
-    return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-/** Saved rows only. Optimistic ids are not part of the sibling order the server can write. */
-function persistedTasks(tasks: readonly StageListTask[]): StageListTask[] {
-    const seen = new Set<string>();
-    const list: StageListTask[] = [];
-    for (const task of tasks) {
-        if (!task.id || seen.has(task.id) || isPendingStageTaskId(task.id)) continue;
-        seen.add(task.id);
-        list.push(task);
-    }
-    return list;
-}
-
-/**
- * A structural child is a real subtask. Recurring successors point at the
- * completed task and keep their own row, so they do not make it a pillar.
- */
-function structuralChild(task: StageListTask, parent: StageListTask | undefined): boolean {
-    if (!task.parentTaskId || task.recurring) return false;
-    if (parent && task.title === parent.title) return false;
-    return true;
-}
-
-function readModel(tasks: readonly StageListTask[]): Model {
-    const list = persistedTasks(tasks);
-    const byId = new Map(list.map(task => [task.id, task]));
-    const sections = groupTasksByStage(list, '');
-    const childrenByParent = new Map<string, StageListTask[]>();
-    const boardStages: BoardStage[] = [...TASK_STAGES, ...PLAN_PHASES];
-    const topsByStage = new Map<BoardStage, StageListTask[]>(boardStages.map(stage => [stage, []]));
-    const parentOf = new Map<string, string>();
-    const pillars = new Set<string>();
-
-    for (const section of sections) {
-        for (const group of section.groups) {
-            topsByStage.get(stageOf(group.task))?.push(group.task);
-            if (group.childCount > 0) pillars.add(group.task.id);
-            childrenByParent.set(group.task.id, group.children);
-            for (const child of group.children) parentOf.set(child.id, group.task.id);
-        }
-    }
-
-    for (const task of list) {
-        const parent = task.parentTaskId ? byId.get(task.parentTaskId) : undefined;
-        if (structuralChild(task, parent)) pillars.add(task.parentTaskId!);
-    }
-
-    return {
-        byId,
-        pillars,
-        children(parentId: string) {
-            return childrenByParent.get(parentId) ?? [];
-        },
-        tops(stage: BoardStage) {
-            return topsByStage.get(stage) ?? [];
-        },
-        place(id: string) {
-            const task = byId.get(id);
-            if (!task) return null;
-            const parentTaskId = parentOf.get(id) ?? null;
-            if (parentTaskId) {
-                const siblings = childrenByParent.get(parentTaskId) ?? [];
-                return {
-                    stage: stageOf(byId.get(parentTaskId) ?? task),
-                    parentTaskId,
-                    index: siblings.findIndex(sibling => sibling.id === id),
-                    siblings,
-                };
-            }
-            const stage = stageOf(task);
-            const siblings = topsByStage.get(stage) ?? [];
-            return {
-                stage,
-                parentTaskId: null,
-                index: siblings.findIndex(sibling => sibling.id === id),
-                siblings,
-            };
-        },
-    };
-}
-
-function clampIndex(index: number, length: number): number {
-    if (!Number.isFinite(index)) return length;
-    const slot = Math.trunc(index);
-    if (slot < 0) return 0;
-    if (slot > length) return length;
-    return slot;
-}
-
-function changed(task: StageListTask, next: { stage: BoardStage; position: number; parentTaskId: string | null }): boolean {
-    return stageOf(task) !== next.stage
-        || finitePosition(task.position) !== next.position
-        || (task.parentTaskId ?? null) !== next.parentTaskId;
-}
-
-/**
- * Apply a move to the in-memory list and return the rows that must be rewritten.
- * Sibling positions are packed to 1..n. A pillar's subtasks take its stage.
- * Nesting stays one level: a pillar cannot become a subtask, and a subtask
- * cannot become a parent.
- */
 export function applyStageReorder(tasks: readonly StageListTask[], move: StageReorderMove): StageReorderPlan {
-    if (move.projectGroup) {
-        const siblings = persistedTasks(tasks).filter(task => !task.excluded
-            && (task.parentTaskId ?? null) === move.parentTaskId
-            && (move.parentTaskId != null || (move.projectGroup === NO_PROJECT_GROUP
-                ? projectGroupId(task, move.projects ?? []) === NO_PROJECT_GROUP
-                : task.initiativeId === move.projectGroup))).sort(compareStageListTasks);
-        const from = siblings.findIndex(task => task.id === move.taskId);
-        if (from < 0) return { ok: false, error: STAGE_REORDER_NOT_FOUND };
-        const to = clampIndex(move.index, siblings.length - 1);
-        if (from === to) return { ok: true, tasks: [...tasks], writes: [] };
-        const [dragged] = siblings.splice(from, 1);
-        siblings.splice(to, 0, dragged);
-        const writes = siblings.flatMap((task, index) => task.position === index + 1 ? [] : [{
-            id: task.id, stage: stageOf(task), position: index + 1, parentTaskId: move.parentTaskId,
-        }]);
-        const positions = new Map(writes.map(write => [write.id, write.position]));
-        return { ok: true, writes, tasks: tasks.map(task => positions.has(task.id)
-            ? { ...task, position: positions.get(task.id)! } : task) };
+    const rows = tasks.filter(task => !isPendingStageTaskId(task.id) && !task.excluded);
+    const groups = groupTaskTrees(rows, '');
+    const source = groups.find(group => group.task.id === move.taskId || group.children.some(task => task.id === move.taskId));
+    const dragged = rows.find(task => task.id === move.taskId);
+    if (!source || !dragged) return { ok: false, error: STAGE_REORDER_NOT_FOUND };
+
+    const draggedId = dragged.id;
+    const sourceParent = source.task.id === dragged.id ? null : source.task.id;
+    const target = move.parentTaskId ? groups.find(group => group.task.id === move.parentTaskId) : undefined;
+    if (move.parentTaskId && (!target || target.parentBreadcrumb || move.parentTaskId === dragged.id
+        || dragged.recurring || dragged.title === target.task.title
+        || rows.some(task => task.parentTaskId === dragged.id && !task.recurring && task.title !== dragged.title))) {
+        return { ok: false, error: 'Tasks can only nest one level deep' };
     }
 
-    const model = readModel(tasks);
-    const dragged = model.byId.get(move.taskId);
-    const source = model.place(move.taskId);
-    if (!dragged || !source) return { ok: false, error: STAGE_REORDER_NOT_FOUND };
-
-    let destParentId: string | null = null;
-    let destStage: BoardStage;
-    if (move.parentTaskId) {
-        const parent = model.byId.get(move.parentTaskId);
-        const parentPlace = model.place(move.parentTaskId);
-        if (!parent || !parentPlace) return { ok: false, error: STAGE_REORDER_NOT_FOUND };
-        if (parent.id === dragged.id) return { ok: false, error: STAGE_REORDER_SELF };
-        if (parentPlace.parentTaskId) return { ok: false, error: STAGE_REORDER_ONE_LEVEL };
-        if (model.pillars.has(dragged.id)) return { ok: false, error: STAGE_REORDER_PILLAR };
-        if (dragged.recurring) return { ok: false, error: STAGE_REORDER_RECURRING };
-        destParentId = parent.id;
-        destStage = parentPlace.stage;
-    } else {
-        if (!isBoardStage(move.stage)) return { ok: false, error: STAGE_REORDER_STAGE };
-        destStage = move.stage;
+    const project = (task: StageListTask) => move.projects
+        ? projectGroupId(task, move.projects)
+        : task.initiativeId ?? NO_PROJECT_GROUP;
+    const destinationProject = project(target?.task ?? dragged);
+    if (move.projectGroup && (move.projectGroup !== destinationProject
+        || project(source.task) !== destinationProject || sourceParent !== move.parentTaskId)) {
+        return { ok: false, error: 'Choose a task in this project.' };
     }
-
-    const sameGroup = source.parentTaskId === destParentId && (destParentId != null || source.stage === destStage);
-    const destSiblings = (destParentId ? model.children(destParentId) : model.tops(destStage))
-        .filter(task => task.id !== dragged.id);
-    const nextDest = [...destSiblings];
-    nextDest.splice(clampIndex(move.index, destSiblings.length), 0, dragged);
-
-    const updates = new Map<string, { stage: BoardStage; position: number; parentTaskId: string | null }>();
-    nextDest.forEach((task, index) => {
-        const isDragged = task.id === dragged.id;
-        updates.set(task.id, {
-            stage: isDragged ? destStage : stageOf(task),
-            position: index + 1,
-            parentTaskId: isDragged
-                ? (destParentId ?? (source.parentTaskId ? null : (task.parentTaskId ?? null)))
-                : (task.parentTaskId ?? null),
-        });
-    });
-
-    if (!sameGroup) {
-        const remaining = source.siblings.filter(task => task.id !== dragged.id);
-        remaining.forEach((task, index) => {
-            updates.set(task.id, {
-                stage: stageOf(task),
-                position: index + 1,
-                parentTaskId: task.parentTaskId ?? null,
-            });
-        });
+    const topRows = (key: string) => groups.map(group => group.task).filter(task => project(task) === key);
+    const destination = target?.children ?? topRows(destinationProject);
+    const siblings = destination.filter(task => task.id !== dragged.id);
+    const slot = Math.max(0, Math.min(Math.trunc(move.index), siblings.length));
+    if (sourceParent === move.parentTaskId && destination.findIndex(task => task.id === dragged.id) === slot) {
+        return { ok: true, tasks: [...tasks], writes: [] };
     }
-
-    if (!destParentId && model.pillars.has(dragged.id) && destStage !== source.stage) {
-        model.children(dragged.id).forEach((child, index) => {
-            updates.set(child.id, {
-                stage: destStage,
-                position: finitePosition(child.position) ?? index + 1,
-                parentTaskId: child.parentTaskId ?? dragged.id,
-            });
-        });
-    }
+    siblings.splice(slot, 0, dragged);
 
     const writes: StageReorderWrite[] = [];
-    for (const [id, next] of updates) {
-        const task = model.byId.get(id);
-        if (!task || !changed(task, next)) continue;
-        writes.push({ id, stage: next.stage, position: next.position, parentTaskId: next.parentTaskId });
+    function pack(list: StageListTask[], moving: boolean) {
+        list.forEach((task, index) => {
+            const position = index + 1;
+            const parentTaskId = moving && task.id === draggedId
+                ? move.parentTaskId ?? (sourceParent ? null : task.parentTaskId)
+                : task.parentTaskId;
+            if (task.position !== position || task.parentTaskId !== parentTaskId) {
+                writes.push({ id: task.id, position, parentTaskId });
+            }
+        });
     }
-    if (writes.length === 0) return { ok: true, tasks: [...tasks], writes: [] };
-
-    const byWrite = new Map(writes.map(write => [write.id, write]));
+    pack(siblings, true);
+    if (sourceParent !== move.parentTaskId) {
+        const previous = sourceParent ? source.children : topRows(project(source.task));
+        pack(previous.filter(task => task.id !== dragged.id), false);
+    }
+    const byId = new Map(writes.map(write => [write.id, write]));
     return {
         ok: true,
         writes,
         tasks: tasks.map(task => {
-            const write = byWrite.get(task.id);
-            if (!write) return task;
-            return {
-                ...task, stage: write.stage, position: write.position, parentTaskId: write.parentTaskId,
-                ...(write.parentTaskId && task.initiativeId ? { initiativeId: null } : {}),
-            };
+            const write = byId.get(task.id);
+            return write ? { ...task, position: write.position, parentTaskId: write.parentTaskId,
+                ...(write.parentTaskId && task.initiativeId ? { initiativeId: null } : {}) } : task;
         }),
     };
+}
+
+/** Keyboard moves use the same project and parent ordering as pointer moves. */
+export function stageMoveBy(
+    tasks: readonly StageListTask[],
+    taskId: string,
+    direction: StageMoveDirection,
+    projects?: readonly Pick<PartOfChoice, 'id'>[],
+): StageReorderMove | null {
+    const groups = groupTaskTrees(tasks.filter(task => !isPendingStageTaskId(task.id)), '');
+    const group = groups.find(group => group.task.id === taskId || group.children.some(task => task.id === taskId));
+    if (!group) return null;
+    const project = (task: StageListTask) => projects ? projectGroupId(task, projects) : task.initiativeId ?? NO_PROJECT_GROUP;
+    const tops = groups.map(group => group.task).filter(task => project(task) === project(group.task));
+    const child = group.task.id !== taskId;
+    if (direction === 'unnest') {
+        if (!child) return null;
+        const task = group.children.find(task => task.id === taskId)!;
+        const destination = groups.map(group => group.task).filter(row => project(row) === project(task));
+        const parentIndex = destination.findIndex(row => row.id === group.task.id);
+        return { taskId, parentTaskId: null, index: parentIndex < 0 ? destination.length : parentIndex + 1 };
+    }
+    const siblings = child ? group.children : tops;
+    const index = siblings.findIndex(task => task.id === taskId) + (direction === 'up' ? -1 : 1);
+    if (index < 0 || index >= siblings.length) return null;
+    return { taskId, parentTaskId: child ? group.task.id : null, index, projectGroup: project(group.task), projects };
 }
 
 /** Put the earlier snapshot back on the rows this move changed. Other rows stay. */
@@ -298,176 +127,8 @@ export function restoreStageTasks(
 export function mergeStageTasks(current: readonly StageListTask[], updated: readonly StageListTask[]): StageListTask[] {
     const byId = new Map(updated.map(task => [task.id, task]));
     return current.map(task => {
-        let next = byId.get(task.id);
+        const next = byId.get(task.id);
         if (!next) return task;
-        if (next.publishedUrl === undefined && task.publishedUrl) next = { ...next, publishedUrl: task.publishedUrl };
-        if (next.dueDate === undefined && task.dueDate !== undefined) next = { ...next, dueDate: task.dueDate };
-        if (next.completedAt === undefined && task.completedAt !== undefined) next = { ...next, completedAt: task.completedAt };
-        if (next.assigneeIds === undefined && task.assigneeIds !== undefined) next = { ...next, assigneeIds: task.assigneeIds };
-        if (next.initiativeId === undefined && task.initiativeId !== undefined) {
-            next = { ...next, initiativeId: next.parentTaskId ? null : task.initiativeId };
-        }
-        if (next.priority === undefined && task.priority !== undefined) next = { ...next, priority: task.priority };
-        return next;
+        return { ...task, ...next };
     });
-}
-
-function insertIndex(siblings: readonly StageListTask[], dragId: string, beforeTaskId: string | null, place: 'before' | 'after'): number {
-    const without = siblings.filter(task => task.id !== dragId);
-    if (!beforeTaskId) return without.length;
-    const at = without.findIndex(task => task.id === beforeTaskId);
-    if (at < 0) return without.length;
-    return place === 'before' ? at : at + 1;
-}
-
-/**
- * Pointer target for a drag.
- * The middle of a pillar header nests a task that has no subtasks.
- * The edges of that header, and every other row, reorder.
- * A pillar never nests. Dropping a subtask on a stage makes it a top-level task.
- */
-export function describeStageDrop(input: {
-    tasks: readonly StageListTask[];
-    dragId: string;
-    overTaskId: string | null;
-    overStage: BoardStage | null;
-    overParentId: string | null;
-    pointerFraction: number | null;
-}): { move: StageReorderMove; hint: StageDropHint } | null {
-    const model = readModel(input.tasks);
-    const drag = model.place(input.dragId);
-    if (!drag) return null;
-    const dragIsPillar = model.pillars.has(input.dragId);
-    const fraction = input.pointerFraction == null || !Number.isFinite(input.pointerFraction)
-        ? 0.5
-        : Math.min(1, Math.max(0, input.pointerFraction));
-
-    let move: StageReorderMove | null = null;
-    let hint: StageDropHint | null = null;
-
-    if (input.overTaskId) {
-        const over = model.place(input.overTaskId);
-        if (!over) return null;
-        if (over.parentTaskId) {
-            if (dragIsPillar) return null;
-            const place = fraction < 0.5 ? 'before' : 'after';
-            move = {
-                taskId: input.dragId,
-                stage: over.stage,
-                parentTaskId: over.parentTaskId,
-                index: insertIndex(over.siblings, input.dragId, input.overTaskId, place),
-            };
-            hint = {
-                type: 'insert',
-                stage: over.stage,
-                parentTaskId: over.parentTaskId,
-                beforeTaskId: place === 'before' ? input.overTaskId : nextId(over.siblings, input.overTaskId),
-            };
-        } else {
-            const overIsPillar = model.pillars.has(input.overTaskId);
-            if (!dragIsPillar && overIsPillar && input.overTaskId !== input.dragId && fraction >= 0.25 && fraction <= 0.75) {
-                const children = model.children(input.overTaskId).filter(task => task.id !== input.dragId);
-                move = {
-                    taskId: input.dragId,
-                    stage: over.stage,
-                    parentTaskId: input.overTaskId,
-                    index: children.length,
-                };
-                hint = { type: 'nest', taskId: input.overTaskId };
-            } else {
-                const place = fraction < 0.5 ? 'before' : 'after';
-                move = {
-                    taskId: input.dragId,
-                    stage: over.stage,
-                    parentTaskId: null,
-                    index: insertIndex(over.siblings, input.dragId, input.overTaskId, place),
-                };
-                hint = {
-                    type: 'insert',
-                    stage: over.stage,
-                    parentTaskId: null,
-                    beforeTaskId: place === 'before' ? input.overTaskId : nextId(over.siblings, input.overTaskId),
-                };
-            }
-        }
-    } else if (input.overParentId) {
-        if (dragIsPillar) return null;
-        const parent = model.place(input.overParentId);
-        if (!parent || parent.parentTaskId) return null;
-        const children = model.children(input.overParentId).filter(task => task.id !== input.dragId);
-        move = {
-            taskId: input.dragId,
-            stage: parent.stage,
-            parentTaskId: input.overParentId,
-            index: children.length,
-        };
-        hint = { type: 'insert', stage: parent.stage, parentTaskId: input.overParentId, beforeTaskId: null };
-    } else if (input.overStage && isBoardStage(input.overStage)) {
-        const siblings = model.tops(input.overStage);
-        move = {
-            taskId: input.dragId,
-            stage: input.overStage,
-            parentTaskId: null,
-            index: siblings.filter(task => task.id !== input.dragId).length,
-        };
-        hint = { type: 'insert', stage: input.overStage, parentTaskId: null, beforeTaskId: null };
-    }
-
-    if (!move || !hint) return null;
-    const plan = applyStageReorder(input.tasks, move);
-    if (!plan.ok || plan.writes.length === 0) return null;
-    return { move, hint };
-}
-
-function nextId(siblings: readonly StageListTask[], id: string): string | null {
-    const index = siblings.findIndex(task => task.id === id);
-    if (index < 0) return null;
-    return siblings[index + 1]?.id ?? null;
-}
-
-/** Keyboard moves use the same placement rules as a drag. */
-export function stageMoveBy(
-    tasks: readonly StageListTask[],
-    taskId: string,
-    direction: StageMoveDirection,
-): StageReorderMove | null {
-    const model = readModel(tasks);
-    const place = model.place(taskId);
-    if (!place || place.index < 0) return null;
-
-    if (direction === 'up' || direction === 'down') {
-        const next = place.index + (direction === 'up' ? -1 : 1);
-        if (next < 0 || next >= place.siblings.length) return null;
-        return {
-            taskId,
-            stage: place.stage,
-            parentTaskId: place.parentTaskId,
-            index: direction === 'up' ? place.index - 1 : place.index + 1,
-        };
-    }
-
-    if (direction === 'unnest') {
-        if (!place.parentTaskId) return null;
-        const parent = model.place(place.parentTaskId);
-        if (!parent) return null;
-        return {
-            taskId,
-            stage: parent.stage,
-            parentTaskId: null,
-            index: parent.index + 1,
-        };
-    }
-
-    if (place.parentTaskId) return null;
-    const step = direction === 'next-stage' ? 1 : -1;
-    const dest = isPlanPhase(place.stage)
-        ? PLAN_PHASES[PLAN_PHASES.indexOf(place.stage) + step]
-        : TASK_STAGES[TASK_STAGES.indexOf(place.stage) + step];
-    if (!dest) return null;
-    return {
-        taskId,
-        stage: dest,
-        parentTaskId: null,
-        index: model.tops(dest).length,
-    };
 }

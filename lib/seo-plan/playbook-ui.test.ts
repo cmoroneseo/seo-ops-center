@@ -36,7 +36,7 @@ const elementPrototype = dom.window.HTMLElement.prototype as unknown as { attach
 elementPrototype.attachEvent ??= () => undefined;
 elementPrototype.detachEvent ??= () => undefined;
 
-function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title' | 'stage'>): StageListTask {
+function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
     return {
         status: 'todo',
         position: 1,
@@ -65,7 +65,6 @@ function box(title: string): HTMLInputElement {
 }
 
 function mount(options: {
-    board?: 'phases' | 'months';
     tasks?: StageListTask[];
     planRows?: PlaybookExisting[];
     orgTasks?: PlaybookOrgTask[];
@@ -81,7 +80,6 @@ function mount(options: {
             task({ id: 'kickoff', title: 'Hold kickoff call and set expectations', stage: 'foundation' }),
         ],
         partOfChoices: [{ id: 'site', title: 'Improve the website' }, { id: 'local', title: 'Local visibility' }],
-        board: options.board ?? 'phases' as const,
         query: '',
         onQueryChange: () => undefined,
         onOpenTask: () => undefined,
@@ -115,9 +113,9 @@ test.after(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = previous.act;
 });
 
-test('each group add row submits its project with the board’s existing default stage', async () => {
-    for (const board of ['phases', 'months'] as const) {
-        const view = mount({ board });
+test('each group add row submits its project without a stage', async () => {
+    {
+        const view = mount({});
         try {
             for (const [group, title] of [['site', 'Review index coverage'], ['no-project', 'Check analytics']]) {
                 const input = document.querySelector(`[data-plan-section="${group}"] input`);
@@ -127,9 +125,9 @@ test('each group add row submits its project with the board’s existing default
                     input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
                 });
             }
-            assert.deepEqual(view.calls.map(({ initiativeId, stage, titles }) => ({ initiativeId, stage, titles })), [
-                { initiativeId: 'site', stage: board === 'phases' ? 'foundation' : 'backlog', titles: ['Review index coverage'] },
-                { initiativeId: null, stage: board === 'phases' ? 'foundation' : 'backlog', titles: ['Check analytics'] },
+            assert.deepEqual(view.calls.map(({ initiativeId, titles }) => ({ initiativeId, titles })), [
+                { initiativeId: 'site', titles: ['Review index coverage'] },
+                { initiativeId: null, titles: ['Check analytics'] },
             ]);
         } finally {
             view.unmount();
@@ -201,7 +199,6 @@ test('multi-select adds the chosen tasks into the project the person picks', asy
         await act(async () => { add.click(); });
 
         assert.equal(view.calls.length, 1);
-        assert.equal(view.calls[0]?.stage, 'foundation');
         assert.equal(view.calls[0]?.initiativeId, 'local');
         assert.deepEqual(view.calls[0]?.titles, [
             'Review the crawl rules and the page list',
@@ -251,39 +248,6 @@ test('select all skips tasks already on the plan and a failed add stays in the d
         assert.equal(failed, true);
         assert.equal(document.querySelector('[data-playbook-drawer]') instanceof Element, true);
         assert.match(document.body.textContent ?? '', /Could not add those tasks/);
-    } finally {
-        view.unmount();
-    }
-});
-
-test('the month board can add to No project using the existing stage and due-date defaults', async () => {
-    const view = mount({
-        board: 'months',
-        tasks: [
-            task({ id: 'kickoff', title: 'Kickoff call', stage: 'onboarding' }),
-            task({ id: 'later', title: 'Later cleanup', stage: 'backlog' }),
-        ],
-    });
-    try {
-        const open = document.querySelector('[data-playbook-open="no-project"]');
-        assert.ok(open instanceof dom.window.HTMLButtonElement);
-        await act(async () => { open.click(); });
-        const project = document.querySelector('[data-playbook-project]');
-        assert.ok(project instanceof dom.window.HTMLSelectElement);
-        assert.equal(project.value, '');
-        const search = document.querySelector('[data-playbook-search]');
-        assert.ok(search instanceof dom.window.HTMLInputElement);
-        await act(async () => { typeInto(search, 'page list'); });
-        await act(async () => { box('Review the crawl rules and the page list').click(); });
-        const add = document.querySelector('[data-playbook-add]');
-        assert.ok(add instanceof dom.window.HTMLButtonElement);
-        await act(async () => { add.click(); });
-        assert.equal(view.calls.length, 1);
-        assert.equal(view.calls[0]?.stage, 'backlog');
-        assert.equal(view.calls[0]?.initiativeId, null);
-        assert.equal(view.calls[0]?.dueDate, '2026-10-31');
-        assert.deepEqual(view.calls[0]?.items, [{ title: 'Review the crawl rules and the page list', depth: 0 }]);
-        assert.equal(Object.hasOwn(view.calls[0] ?? {}, 'clientId'), false);
     } finally {
         view.unmount();
     }

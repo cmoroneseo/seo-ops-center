@@ -17,7 +17,6 @@ function taskFromRow(row: Record<string, unknown>, index: number): StageListTask
         id: `task-${index + 1}`,
         title: String(row.title),
         status: 'todo',
-        stage: String(row.stage),
         position: typeof row.position === 'number' ? row.position : null,
         parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
         createdAt: '2026-10-16T00:00:00.000Z',
@@ -50,11 +49,11 @@ function deps(overrides: Partial<StageAddDependencies> = {}) {
         },
         loadParent: async (organizationId, id, parentTaskId) => {
             calls.parents.push(`${organizationId}:${id}:${parentTaskId}`);
-            const parent: StageAddParent = { title: 'SEO Setup', stage: 'onboarding', parentTaskId: null };
+            const parent: StageAddParent = { title: 'SEO Setup', parentTaskId: null };
             return parent;
         },
-        maxPosition: async (organizationId, id, stage, parentTaskId) => {
-            calls.positions.push(`${organizationId}:${id}:${stage}:${parentTaskId ?? ''}`);
+        maxPosition: async (organizationId, id, parentTaskId, initiativeId) => {
+            calls.positions.push(`${organizationId}:${id}:${parentTaskId ?? ''}:${initiativeId ?? ''}`);
             return parentTaskId ? 9 : 4;
         },
         insertTasks: async rows => {
@@ -79,7 +78,7 @@ function deps(overrides: Partial<StageAddDependencies> = {}) {
 }
 
 const body = {
-    stage: 'backlog',
+
     titles: [' Review robots.txt ', 'Check HTTPS'],
     organizationId: other,
     clientId: other,
@@ -134,7 +133,7 @@ test('a viewer cannot create tasks', async () => {
     assert.equal(calls.pushes.length, 0);
 });
 
-test('titles are created at the end of the stage for the session organization', async () => {
+test('titles are created at the end of the group for the session organization', async () => {
     const { dependencies, calls } = deps();
     const result = await createStageTasks(` ${clientId.toUpperCase()} `, body, dependencies);
     assert.equal(result.status, 200);
@@ -142,12 +141,12 @@ test('titles are created at the end of the stage for the session organization', 
     assert.deepEqual(result.body.tasks.map(task => task.title), ['Review robots.txt', 'Check HTTPS']);
     assert.deepEqual(result.body.tasks.map(task => task.position), [5, 6]);
     assert.deepEqual(calls.clients, [`${org}:${clientId.toUpperCase()}`]);
-    assert.deepEqual(calls.positions, [`${org}:${clientId.toUpperCase()}:backlog:`]);
+    assert.deepEqual(calls.positions, [`${org}:${clientId.toUpperCase()}::`]);
     assert.equal(calls.rows.length, 2);
+    assert.ok(calls.rows.every(row => !Object.hasOwn(row, 'stage')));
     assert.equal(calls.rows[0].organization_id, org);
     assert.equal(calls.rows[0].client_id, clientId.toUpperCase());
     assert.equal(calls.rows[0].title, 'Review robots.txt');
-    assert.equal(calls.rows[0].stage, 'backlog');
     assert.equal(calls.rows[0].position, 5);
     assert.equal(calls.rows[1].position, 6);
     assert.equal(calls.rows[0].sort_order, 0);
@@ -168,33 +167,30 @@ test('titles are created at the end of the stage for the session organization', 
     assert.equal(calls.logs[0].parentTitle, undefined);
 });
 
-test('an empty stage starts at position 1', async () => {
+test('an empty group starts at position 1', async () => {
     const { dependencies, calls } = deps({
         maxPosition: async () => null,
     });
-    const result = await createStageTasks(clientId, { stage: 'onboarding', titles: ['One', 'Two'] }, dependencies);
+    const result = await createStageTasks(clientId, { titles: ['One', 'Two'] }, dependencies);
     assert.equal(result.status, 200);
     assert.deepEqual(calls.rows.map(row => row.position), [1, 2]);
-    assert.deepEqual(calls.rows.map(row => row.stage), ['onboarding', 'onboarding']);
 });
 
-test('a subtask is placed at the end of the pillar and keeps the pillar stage', async () => {
+test('a subtask is placed at the end of the pillar', async () => {
     const { dependencies, calls } = deps();
     const result = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         titles: ['Connect Search Console'],
         parentTaskId: parentId,
         organizationId: other,
     }, dependencies);
     assert.equal(result.status, 200);
     if (result.status !== 200) return;
-    assert.equal(result.body.tasks[0].stage, 'onboarding');
     assert.equal(result.body.tasks[0].position, 10);
     assert.equal(result.body.tasks[0].parentTaskId, parentId);
-    assert.equal(calls.rows[0].stage, 'onboarding');
     assert.equal(calls.rows[0].position, 10);
     assert.equal(calls.rows[0].parent_task_id, parentId);
-    assert.deepEqual(calls.positions, [`${org}:${clientId}:onboarding:${parentId}`]);
+    assert.deepEqual(calls.positions, [`${org}:${clientId}:${parentId}:`]);
     assert.equal(calls.logs[0].parentTitle, 'SEO Setup');
     assert.equal(calls.rows[0].organization_id, org);
 });
@@ -213,7 +209,7 @@ test('subtasks under one parent are one insert and one push of that parent', asy
         },
     });
     const result = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         titles: ['Houzz photos', 'Porch listing', 'Yelp profile'],
         parentTaskId: parentId,
         organizationId: other,
@@ -223,7 +219,6 @@ test('subtasks under one parent are one insert and one push of that parent', asy
     assert.equal(inserts, 1);
     assert.equal(calls.rows.length, 3);
     assert.equal(calls.rows.every(row => row.parent_task_id === parentId), true);
-    assert.equal(calls.rows.every(row => row.stage === 'onboarding'), true);
     assert.equal(calls.rows.every(row => row.client_id === clientId), true);
     assert.equal(calls.rows.some(row => row.organization_id === other), false);
     assert.deepEqual(calls.pushes, [parentId]);
@@ -235,16 +230,15 @@ test('subtasks under one parent are one insert and one push of that parent', asy
 
 test('a backlog parent is pushed once for the whole paste, not once per subtask', async () => {
     const { dependencies, calls } = deps({
-        loadParent: async () => ({ title: 'Later', stage: 'backlog', parentTaskId: null }),
+        loadParent: async () => ({ title: 'Later', parentTaskId: null }),
     });
     const result = await createStageTasks(clientId, {
-        stage: 'onboarding',
+
         titles: ['One', 'Two', 'Three'],
         parentTaskId: parentId,
     }, dependencies);
     assert.equal(result.status, 200);
     assert.deepEqual(calls.pushes, [parentId]);
-    assert.equal(calls.rows.every(row => row.stage === 'backlog'), true);
 });
 
 test('a parent push that throws still returns the subtasks', async () => {
@@ -255,7 +249,7 @@ test('a parent push that throws still returns the subtasks', async () => {
         },
     });
     const result = await createStageTasks(clientId, {
-        stage: 'onboarding',
+
         titles: ['One', 'Two'],
         parentTaskId: parentId,
     }, dependencies);
@@ -268,10 +262,10 @@ test('a parent push that throws still returns the subtasks', async () => {
 
 test('a subtask cannot be nested under another subtask', async () => {
     const { dependencies, calls } = deps({
-        loadParent: async () => ({ title: 'Add keywords', stage: 'onboarding', parentTaskId: 'setup' }),
+        loadParent: async () => ({ title: 'Add keywords', parentTaskId: 'setup' }),
     });
     const result = await createStageTasks(clientId, {
-        stage: 'onboarding',
+
         titles: ['Too deep'],
         parentTaskId: parentId,
     }, dependencies);
@@ -288,7 +282,7 @@ test('a client or pillar outside the session organization is not found', async (
 
     const missingParent = deps({ loadParent: async () => null });
     const parentResult = await createStageTasks(clientId, {
-        stage: 'onboarding',
+
         titles: ['Connect Search Console'],
         parentTaskId: parentId,
     }, missingParent.dependencies);
@@ -298,37 +292,15 @@ test('a client or pillar outside the session organization is not found', async (
 
 test('rejected titles never insert', async () => {
     const { dependencies, calls } = deps();
-    const empty = await createStageTasks(clientId, { stage: 'backlog', titles: ['  '] }, dependencies);
-    const huge = await createStageTasks(clientId, { stage: 'nope', titles: ['Title'] }, dependencies);
+    const empty = await createStageTasks(clientId, { titles: ['  '] }, dependencies);
     const many = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         titles: Array.from({ length: 41 }, (_, index) => `Task ${index}`),
     }, dependencies);
     assert.equal(empty.status, 400);
-    assert.equal(huge.status, 400);
     assert.equal(many.status, 400);
     assert.equal(calls.rows.length, 0);
     assert.equal(calls.clients.length, 0);
-});
-
-test('an undated backlog task does not push, and leaving backlog does', async () => {
-    const backlog = deps();
-    await createStageTasks(clientId, body, backlog.dependencies);
-    assert.deepEqual(backlog.calls.pushes, []);
-
-    const dated = deps();
-    const withDate = await createStageTasks(clientId, {
-        stage: 'backlog',
-        dueDate: '2026-10-31',
-        items: [{ title: 'One', depth: 0 }, { title: 'Two', depth: 0 }],
-    }, dated.dependencies);
-    assert.equal(withDate.status, 200);
-    assert.deepEqual(dated.calls.pushes, ['task-1', 'task-2']);
-
-    const onboarding = deps();
-    const left = await createStageTasks(clientId, { stage: 'onboarding', titles: ['Kickoff'] }, onboarding.dependencies);
-    assert.equal(left.status, 200);
-    assert.deepEqual(onboarding.calls.pushes, ['task-1']);
 });
 
 test('a Basecamp push failure still returns the created tasks', async () => {
@@ -337,7 +309,7 @@ test('a Basecamp push failure still returns the created tasks', async () => {
             throw new Error('basecamp down');
         },
     });
-    const result = await createStageTasks(clientId, { stage: 'onboarding', titles: ['One'] }, dependencies);
+    const result = await createStageTasks(clientId, { titles: ['One'] }, dependencies);
     assert.equal(result.status, 200);
     assert.equal(calls.rows.length, 1);
 });
@@ -348,7 +320,7 @@ test('a feed failure still returns the created tasks', async () => {
             throw new Error('feed down');
         },
     });
-    const result = await createStageTasks(clientId, { stage: 'backlog', titles: ['One'] }, dependencies);
+    const result = await createStageTasks(clientId, { titles: ['One'] }, dependencies);
     assert.equal(result.status, 200);
     assert.equal(calls.rows.length, 1);
 });
@@ -356,7 +328,7 @@ test('a feed failure still returns the created tasks', async () => {
 test('a subtask line stores the live URL and a task line without one stays a title', async () => {
     const { dependencies, calls } = deps();
     const result = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         titles: ['Chino service page https://example.com/chino', 'Review robots.txt'],
         parentTaskId: parentId,
     }, dependencies);
@@ -372,7 +344,7 @@ test('a subtask line stores the live URL and a task line without one stays a tit
 test('a top-level task keeps a pasted URL in the title', async () => {
     const { dependencies, calls } = deps();
     const result = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         titles: ['Check https://example.com/chino'],
     }, dependencies);
     assert.equal(result.status, 200);
@@ -390,7 +362,6 @@ test('one request creates pillars first, then links each subtask to its own pill
                 id: `created-${batches.length}-${index + 1}`,
                 title: String(row.title),
                 status: 'todo',
-                stage: String(row.stage),
                 position: typeof row.position === 'number' ? row.position : null,
                 parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
                 createdAt: '2026-10-16T00:00:00.000Z',
@@ -402,7 +373,7 @@ test('one request creates pillars first, then links each subtask to its own pill
         },
     });
     const result = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         dueDate: '2026-10-31',
         organizationId: other,
         syncToBasecamp: true,
@@ -432,7 +403,6 @@ test('one request creates pillars first, then links each subtask to its own pill
         'Add financing FAQ',
     ]);
     assert.deepEqual(batches[0].map(row => row.position), [5, 6, 7]);
-    assert.deepEqual(batches[0].map(row => row.stage), ['backlog', 'backlog', 'backlog']);
     assert.deepEqual(batches[0].map(row => row.due_date), ['2026-10-31', '2026-10-31', '2026-10-31']);
     assert.deepEqual(batches[0].map(row => row.assignee_ids), [[], [], []]);
     assert.equal(batches[0].every(row => row.status === 'todo' && row.estimated_hours === undefined), true);
@@ -451,7 +421,7 @@ test('one request creates pillars first, then links each subtask to its own pill
         'created-1-2',
         null,
     ]);
-    assert.deepEqual(calls.positions, [`${org}:${clientId}:backlog:`]);
+    assert.deepEqual(calls.positions, [`${org}:${clientId}::`]);
     assert.equal(calls.parents.length, 0);
     assert.deepEqual(calls.pushes, [
         'created-1-1',
@@ -471,32 +441,10 @@ test('one request creates pillars first, then links each subtask to its own pill
     ]);
 });
 
-test('onboarding and backlog chips write the stage and leave the due date empty', async () => {
-    const onboarding = deps();
-    const onboardingResult = await createStageTasks(clientId, {
-        stage: 'onboarding',
-        dueDate: null,
-        items: [{ title: 'Connect Search Console', depth: 0 }],
-    }, onboarding.dependencies);
-    assert.equal(onboardingResult.status, 200);
-    assert.equal(onboarding.calls.rows[0].stage, 'onboarding');
-    assert.equal(onboarding.calls.rows[0].due_date, null);
-    assert.deepEqual(onboarding.calls.rows[0].assignee_ids, []);
-
-    const backlog = deps();
-    const backlogResult = await createStageTasks(clientId, {
-        stage: 'backlog',
-        items: [{ title: 'Someday', depth: 0 }],
-    }, backlog.dependencies);
-    assert.equal(backlogResult.status, 200);
-    assert.equal(backlog.calls.rows[0].stage, 'backlog');
-    assert.equal(backlog.calls.rows[0].due_date, null);
-});
-
 test('a leading subtask is promoted, and a child insert failure removes the pillars', async () => {
     const promoted = deps();
     const promotedResult = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         dueDate: '2026-10-31',
         items: [
             { title: 'Orphan', depth: 1 },
@@ -517,7 +465,7 @@ test('a leading subtask is promoted, and a child insert failure removes the pill
                 id: `pillar-${index + 1}`,
                 title: String(row.title),
                 status: 'todo',
-                stage: 'backlog',
+
                 position: typeof row.position === 'number' ? row.position : null,
                 parentTaskId: null,
                 createdAt: '2026-10-16T00:00:00.000Z',
@@ -531,7 +479,7 @@ test('a leading subtask is promoted, and a child insert failure removes the pill
         },
     });
     const result = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         dueDate: '2026-10-31',
         items: [
             { title: 'Citations', depth: 0 },
@@ -555,7 +503,6 @@ test('a dated paste pushes every created row, including subtasks', async () => {
                 id: `task-${created}`,
                 title: String(row.title),
                 status: 'todo',
-                stage: String(row.stage),
                 position: typeof row.position === 'number' ? row.position : null,
                 parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
                 createdAt: '2026-10-16T00:00:00.000Z',
@@ -566,7 +513,7 @@ test('a dated paste pushes every created row, including subtasks', async () => {
         }),
     });
     const result = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         dueDate: '2026-10-31',
         items: [
             { title: 'Citations', depth: 0 },
@@ -580,21 +527,21 @@ test('a dated paste pushes every created row, including subtasks', async () => {
 test('a bad due date or an oversized paste never inserts', async () => {
     const { dependencies, calls } = deps();
     const badDay = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         dueDate: '2026-02-31',
         items: [{ title: 'Citations', depth: 0 }],
     }, dependencies);
     const many = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         dueDate: '2026-10-31',
         items: Array.from({ length: 41 }, (_, index) => ({ title: `Task ${index}`, depth: 0 })),
     }, dependencies);
     const long = await createStageTasks(clientId, {
-        stage: 'onboarding',
+
         items: [{ title: 'x'.repeat(301), depth: 0 }],
     }, dependencies);
     const deep = await createStageTasks(clientId, {
-        stage: 'backlog',
+
         items: [{ title: 'Too deep', depth: 2 }],
     }, dependencies);
     assert.equal(badDay.status, 400);
@@ -612,9 +559,29 @@ test('a write failure does not return the underlying message', async () => {
             throw new Error('provider payload token sk_live_secret');
         },
     });
-    const result = await createStageTasks(clientId, { stage: 'backlog', titles: ['Review robots.txt'] }, dependencies);
+    const result = await createStageTasks(clientId, { titles: ['Review robots.txt'] }, dependencies);
     assert.equal(result.status, 500);
     assert.deepEqual(result.body, { error: 'Could not add tasks' });
     assert.equal(JSON.stringify(result.body).includes('sk_live'), false);
     assert.equal(JSON.stringify(result.body).includes('token'), false);
+});
+
+test('the project page appends its tasks within the project and ignores a legacy stage in the request', async () => {
+    const projectId = 'd6834cf9-268d-4716-85f0-a7927dd7e3c9';
+    const { dependencies, calls } = deps({
+        loadProject: async (organizationId, id, project) =>
+            organizationId === org && id === clientId && project === projectId,
+    });
+
+    const result = await createStageTasks(clientId, {
+        initiativeId: projectId,
+        stage: 'foundation',
+        titles: ['Review redirects'],
+    }, dependencies);
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls.positions, [`${org}:${clientId}::${projectId}`]);
+    assert.equal(calls.rows[0]?.initiative_id, projectId);
+    assert.equal(calls.rows[0]?.position, 5);
+    assert.equal(Object.hasOwn(calls.rows[0], 'stage'), false);
 });

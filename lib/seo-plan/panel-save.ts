@@ -85,8 +85,6 @@ export function mergeListField(task: StageListTask, saved: Task, field: SaveFiel
             return { ...task, category: saved.category ?? null };
         case 'blocked':
             return { ...task, blockedReason: saved.blockedReason?.trim() ? saved.blockedReason.trim() : null };
-        case 'onboarding':
-            return { ...task, stage: saved.stage ?? task.stage };
         case 'liveUrl':
             return { ...task, publishedUrl: saved.publishedUrl ?? null };
         case 'partOf':
@@ -120,8 +118,6 @@ export function restoreListField(task: StageListTask, snapshot: StageListTask, f
             return { ...task, category: snapshot.category };
         case 'blocked':
             return { ...task, blockedReason: snapshot.blockedReason };
-        case 'onboarding':
-            return { ...task, stage: snapshot.stage };
         case 'liveUrl':
             return { ...task, publishedUrl: snapshot.publishedUrl };
         case 'partOf':
@@ -157,8 +153,6 @@ export function mergeDetailField(current: Task, saved: Task, field: SaveField): 
             return { ...current, category: saved.category, tags: saved.tags ?? [], updatedAt };
         case 'blocked':
             return { ...current, blockedReason: saved.blockedReason, updatedAt };
-        case 'onboarding':
-            return { ...current, stage: saved.stage, updatedAt };
         case 'liveUrl':
             return { ...current, publishedUrl: saved.publishedUrl, updatedAt };
         case 'partOf':
@@ -187,7 +181,6 @@ export function mergeRefreshedTasks(
             title: kept.title,
             description: kept.description ?? row.description,
             status: kept.status,
-            stage: kept.stage,
             dueDate: kept.dueDate,
             completedAt: kept.completedAt,
             assigneeIds: kept.assigneeIds,

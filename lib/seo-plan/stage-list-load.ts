@@ -3,7 +3,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeJsonObject } from '../basecamp/project-access';
 import { readBasecampPlanLists } from '../basecamp/plan-lists';
 import { planBasecampBanner, type PlanBasecampBanner } from './basecamp-push';
-import { planBoardFromSteps, type PlanBoard } from './plan-phases';
 import { stageListTaskFromRow, type StageListTask } from './stage-list';
 
 /**
@@ -11,7 +10,7 @@ import { stageListTaskFromRow, type StageListTask } from './stage-list';
  * Priority is one more column on the same client-scoped read. The org and client filters stay.
  */
 export const STAGE_LIST_TASK_COLUMNS =
-    'id, title, status, priority, stage, position, parent_task_id, created_at, category, basecamp_todo_id, recurrence, published_url, due_date, completed_at, assignee_ids, blocked_reason, description, estimated_hours, basecamp_sync_state, basecamp_sync_error, basecamp_sync_attempted_at';
+    'id, title, status, priority, position, parent_task_id, created_at, category, basecamp_todo_id, recurrence, published_url, due_date, completed_at, assignee_ids, blocked_reason, description, estimated_hours, basecamp_sync_state, basecamp_sync_error, basecamp_sync_attempted_at';
 
 export const STAGE_LIST_CLIENT_COLUMNS = 'id';
 
@@ -83,24 +82,6 @@ async function attachInitiativeLinks(
     }
 }
 
-/**
- * Phase board when this client's plan was created with the phase marker.
- * No plan, or an older plan, stays on the month board. Does not rewrite tasks.
- */
-export async function loadClientPlanBoard(
-    db: SupabaseClient,
-    organizationId: string,
-    clientId: string,
-): Promise<PlanBoard> {
-    const plan = await db
-        .from('marketing_plans')
-        .select('steps')
-        .eq('organization_id', organizationId)
-        .eq('client_id', clientId)
-        .maybeSingle();
-    if (plan.error) throw new Error('Unable to load plan');
-    return planBoardFromSteps(plan.data?.steps);
-}
 
 const BANNER_COLUMNS = 'custom_fields, basecamp_plan_sync_state, basecamp_plan_sync_error';
 

@@ -27,7 +27,7 @@ import {
 } from './basecamp-push-run';
 
 const TASK_COLUMNS =
-    'id, organization_id, client_id, title, description, due_date, status, stage, parent_task_id, assignee_ids, watcher_ids, basecamp_todo_id, basecamp_sync_state, basecamp_sync_error, basecamp_sync_attempted_at';
+    'id, organization_id, client_id, title, description, due_date, initiative_id, status, parent_task_id, assignee_ids, watcher_ids, basecamp_todo_id, basecamp_sync_state, basecamp_sync_error, basecamp_sync_attempted_at';
 
 type TaskRow = {
     id: string;
@@ -36,8 +36,8 @@ type TaskRow = {
     title: string;
     description: string | null;
     due_date: string | null;
+    initiative_id: string | null;
     status: string;
-    stage: string | null;
     parent_task_id: string | null;
     assignee_ids: unknown;
     watcher_ids: unknown;
@@ -148,8 +148,8 @@ async function loadTaskRow(taskId: string): Promise<{ task: TaskRow; client: Cli
         title: row.title,
         description: row.description,
         due_date: row.due_date,
+        initiative_id: row.initiative_id,
         status: row.status,
-        stage: row.stage,
         parent_task_id: row.parent_task_id,
         assignee_ids: row.assignee_ids,
         watcher_ids: row.watcher_ids,
@@ -192,8 +192,8 @@ async function loadSnapshot(taskId: string): Promise<PlanPushSnapshot | null> {
         title: loaded.task.title,
         description: loaded.task.description,
         dueDate: dueDay(loaded.task.due_date),
+        initiativeId: loaded.task.initiative_id,
         status: loaded.task.status,
-        stage: loaded.task.stage,
         parentTaskId: loaded.task.parent_task_id,
         basecampTodoId: todoId(loaded.task.basecamp_todo_id),
         pendingTrashId: readPendingTrashId(loaded.task.basecamp_sync_error),
@@ -205,11 +205,11 @@ async function loadSnapshot(taskId: string): Promise<PlanPushSnapshot | null> {
         const admin = createAdminClient();
         const { data, error } = await admin
             .from('tasks')
-            .select('id, stage, due_date')
+            .select('id, due_date, initiative_id')
             .eq('id', loaded.task.parent_task_id)
             .maybeSingle();
         if (error) throw error;
-        if (data) parent = { id: data.id, stage: data.stage, dueDate: dueDay(data.due_date) };
+        if (data) parent = { id: data.id, dueDate: dueDay(data.due_date), initiativeId: data.initiative_id };
     }
     return { task, client: clientOf(loaded.client), parent };
 }
@@ -315,8 +315,8 @@ export async function readStoredPlanTask(taskId: string): Promise<PlanBasecampRe
     const client = clientOf(loaded.client);
     return planBasecampReadout({
         taskId: loaded.task.id,
-        stage: loaded.task.stage,
         dueDate: dueDay(loaded.task.due_date),
+        initiativeId: loaded.task.initiative_id,
         sync: syncOf(loaded.task),
         basecampTodoId: todoId(loaded.task.basecamp_todo_id),
         banner: planBasecampBanner({
@@ -343,7 +343,7 @@ export async function retryFailedPlanBasecampPushes(): Promise<{
     const admin = createAdminClient();
     const { data, error } = await admin
         .from('tasks')
-        .select('id, stage, due_date, basecamp_sync_state, client_id, clients!inner(custom_fields)')
+        .select('id, due_date, initiative_id, basecamp_sync_state, client_id, clients!inner(custom_fields)')
         .eq('basecamp_sync_state', 'failed')
         .order('basecamp_sync_attempted_at', { ascending: true })
         .limit(NIGHTLY_LIMIT);
@@ -356,8 +356,8 @@ export async function retryFailedPlanBasecampPushes(): Promise<{
         return {
             id: row.id,
             state: row.basecamp_sync_state,
-            stage: row.stage,
             dueDate: dueDay(row.due_date),
+            initiativeId: row.initiative_id,
             hasProject: fields.basecamp_sync_enabled === true && lists.projectId.length > 0,
         };
     });
