@@ -47,7 +47,7 @@ const PROJECT_STATUS_LABELS: Record<InitiativeState, string> = {
     planned: 'Planned',
     in_progress: 'In progress',
     awaiting_approval: 'Waiting on your approval',
-    blocked: 'Blocked',
+    blocked: 'Delayed',
     on_hold: 'On hold',
     completed_verified: 'Done',
 };

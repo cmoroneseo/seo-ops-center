@@ -92,7 +92,7 @@ test('projects keep their order and show client-friendly status and task progres
         ['New pages', 'Waiting on your approval', '0 of 1 done'],
         ['Website updates', 'In progress', '1 of 2 done'],
         ['Search research', 'Planned', 'Nothing here yet'],
-        ['Site access', 'Blocked', 'Nothing here yet'],
+        ['Site access', 'Delayed', 'Nothing here yet'],
         ['Redirects', 'On hold', 'Nothing here yet'],
         ['Site launch', 'Done', 'Nothing here yet'],
     ]);
@@ -112,6 +112,15 @@ test('projects keep their order and show client-friendly status and task progres
     for (const secret of [EMAIL, SUBTASK, HOURS, ASSIGNEE, BLOCKED, NOTE, 'Archived secret', 'Orphan secret', 'secret-id', 'https://staff.example']) {
         assert.equal(serialized.includes(secret), false, secret);
     }
+});
+
+test('client-facing roadmaps say Delayed, not Blocked, for a blocked project', () => {
+    const roadmap = projectClientRoadmap({
+        projects: [{ id: 'access', title: 'Site access', state: 'blocked' }],
+        tasks: [task({ id: 'login', title: 'Get site access', initiativeId: 'access' })],
+    });
+    assert.equal(roadmap.groups[0]?.status, 'Delayed');
+    assert.equal(JSON.stringify(roadmap).includes('Blocked'), false);
 });
 
 test('unassigned tasks and tasks with unknown projects share a final Other work group', () => {
