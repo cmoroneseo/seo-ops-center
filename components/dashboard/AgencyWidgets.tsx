@@ -1,8 +1,9 @@
 'use client';
 
 import { Task, Deliverable } from '@/lib/types';
+import { compareTaskDueDates, filterTasks, isOverdueTask, localDateKey } from '@/lib/tasks/my-tasks';
 import { cn } from '@/lib/utils';
-import { CheckSquare, Clock, AlertCircle, Users, ArrowUpRight, TrendingUp, CheckCircle2 } from 'lucide-react';
+import { CheckSquare, Clock, Users, ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
@@ -25,7 +26,12 @@ export function GlobalDeliverablesStats({ deliverables = [] }: AgencyWidgetProps
 
     return (
         <div className="rounded-xl border border-border bg-card p-6 h-full flex flex-col">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-6">Deliverables</h3>
+            <div className="mb-6 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Deliverables</h3>
+                <Link href="/deliverables" className="flex items-center gap-1 whitespace-nowrap text-xs font-bold text-muted-foreground hover:text-red-500">
+                    View all <ArrowUpRight className="h-3 w-3" />
+                </Link>
+            </div>
             <div className="flex-1 flex flex-col justify-center gap-4">
                 <div className="flex items-center justify-between">
                     <div>
@@ -68,6 +74,7 @@ export function GlobalTaskProgress({ tasks }: AgencyWidgetProps) {
     const inProgress = tasks.filter(t => t.status === 'in_progress').length;
     const todo = tasks.filter(t => t.status === 'todo').length;
 
+    const overdue = filterTasks(tasks, 'overdue', localDateKey()).length;
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
     return (
@@ -105,18 +112,18 @@ export function GlobalTaskProgress({ tasks }: AgencyWidgetProps) {
 
                 <div className="space-y-3 flex-1 max-w-[160px]">
                     {[
-                        { label: 'To Do', count: todo, color: 'bg-muted' },
-                        { label: 'In Progress', count: inProgress, color: 'bg-orange-500' },
-                        { label: 'Completed', count: completed, color: 'bg-red-600' },
-                        { label: 'Overdue', count: 2, color: 'bg-red-500' }, // Hardcoded overdue for demo look
+                        { label: 'To Do', count: todo, color: 'bg-muted', filter: 'todo' },
+                        { label: 'In Progress', count: inProgress, color: 'bg-orange-500', filter: 'in_progress' },
+                        { label: 'Completed', count: completed, color: 'bg-red-600', filter: 'done' },
+                        { label: 'Overdue', count: overdue, color: 'bg-red-500', filter: 'overdue' },
                     ].map((item) => (
-                        <div key={item.label} className="flex items-center justify-between text-xs">
+                        <Link key={item.label} href={`/tasks?filter=${item.filter}`} className="flex items-center justify-between text-xs hover:underline">
                             <div className="flex items-center gap-2">
                                 <div className={cn("h-2 w-2 rounded-full", item.color)} />
                                 <span className="text-muted-foreground font-medium">{item.label}</span>
                             </div>
                             <span className="font-bold">{item.count}</span>
-                        </div>
+                        </Link>
                     ))}
                 </div>
             </div>
@@ -125,14 +132,15 @@ export function GlobalTaskProgress({ tasks }: AgencyWidgetProps) {
 }
 
 export function GlobalNeedsAttention({ tasks }: AgencyWidgetProps) {
-    const unassigned = tasks.filter(t => !t.assignees || t.assignees.length === 0 || t.assignees[0] === 'Unassigned').length;
-    const noDueDate = tasks.filter(t => !t.dueDate).length;
+    const today = localDateKey();
+    const unassigned = filterTasks(tasks, 'unassigned', today).length;
+    const noDueDate = filterTasks(tasks, 'no_due_date', today).length;
 
     return (
         <div className="rounded-xl border border-border bg-card p-6 h-full flex flex-col">
             <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-6">Needs Attention</h3>
             <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 rounded-xl bg-orange-500/5 border border-orange-500/10 transition-all hover:bg-orange-500/10 cursor-pointer group">
+                <Link href="/tasks?filter=unassigned" className="flex items-center justify-between p-4 rounded-xl bg-orange-500/5 border border-orange-500/10 transition-all hover:bg-orange-500/10 cursor-pointer group">
                     <div className="flex items-center gap-4">
                         <div className="p-2 rounded-lg bg-orange-500/20 text-orange-500">
                             <Users className="h-5 w-5" />
@@ -140,8 +148,8 @@ export function GlobalNeedsAttention({ tasks }: AgencyWidgetProps) {
                         <span className="text-sm font-semibold group-hover:text-orange-500 transition-colors">Unassigned Tasks</span>
                     </div>
                     <span className="text-2xl font-black text-orange-500">{unassigned}</span>
-                </div>
-                <div className="flex items-center justify-between p-4 rounded-xl bg-yellow-500/5 border border-yellow-500/10 transition-all hover:bg-yellow-500/10 cursor-pointer group">
+                </Link>
+                <Link href="/tasks?filter=no_due_date" className="flex items-center justify-between p-4 rounded-xl bg-yellow-500/5 border border-yellow-500/10 transition-all hover:bg-yellow-500/10 cursor-pointer group">
                     <div className="flex items-center gap-4">
                         <div className="p-2 rounded-lg bg-yellow-500/20 text-yellow-500">
                             <Clock className="h-5 w-5" />
@@ -149,66 +157,78 @@ export function GlobalNeedsAttention({ tasks }: AgencyWidgetProps) {
                         <span className="text-sm font-semibold group-hover:text-yellow-500 transition-colors">No Due Date</span>
                     </div>
                     <span className="text-2xl font-black text-yellow-500">{noDueDate}</span>
-                </div>
+                </Link>
             </div>
         </div>
     );
 }
 
-export function AgencyQuickStats({ tasks }: AgencyWidgetProps) {
-    const overdue = 2; // Demo data
-    const dueToday = tasks.filter(t => t.dueDate === new Date().toISOString().split('T')[0]).length;
-    const teamMembers = 5;
+export function AgencyQuickStats({ tasks, teamMemberCount = 0 }: AgencyWidgetProps & { teamMemberCount?: number }) {
+    const today = localDateKey();
+    const overdue = filterTasks(tasks, 'overdue', today).length;
+    const dueToday = filterTasks(tasks, 'today', today).length;
 
     return (
         <div className="rounded-xl border border-border bg-card p-6 h-full flex flex-col">
             <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-6">Quick Stats</h3>
             <div className="space-y-1">
-                <div className="flex items-center justify-between py-3 border-b border-border/50 group cursor-pointer hover:px-2 transition-all">
+                <Link href="/tasks?filter=overdue" className="flex items-center justify-between py-3 border-b border-border/50 group cursor-pointer hover:px-2 transition-all">
                     <div className="flex items-center gap-3">
                         <div className="h-2 w-2 rounded-full bg-red-500" />
                         <span className="text-sm font-medium text-muted-foreground group-hover:text-red-500">Overdue Tasks</span>
                     </div>
                     <span className="text-lg font-bold text-red-500">{overdue}</span>
-                </div>
-                <div className="flex items-center justify-between py-3 border-b border-border/50 group cursor-pointer hover:px-2 transition-all">
+                </Link>
+                <Link href="/tasks?filter=today" className="flex items-center justify-between py-3 border-b border-border/50 group cursor-pointer hover:px-2 transition-all">
                     <div className="flex items-center gap-3">
                         <div className="h-2 w-2 rounded-full bg-yellow-500" />
                         <span className="text-sm font-medium text-muted-foreground group-hover:text-yellow-500">Due Today</span>
                     </div>
                     <span className="text-lg font-bold text-yellow-500">{dueToday}</span>
-                </div>
-                <div className="flex items-center justify-between py-3 group cursor-pointer hover:px-2 transition-all">
+                </Link>
+                <Link href="/settings" className="flex items-center justify-between py-3 group cursor-pointer hover:px-2 transition-all">
                     <div className="flex items-center gap-3">
                         <div className="h-2 w-2 rounded-full bg-blue-500" />
                         <span className="text-sm font-medium text-muted-foreground group-hover:text-blue-500">Team Members</span>
                     </div>
-                    <span className="text-lg font-bold text-blue-500">{teamMembers}</span>
-                </div>
+                    <span className="text-lg font-bold text-blue-500">{teamMemberCount}</span>
+                </Link>
             </div>
         </div>
     );
 }
 
-export function GlobalUpcomingTasks({ tasks }: AgencyWidgetProps) {
-    // Sort by due date (ignore empty)
-    const upcoming = tasks
-        .filter(t => t.dueDate && t.status !== 'done')
-        .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+export function GlobalUpcomingTasks({ tasks, currentUserId }: AgencyWidgetProps & { currentUserId?: string }) {
+    if (currentUserId !== undefined) return <UpcomingTaskList tasks={tasks} userId={currentUserId} />;
+    return <CurrentMemberUpcomingTasks tasks={tasks} />;
+}
+
+function CurrentMemberUpcomingTasks({ tasks }: { tasks: Task[] }) {
+    const { userId, isLoading } = useCurrentMember();
+    return <UpcomingTaskList tasks={tasks} userId={userId} isLoading={isLoading} />;
+}
+
+function UpcomingTaskList({ tasks, userId, isLoading = false }: { tasks: Task[]; userId: string; isLoading?: boolean }) {
+    const today = localDateKey();
+    const upcoming = filterTasks(tasks, 'mine', today, userId)
+        .filter(task => task.status !== 'done')
+        .sort(compareTaskDueDates)
         .slice(0, 8);
 
     return (
         <div className="rounded-xl border border-border bg-card flex flex-col overflow-hidden shadow-sm">
             <div className="bg-red-950/20 px-6 py-4 flex items-center justify-between border-b border-border">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Upcoming Tasks</h3>
-                <Link href="/tasks" className="text-xs font-bold text-muted-foreground hover:text-red-500 flex items-center gap-1 transition-colors">
+                <Link href="/tasks?filter=mine" className="text-xs font-bold text-muted-foreground hover:text-red-500 flex items-center gap-1 transition-colors">
                     View all <ArrowUpRight className="h-3 w-3" />
                 </Link>
             </div>
             <div className="divide-y divide-border/50">
-                {upcoming.length > 0 ? (
+                {isLoading ? (
+                    <p className="px-6 py-12 text-center text-sm text-muted-foreground">Loading tasks…</p>
+                ) : upcoming.length > 0 ? (
                     upcoming.map((task) => (
-                        <div key={task.id} className="group px-6 py-4 hover:bg-muted/30 transition-all flex items-center justify-between cursor-pointer">
+                        <Link key={task.id} href={`/tasks?task=${encodeURIComponent(task.id)}`} className="group px-6 py-4 hover:bg-muted/30 transition-all flex items-center justify-between cursor-pointer">
                             <div className="flex items-center gap-4">
                                 <div className={cn(
                                     "h-2 w-2 rounded-full",
@@ -225,12 +245,12 @@ export function GlobalUpcomingTasks({ tasks }: AgencyWidgetProps) {
                                 </span>
                                 <span className={cn(
                                     "text-[10px] font-bold",
-                                    task.dueDate && new Date(task.dueDate) < new Date() ? "text-red-500" : "text-muted-foreground"
+                                    isOverdueTask(task, today) ? "text-red-500" : "text-muted-foreground"
                                 )}>
                                     {task.dueDate ? new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                                 </span>
                             </div>
-                        </div>
+                        </Link>
                     ))
                 ) : (
                     <div className="px-6 py-12 text-center">
