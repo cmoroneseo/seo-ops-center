@@ -252,7 +252,7 @@ export function ClientWorkspaceCanvas({
                                     <button type="button" aria-label="Next month" disabled={loading} onClick={() => changeMonth(1)} className="rounded-r-lg p-2 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><ChevronRight className="h-4 w-4" /></button>
                                 </div>
                             } />
-                            {projects && projectTasks && <WorkspacePhaseRail projects={projects} tasks={projectTasks} onOpenPlan={onOpenPlan} />}
+                            {projects && projectTasks && <WorkspacePhaseRail clientId={client.id} projects={projects} tasks={projectTasks} />}
                         </div>
                         <div className="space-y-4">
                             <WorkspaceHoursGauge model={model.hours} />

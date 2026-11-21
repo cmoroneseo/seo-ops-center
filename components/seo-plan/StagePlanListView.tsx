@@ -1,5 +1,8 @@
 'use client';
 
+import Link from 'next/link';
+import { projectsHref } from '@/lib/projects/project-links';
+
 import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { Check, ChevronRight, GripVertical, Play } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
@@ -265,7 +268,9 @@ export function StagePlanListView({
     partOfChoices = [],
     partOfReady = false,
     viewerId = null,
+    project,
 }: {
+    project?: PartOfChoice;
     tasks: readonly StageListTask[];
     query: string;
     onQueryChange: (query: string) => void;
@@ -349,13 +354,15 @@ export function StagePlanListView({
     const day = today ?? calendarDay(new Date());
     const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
     const urlMonth = useRef<string | null | undefined>(undefined);
-    const phaseBoard = board === 'phases';
-    const partOfActive = partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
+    const phaseBoard = board === 'phases' || Boolean(project);
+    const boardProjects = project ? [project] : partOfChoices;
+    const partOfActive = !project && partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
     const appliedFilters: PlanBoardFilters = { ...filters, partOf: partOfActive, stage: '' };
     const listed = filterPlanTasks(tasks, appliedFilters);
     const attributeCount = [appliedFilters.status, appliedFilters.priority, appliedFilters.assignee, appliedFilters.partOf]
         .filter(Boolean).length;
-    const sections = groupTasksByProject(listed, partOfChoices, query);
+    const sections = groupTasksByProject(listed, boardProjects, query)
+        .filter(section => !project || section.id === project.id);
     const searching = query.trim().length > 0;
     const filterState = { ...appliedFilters, query };
     const nothingMatches = (searching || attributeCount > 0) && sections.every(section => section.groups.length === 0);
@@ -462,7 +469,7 @@ export function StagePlanListView({
 
     const list = (
         <div ref={listRef} data-seo-plan-stage-list data-plan-board={board} data-plan-month={phaseBoard ? undefined : month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            {!project && <div className="flex flex-wrap items-center justify-between gap-3">
                 {phaseBoard ? <span className="text-sm font-medium">Work plan</span> : (
                 <div className="flex items-center gap-2" data-plan-month-control>
                     <button
@@ -503,14 +510,14 @@ export function StagePlanListView({
                 >
                     {PLAYBOOK_COPY.button}
                 </button>
-            </div>
+            </div>}
             <PlanFilterBar
                 board={phaseBoard ? 'phases' : 'months'}
                 query={query}
                 filters={filters}
                 people={people}
                 viewerId={viewerId}
-                partOfChoices={partOfChoices}
+                partOfChoices={project ? [] : partOfChoices}
                 searchRef={searchRef}
                 onQueryChange={onQueryChange}
                 onFiltersChange={setFilters}
@@ -548,7 +555,9 @@ export function StagePlanListView({
                 query={query}
                 nothingMatches={nothingMatches}
                 month={phaseBoard ? undefined : month}
-                projects={partOfChoices}
+                projects={boardProjects}
+                clientId={project ? undefined : clientId}
+                projectPage={Boolean(project)}
                 today={day}
                 people={people}
                 loggedHours={loggedHours}
@@ -631,6 +640,8 @@ function PlanSections({
     nothingMatches,
     month,
     projects,
+    clientId,
+    projectPage,
     today,
     people,
     loggedHours,
@@ -657,6 +668,8 @@ function PlanSections({
     tasks: readonly StageListTask[];
     sections: ReturnType<typeof groupTasksByProject>;
     projects: readonly PartOfChoice[];
+    clientId?: string;
+    projectPage: boolean;
     query: string;
     nothingMatches: boolean;
     month?: string;
@@ -820,23 +833,24 @@ function PlanSections({
                         }}
                     >
                         <div className="flex min-h-9 items-center gap-2 px-3 py-1.5">
-                            <h3 id={headingId} className="min-w-0 flex-1">
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
                                 <button
                                     type="button"
+                                    aria-label={`${closed ? 'Expand' : 'Collapse'} ${section.title}`}
                                     aria-expanded={!closed}
                                     onClick={() => setCollapsed(current => ({ ...current, [section.id]: !closed }))}
-                                    className="flex w-full min-w-0 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                                    className="shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                                 >
                                     <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-[#71717a] transition-transform', !closed && 'rotate-90')} />
-                                    <span className="min-w-0">
-                                        <span className="block text-[13px] font-semibold">{section.title}</span>
-                                    </span>
-                                    <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>
-                                        {section.meta}
-                                    </span>
                                 </button>
-                            </h3>
-                            <button
+                                <h3 id={headingId} className="min-w-0 break-words text-[13px] font-semibold">
+                                    {initiativeId && clientId ? (
+                                        <Link className="hover:underline" href={projectsHref(clientId, { projectId: initiativeId })}>{section.title}</Link>
+                                    ) : projectPage ? 'Tasks' : section.title}
+                                </h3>
+                                <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>{section.meta}</span>
+                            </div>
+                            {!projectPage && <button
                                 type="button"
                                 data-playbook-open={section.id}
                                 aria-label={playbookStageButtonLabel(section.title)}
@@ -844,7 +858,7 @@ function PlanSections({
                                 className="shrink-0 text-[12px] font-medium text-[#ec4899] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                             >
                                 {PLAYBOOK_COPY.button}
-                            </button>
+                            </button>}
                         </div>
                         <div hidden={closed || undefined}>
                             {section.groups.length === 0 && !nothingMatches ? (
