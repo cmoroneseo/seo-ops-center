@@ -7,6 +7,9 @@ import { useClients } from '@/lib/hooks/use-clients';
 import { clientScopeLabel } from '@/lib/hour-format';
 import { clientIdFromPath, openVaultCommand, useVaultCommandList } from '@/components/vault/vault-commands';
 import { CommandPaletteResults } from '@/components/dashboard/CommandPaletteResults';
+import { useOrganization } from '@/components/providers/organization-provider';
+import { searchCommandResults } from '@/lib/dashboard/command-palette';
+import { searchOrgProjectsAndTasks } from '@/lib/supabase/global-search';
 
 interface GlobalSearchProps {
     isOpen: boolean;
@@ -14,9 +17,16 @@ interface GlobalSearchProps {
 }
 
 export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
+    const { clients } = useClients({ statuses: ['Active'] });
+    return isOpen ? <OpenGlobalSearch onClose={onClose} clients={clients} /> : null;
+}
+
+function OpenGlobalSearch({ onClose, clients }: {
+    onClose: () => void;
+    clients: ReturnType<typeof useClients>['clients'];
+}) {
     const [query, setQuery] = useState('');
     const router = useRouter();
-    const { clients } = useClients({ statuses: ['Active'] });
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -26,20 +36,18 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose]);
 
-    const results = query.length > 1
+    const normalizedQuery = query.trim().toLowerCase();
+    const results = normalizedQuery.length >= 2
         ? clients.filter(c =>
-            c.clientName.toLowerCase().includes(query.toLowerCase()) ||
-            c.accountManager.toLowerCase().includes(query.toLowerCase())
+            c.clientName.toLowerCase().includes(normalizedQuery) ||
+            c.accountManager.toLowerCase().includes(normalizedQuery)
         ).slice(0, 5)
         : [];
 
     const handleSelect = (clientId: string) => {
         router.push(`/workspace/${clientId}`);
         onClose();
-        setQuery('');
     };
-
-    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 p-4 pt-[10vh] backdrop-blur-sm">
@@ -52,7 +60,7 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                     <input
                         autoFocus
                         type="text"
-                        placeholder="Search clients... (Cmd+K)"
+                        placeholder="Search or jump to…"
                         className="flex-1 bg-transparent border-none focus:ring-0 text-lg px-4"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -80,7 +88,7 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                             detail: `${client.accountManager} · T${client.tier} · ${clientScopeLabel(client)}`,
                         }))}
                         onSelectClient={handleSelect}
-                        onClose={() => { onClose(); setQuery(''); }}
+                        onClose={onClose}
                     />
                 </div>
 
@@ -109,7 +117,39 @@ function SearchResults({
 }) {
     const router = useRouter();
     const pathname = usePathname() ?? '';
-    const vault = useVaultCommandList(query);
+    const { organization } = useOrganization();
+    const organizationId = organization?.id;
+    const trimmed = query.trim();
+    const vault = useVaultCommandList(trimmed);
+    const [search, setSearch] = useState<{
+        organizationId: string;
+        query: string;
+        items: ReturnType<typeof searchCommandResults>;
+    } | null>(null);
+
+    useEffect(() => {
+        setSearch(null);
+        if (!organizationId || trimmed.length < 2) return;
+
+        let stale = false;
+        const timeout = window.setTimeout(async () => {
+            const hits = await searchOrgProjectsAndTasks(organizationId, trimmed)
+                .catch(() => ({ projects: [], tasks: [] }));
+            if (!stale) setSearch({ organizationId, query: trimmed, items: searchCommandResults(hits) });
+        }, 200);
+        return () => {
+            stale = true;
+            window.clearTimeout(timeout);
+        };
+    }, [organizationId, trimmed]);
+
+    const items = search?.organizationId === organizationId && search?.query === trimmed ? search.items : undefined;
+    const pending = Boolean(organizationId && trimmed.length >= 2 && !items);
+
+    const jumpTo = ({ href }: { href: string }) => {
+        router.push(href);
+        onClose();
+    };
     return (
         <CommandPaletteResults
             query={query}
@@ -117,6 +157,10 @@ function SearchResults({
             vault={vault.commands.map(command => ({ id: command.id, label: command.label }))}
             onClose={onClose}
             vaultPending={!vault.ready}
+            {...items}
+            searchPending={pending}
+            onSelectProject={jumpTo}
+            onSelectTask={jumpTo}
             onSelectClient={onSelectClient}
             onSelectVault={(id) => {
                 const command = vault.commands.find(item => item.id === id);
