@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, LayoutGrid, List, Calendar, User, Filter, X, LayoutTemplate } from 'lucide-react';
+import { Plus, LayoutGrid, List, Calendar, X, LayoutTemplate } from 'lucide-react';
 import { TaskCard } from '@/components/tasks/TaskCard';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import { TaskCalendarView } from '@/components/tasks/TaskCalendarView';
@@ -11,6 +11,10 @@ import { TaskTemplateLibrary } from '@/components/tasks/TaskTemplateLibrary';
 import { Task, TaskTemplate } from '@/lib/types';
 import { mergeSavedTask } from '@/lib/tasks/merge-saved-task';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
+import { MyTasksQueue } from '@/components/tasks/MyTasksQueue';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
+import { filterTasks, groupMyTasks, localDateKey, myTasksSubtitle, resolveTaskFilter, taskFilterLabels, type TaskFilter } from '@/lib/tasks/my-tasks';
 import { useSearchParams } from 'next/navigation';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getTasks } from '@/lib/supabase/tasks';
@@ -27,8 +31,10 @@ export default function TasksPage() {
     const searchParams = useSearchParams();
     const clientFilter = searchParams.get('client');
     const taskQuery = searchParams.get('task');
-    const { organization, memberships } = useOrganization();
-    const member = memberships.find(m => m.organizationId === organization?.id);
+    const clearClientParams = new URLSearchParams(searchParams.toString());
+    clearClientParams.delete('client');
+    const { organization, isLoading: organizationLoading } = useOrganization();
+    const { userId, isLoading: memberLoading } = useCurrentMember();
     const [view, setView] = useState<'kanban' | 'list' | 'calendar'>('list');
     const [calendarCreateDate, setCalendarCreateDate] = useState<string | undefined>(undefined);
     const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
@@ -39,14 +45,14 @@ export default function TasksPage() {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadedTasksOrganizationId, setLoadedTasksOrganizationId] = useState<string | null>(null);
-    const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | 'overdue'>('all');
+    const filterMode = resolveTaskFilter(searchParams.get('filter'), searchParams.has('client'));
     const [memberMap, setMemberMap] = useState<Record<string, string>>({});
 
     useEffect(() => {
         if (!organization?.id) return;
         getOrganizationMembers(organization.id).then(members => {
             const map: Record<string, string> = {};
-            members.forEach(m => { map[m.userId] = (m.user as any)?.fullName || (m.user as any)?.email || 'Team'; });
+            members.forEach(m => { map[m.userId] = m.user?.fullName || m.user?.email || 'Team'; });
             setMemberMap(map);
         }).catch(() => {});
     }, [organization?.id]);
@@ -90,21 +96,26 @@ export default function TasksPage() {
         }).isDetailOpen);
     }, [taskQuery, tasks, organization?.id, loadedTasksOrganizationId, loading, selectedTask]);
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateKey();
+    const isLoading = organizationLoading || loading ||
+        loadedTasksOrganizationId !== (organization?.id ?? null) ||
+        (filterMode === 'mine' && memberLoading);
+    const scopedTasks = isLoading ? [] : tasks.filter(task =>
+        !clientFilter || task.clientId === clientFilter ||
+        task.clientName?.toLowerCase().includes(clientFilter.toLowerCase())
+    );
+    const filteredTasks = filterTasks(scopedTasks, filterMode, today, userId);
+    const groups = groupMyTasks(filterMode === 'mine' ? filteredTasks : [], today);
 
-    const filteredTasks = tasks.filter(t => {
-        // Client URL filter
-        if (clientFilter && !t.clientName?.toLowerCase().includes(clientFilter.toLowerCase()) && t.clientId !== clientFilter) return false;
-        // Button filters
-        if (filterMode === 'unassigned' && (t.assigneeIds ?? []).length > 0) return false;
-        if (filterMode === 'overdue' && (t.status === 'done' || !t.dueDate || t.dueDate >= today)) return false;
-        return true;
-    });
-
-    const unassignedCount = tasks.filter(t => t.status !== 'done' && (t.assigneeIds ?? []).length === 0).length;
-    const overdueCount = tasks.filter(t => t.status !== 'done' && t.dueDate && t.dueDate < today).length;
+    const clearTaskQuery = () => {
+        if (!taskQuery) return;
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete('task');
+        window.history.replaceState(null, '', params.size ? `/tasks?${params}` : '/tasks');
+    };
 
     const handleTaskClick = (task: Task) => {
+        clearTaskQuery();
         setSelectedTask(task);
         setIsDetailOpen(true);
     };
@@ -120,10 +131,10 @@ export default function TasksPage() {
 
     return (
         <div className="h-full flex flex-col space-y-6 p-6 overflow-y-auto w-full max-w-7xl mx-auto custom-scrollbar">
-            <div className="flex items-center justify-between shrink-0">
+            <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-foreground">Task List</h2>
-                    <p className="text-muted-foreground text-sm">View and manage all tasks across projects</p>
+                    <h2 className="text-3xl font-bold tracking-tight text-foreground">{filterMode === 'mine' ? 'My Tasks' : 'Task List'}</h2>
+                    <p className="text-muted-foreground text-sm">{filterMode === 'mine' ? (isLoading ? 'Loading tasks…' : myTasksSubtitle(groups)) : 'View and manage team tasks.'}</p>
                 </div>
                 <div className="flex items-center gap-3">
                     {/* View toggle */}
@@ -160,54 +171,6 @@ export default function TasksPage() {
                         </button>
                     </div>
 
-                    {/* All Tasks filter */}
-                    <button
-                        onClick={() => setFilterMode('all')}
-                        className={cn(
-                            "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-colors shadow-sm",
-                            filterMode === 'all'
-                                ? "bg-red-600 text-white shadow-red-600/20"
-                                : "bg-card border border-border hover:bg-muted"
-                        )}
-                    >
-                        All Tasks
-                        <span className="ml-1 px-1.5 rounded bg-white/20 text-[10px] font-bold">{tasks.length}</span>
-                    </button>
-
-                    {/* Unassigned filter */}
-                    <button
-                        onClick={() => setFilterMode(filterMode === 'unassigned' ? 'all' : 'unassigned')}
-                        className={cn(
-                            "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-                            filterMode === 'unassigned'
-                                ? "bg-orange-500/15 border border-orange-500/30 text-orange-500"
-                                : "bg-card border border-border hover:bg-muted"
-                        )}
-                    >
-                        <User className="h-4 w-4" />
-                        Unassigned
-                        {unassignedCount > 0 && (
-                            <span className="ml-1 px-1.5 rounded bg-orange-500/10 text-orange-500 text-[10px] font-bold">{unassignedCount}</span>
-                        )}
-                    </button>
-
-                    {/* Overdue filter */}
-                    <button
-                        onClick={() => setFilterMode(filterMode === 'overdue' ? 'all' : 'overdue')}
-                        className={cn(
-                            "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-                            filterMode === 'overdue'
-                                ? "bg-red-500/15 border border-red-500/30 text-red-500"
-                                : "bg-card border border-border hover:bg-muted"
-                        )}
-                    >
-                        <Filter className="h-4 w-4" />
-                        Overdue
-                        {overdueCount > 0 && (
-                            <span className="ml-1 px-1.5 rounded bg-red-500/10 text-red-500 text-[10px] font-bold">{overdueCount}</span>
-                        )}
-                    </button>
-
                     {/* Templates */}
                     <button
                         onClick={() => setIsTemplateLibraryOpen(true)}
@@ -228,21 +191,37 @@ export default function TasksPage() {
                 </div>
             </div>
 
+            <nav aria-label="Task filters" className="flex shrink-0 flex-wrap gap-2">
+                {(Object.keys(taskFilterLabels) as TaskFilter[]).map(filter => {
+                    const params = new URLSearchParams(searchParams.toString());
+                    params.set('filter', filter);
+                    return (
+                        <Link key={filter} href={`/tasks?${params}`} scroll={false}
+                            aria-current={filterMode === filter ? 'true' : undefined}
+                            className={cn("rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+                                filterMode === filter ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:bg-muted")}
+                        >
+                            {taskFilterLabels[filter]}
+                        </Link>
+                    );
+                })}
+            </nav>
+
             {/* Active client filter chip */}
             {clientFilter && (
                 <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-muted-foreground">Filtered by client:</span>
                     <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                         {clientFilter}
-                        <a href="/tasks" className="ml-1 hover:text-primary/70">
+                        <Link href={clearClientParams.size ? `/tasks?${clearClientParams}` : '/tasks'} aria-label="Clear client filter" className="ml-1 hover:text-primary/70">
                             <X className="h-3 w-3" />
-                        </a>
+                        </Link>
                     </span>
                 </div>
             )}
 
             <div className="flex-1 min-h-0">
-                {loading ? (
+                {isLoading ? (
                     <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
                         Loading tasks...
                     </div>
@@ -288,6 +267,8 @@ export default function TasksPage() {
                             </div>
                         ))}
                     </div>
+                ) : filterMode === 'mine' ? (
+                    <MyTasksQueue groups={groups} onTaskClick={handleTaskClick} />
                 ) : (
                     <TaskListView
                         tasks={filteredTasks}
@@ -299,11 +280,11 @@ export default function TasksPage() {
 
             <TaskDetailModal
                 task={selectedTask}
-                isOpen={isDetailOpen}
-                onClose={() => setIsDetailOpen(false)}
+                isOpen={isDetailOpen && selectedTask?.organizationId === organization?.id}
+                onClose={() => { clearTaskQuery(); setIsDetailOpen(false); }}
                 onUpdate={handleTaskUpdated}
                 onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))}
-                currentUserId={member?.userId}
+                currentUserId={userId}
             />
 
             <CreateTaskModal
@@ -311,7 +292,7 @@ export default function TasksPage() {
                 onClose={() => { setIsCreateOpen(false); setCalendarCreateDate(undefined); setTemplatePrefill(undefined); }}
                 onCreated={handleTaskCreated}
                 organizationId={organization?.id ?? ''}
-                currentUserId={member?.userId}
+                currentUserId={userId}
                 defaultDueDate={calendarCreateDate}
                 templatePrefill={templatePrefill}
             />
@@ -319,7 +300,7 @@ export default function TasksPage() {
             <TaskTemplateLibrary
                 isOpen={isTemplateLibraryOpen}
                 onClose={() => setIsTemplateLibraryOpen(false)}
-                currentUserId={member?.userId}
+                currentUserId={userId}
                 onUseTemplate={(template) => {
                     setTemplatePrefill(template);
                     setIsTemplateLibraryOpen(false);

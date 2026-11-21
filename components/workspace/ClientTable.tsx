@@ -7,13 +7,15 @@ import { AlertCircle, CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronRi
 import Link from 'next/link';
 import { useState } from 'react';
 import { TimeLogModal } from './TimeLogModal';
+import type { WorkspaceClientOverview } from '@/lib/workspace/client-overview-summary';
 import { clientScopeLabel } from '@/lib/hour-format';
 
 interface ClientTableProps {
     clients: ClientProject[];
+    overviewByClient?: Record<string, WorkspaceClientOverview>;
 }
 
-export function ClientTable({ clients }: ClientTableProps) {
+export function ClientTable({ clients, overviewByClient }: ClientTableProps) {
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const [isTimeLogOpen, setIsTimeLogOpen] = useState(false);
     const [selectedClientId, setSelectedClientId] = useState<string | undefined>(undefined);
@@ -42,7 +44,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                 </div>
                 <h3 className="text-xl font-bold mb-2">No clients found</h3>
                 <p className="text-muted-foreground max-w-xs mx-auto mb-8">
-                    Your SEO command center is ready. Add your first client to start proving ROI and managing tasks.
+                    Clients that match your filters will appear here.
                 </p>
                 <div className="flex gap-4">
                     <button
@@ -64,6 +66,10 @@ export function ClientTable({ clients }: ClientTableProps) {
                         <tr>
                             <th className="px-4 py-3 w-10"></th>
                             <th className="px-4 py-3 min-w-[200px]">Client</th>
+                            <th className="px-4 py-3">Health</th>
+                            <th className="px-4 py-3 text-center whitespace-nowrap">Open Tasks</th>
+                            <th className="px-4 py-3 text-center whitespace-nowrap">Overdue Tasks</th>
+                            <th className="px-4 py-3 whitespace-nowrap">Next Due Date</th>
                             <th className="px-4 py-3 whitespace-nowrap">Launch Date</th>
                             <th className="px-4 py-3 text-center">SEO Hours</th>
                             <th className="px-4 py-3">Type</th>
@@ -78,6 +84,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                     </thead>
                     <tbody className="divide-y divide-border/50">
                         {clients.map((client) => {
+                            const overview = overviewByClient?.[client.id];
                             const atRisk = isClientAtRisk(client);
                             const isExpanded = expandedRows.has(client.id);
                             const hasTasks = client.tasks && client.tasks.length > 0;
@@ -108,6 +115,20 @@ export function ClientTable({ clients }: ClientTableProps) {
                                                     {client.clientName}
                                                 </Link>
                                             </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            {overview ? (
+                                                <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium",
+                                                    overview.health === 'Healthy' && "bg-green-500/10 text-green-600 dark:text-green-400",
+                                                    overview.health === 'Watch' && "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+                                                    overview.health === 'Critical' && "bg-red-500/10 text-red-600 dark:text-red-400"
+                                                )}>{overview.health}</span>
+                                            ) : '—'}
+                                        </td>
+                                        <td className="px-4 py-3 text-center tabular-nums">{overview?.openTasks ?? '—'}</td>
+                                        <td className="px-4 py-3 text-center tabular-nums">{overview?.overdueTasks ?? '—'}</td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            {overview?.nextDueDate ? new Date(`${overview.nextDueDate}T00:00:00`).toLocaleDateString() : '—'}
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                                             <div className="flex items-center gap-2">
@@ -210,7 +231,7 @@ export function ClientTable({ clients }: ClientTableProps) {
                                     </tr>
                                     {isExpanded && (
                                         <tr className="bg-muted/10">
-                                            <td colSpan={12} className="px-4 py-4">
+                                            <td colSpan={16} className="px-4 py-4">
                                                 <div className="pl-14">
                                                     <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                                                         <CheckCircle2 className="h-4 w-4 text-primary" />

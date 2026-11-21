@@ -115,6 +115,7 @@ function SearchResults({
             query={query}
             clients={clients}
             vault={vault.commands.map(command => ({ id: command.id, label: command.label }))}
+            onClose={onClose}
             vaultPending={!vault.ready}
             onSelectClient={onSelectClient}
             onSelectVault={(id) => {

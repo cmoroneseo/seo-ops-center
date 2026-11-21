@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Briefcase, CheckSquare, FileText, Archive } from 'lucide-react';
 
 export interface CommandPaletteClient {
@@ -26,7 +27,9 @@ export function CommandPaletteResults({
     vaultPending = false,
     onSelectClient,
     onSelectVault,
+    onClose,
 }: {
+    onClose?: () => void;
     query: string;
     clients: CommandPaletteClient[];
     vault: CommandPaletteVaultItem[];
@@ -43,14 +46,14 @@ export function CommandPaletteResults({
                 <VaultGroup vault={vault} onSelectVault={onSelectVault} />
                 <h3 className="text-sm font-medium mb-4">Quick Links</h3>
                 <div className="grid grid-cols-2 gap-2">
-                    <button className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
+                    <Link href="/tasks?filter=mine" onClick={onClose} className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
                         <CheckSquare className="h-4 w-4 text-orange-500" />
                         <span className="text-sm">My Tasks</span>
-                    </button>
-                    <button className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
+                    </Link>
+                    <Link href="/reports" onClick={onClose} className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
                         <FileText className="h-4 w-4 text-blue-500" />
                         <span className="text-sm">Reports</span>
-                    </button>
+                    </Link>
                 </div>
             </div>
         );
