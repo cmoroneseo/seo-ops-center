@@ -4,31 +4,38 @@ import { useState, useEffect } from 'react';
 import { GlobalTaskProgress, GlobalNeedsAttention, AgencyQuickStats, GlobalUpcomingTasks, GlobalDeliverablesStats, MyTimeWidget } from '@/components/dashboard/AgencyWidgets';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getDeliverables } from '@/lib/supabase/deliverables';
+import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { getTasks } from '@/lib/supabase/tasks';
 import { Deliverable, Task } from '@/lib/types';
 
 export default function DashboardPage() {
     const { organization } = useOrganization();
+    const organizationId = organization?.id;
     const [tasks, setTasks] = useState<Task[] | null>(null);
+    const [teamMemberCount, setTeamMemberCount] = useState(0);
+    const [loadedOrganizationId, setLoadedOrganizationId] = useState<string | null>(null);
     const [deliverables, setDeliverables] = useState<Deliverable[] | null>(null);
 
     useEffect(() => {
-        if (!organization) return;
+        if (!organizationId) return;
         let cancelled = false;
         setTasks(null);
         setDeliverables(null);
         Promise.all([
-            getDeliverables(organization.id),
-            getTasks(organization.id),
-        ]).then(([nextDeliverables, nextTasks]) => {
+            getDeliverables(organizationId),
+            getTasks(organizationId),
+            getOrganizationMembers(organizationId).catch(() => []),
+        ]).then(([nextDeliverables, nextTasks, members]) => {
             if (cancelled) return;
             setDeliverables(nextDeliverables);
             setTasks(nextTasks);
+            setTeamMemberCount(members.length);
+            setLoadedOrganizationId(organizationId);
         });
         return () => { cancelled = true; };
-    }, [organization?.id]);
+    }, [organizationId]);
 
-    if (!organization || tasks == null || deliverables == null) {
+    if (!organization || loadedOrganizationId !== organization.id || tasks == null || deliverables == null) {
         return <DashboardHomeSkeleton />;
     }
 
@@ -48,7 +55,7 @@ export default function DashboardPage() {
                 <GlobalTaskProgress tasks={tasks} />
                 <GlobalDeliverablesStats deliverables={deliverables} tasks={[]} />
                 <GlobalNeedsAttention tasks={tasks} />
-                <AgencyQuickStats tasks={tasks} />
+                <AgencyQuickStats tasks={tasks} teamMemberCount={teamMemberCount} />
             </div>
 
             {/* Bottom Row: Upcoming Tasks + My Time */}

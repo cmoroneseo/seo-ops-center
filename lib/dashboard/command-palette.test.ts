@@ -53,3 +53,9 @@ test('the empty state appears only when every group is empty', () => {
     assert.match(withClient, /Open Context Vault/);
     assert.equal(withClient.includes('No matches'), false);
 });
+
+test('quick links go to the personal task queue and reports', () => {
+    const html = render('');
+    assert.match(html, /href="\/tasks\?filter=mine"[^>]*>.*My Tasks/);
+    assert.match(html, /href="\/reports"[^>]*>.*Reports/);
+});

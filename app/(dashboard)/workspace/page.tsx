@@ -13,18 +13,22 @@ import { buildManagerOptions, matchesManager, isMyClient } from '@/lib/workspace
 import { useManagerIdentities } from '@/lib/hooks/use-manager-identities';
 import { cn } from '@/lib/utils';
 import { Search, Filter, Plus, X, LayoutList, CalendarRange, User } from 'lucide-react';
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { getClients } from '@/lib/supabase/clients';
+import { loadWorkspaceClientOverview } from '@/lib/supabase/workspace-client-overview';
+import { buildClientOverviewSummaries, type WorkspaceClientOverview } from '@/lib/workspace/client-overview-summary';
 import { getMonthlyPlans } from '@/lib/supabase/monthly-plans';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 
 export default function WorkspacePage() {
-    const { organization } = useOrganization();
+    const { organization, isLoading: organizationLoading } = useOrganization();
     const { userId, displayName, email, isOwner } = useCurrentMember();
     const [clients, setClients] = useState<ClientProject[]>([]);
     const [plans, setPlans] = useState<MonthlyPlan[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [loadedOrganizationId, setLoadedOrganizationId] = useState<string>();
+    const [overviewByClient, setOverviewByClient] = useState<Record<string, WorkspaceClientOverview>>();
+    const loadVersion = useRef(0);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<ClientStatusFilter>(DEFAULT_CLIENT_STATUS_FILTER);
     const [managerFilter, setManagerFilter] = useState<string>('All');
@@ -41,18 +45,25 @@ export default function WorkspacePage() {
 
     const fetchClients = useCallback(async () => {
         if (!organizationId) return;
-        const [data, planData] = await Promise.all([
+        const version = ++loadVersion.current;
+        const [data, planData, overview] = await Promise.all([
             getClients(organizationId),
             getMonthlyPlans(organizationId),
+            loadWorkspaceClientOverview(organizationId).catch(error => {
+                console.error('Error loading workspace client overview:', error);
+                return null;
+            }),
         ]);
+        if (version !== loadVersion.current) return;
         setClients(data);
         setPlans(planData);
-        setIsLoading(false);
+        setOverviewByClient(overview ? buildClientOverviewSummaries(data, overview) : undefined);
+        setLoadedOrganizationId(organizationId);
     }, [organizationId]);
 
     useEffect(() => {
-        setIsLoading(true);
         void fetchClients();
+        return () => { loadVersion.current += 1; };
     }, [fetchClients]);
 
     useEffect(() => {
@@ -92,7 +103,7 @@ export default function WorkspacePage() {
         });
     }, [clients, searchQuery, statusFilter, managerFilter, myClientsOnly, userId, displayName, email, managers, managerMembers]);
 
-    if (isLoading) return <div className="p-8">Loading client workspace...</div>;
+    if (organizationLoading || loadedOrganizationId !== organizationId) return <div className="p-8">Loading client workspace...</div>;
 
     return (
         <div className="space-y-8">
@@ -209,7 +220,7 @@ export default function WorkspacePage() {
             {/* Main Table */}
             <div className="flex-1">
                 {viewMode === 'list' ? (
-                    <ClientTable clients={filteredClients} />
+                    <ClientTable clients={filteredClients} overviewByClient={overviewByClient} />
                 ) : (
                     <PlanningTable clients={filteredClients} plans={plans} />
                 )}

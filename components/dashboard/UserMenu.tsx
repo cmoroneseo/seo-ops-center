@@ -151,7 +151,7 @@ export function UserMenu() {
               </span>
             )}
           </button>
-          <Link href="/tasks" onClick={() => setIsOpen(false)} className={itemClass}>
+          <Link href="/tasks?filter=mine" onClick={() => setIsOpen(false)} className={itemClass}>
             <CheckSquare className="h-4 w-4 text-muted-foreground" />
             My Tasks
           </Link>
