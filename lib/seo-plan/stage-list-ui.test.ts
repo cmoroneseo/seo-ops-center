@@ -100,6 +100,38 @@ test('the list renders projects in order, including empty ones', () => {
     assert.match(html, />Search tasks</);
 });
 
+test('the project page task group uses the project name and updates when it is renamed', () => {
+    const props = {
+        tasks,
+        project: { id: 'setup-project', title: 'City Pages' },
+        query: '',
+        onQueryChange: () => undefined,
+        onOpenTask: () => undefined,
+        onAddTasks: async () => undefined,
+        onReorder: async () => undefined,
+        clientName: 'Floor Co Design USA',
+        clientId: 'floor-co',
+        today: '2026-10-19',
+        initialMonth: '2026-10',
+    };
+    const html = renderToStaticMarkup(createElement(StagePlanListView, props));
+    assert.match(html, /data-plan-section="setup-project"/);
+    assert.match(html, /<h3[^>]*>City Pages<\/h3>/);
+    assert.match(html, /aria-label="Collapse City Pages"/);
+    assert.match(html, /0 \/ 1 done/);
+    assert.doesNotMatch(html, /<h3[^>]*>Tasks<\/h3>/);
+    assert.doesNotMatch(html, /href="\/workspace\/floor-co\?tab=projects&amp;projectId=setup-project"/);
+    assert.doesNotMatch(html, /data-plan-section="empty-project"|data-plan-section="no-project"/);
+
+    const renamed = renderToStaticMarkup(createElement(StagePlanListView, {
+        ...props,
+        project: { id: 'setup-project', title: 'City service pages' },
+    }));
+    assert.match(renamed, /<h3[^>]*>City service pages<\/h3>/);
+    assert.match(renamed, /aria-label="Collapse City service pages"/);
+    assert.doesNotMatch(renamed, /City Pages/);
+});
+
 test('open and done subtasks render under their main task', () => {
     const html = render();
     const children = html.slice(html.indexOf('data-stage-children="setup"'), html.indexOf('data-task-id="roadmap"'));
