@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { StagePlanListView } from '../../components/seo-plan/StagePlanListView.tsx';
 import { createStageTasks, type StageAddDependencies } from './stage-add-route.ts';
-import { PHASE_STAGE_COPY } from './plan-phases.ts';
 import type { StageListTask } from './stage-list.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -27,6 +26,7 @@ function render(tasks: StageListTask[], board: 'phases' | 'months' = 'months') {
     return renderToStaticMarkup(createElement(StagePlanListView, {
         tasks,
         board,
+        partOfChoices: [{ id: 'site', title: 'Improve the website' }, { id: 'local', title: 'Local visibility' }],
         query: '',
         onQueryChange: () => undefined,
         onOpenTask: () => undefined,
@@ -37,45 +37,36 @@ function render(tasks: StageListTask[], board: 'phases' | 'months' = 'months') {
     }));
 }
 
-test('a new phase plan shows three empty stages and an add box on each', () => {
-    const html = render([], 'phases');
-    assert.match(html, /data-plan-board="phases"/);
-    assert.match(html, /This plan has no tasks yet/);
-    for (const phase of ['foundation', 'growth', 'scale'] as const) {
-        assert.match(html, new RegExp(`data-plan-section="${phase}"`));
-        assert.match(html, new RegExp(`data-add="${phase}"`));
-        assert.match(html, new RegExp(PHASE_STAGE_COPY[phase].description.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+test('both board kinds show empty project groups with add rows', () => {
+    for (const board of ['phases', 'months'] as const) {
+        const html = render([], board);
+        assert.match(html, new RegExp(`data-plan-board="${board}"`));
+        assert.deepEqual([...html.matchAll(/data-plan-section="([^"]+)"/g)].map(match => match[1]), [
+            'site', 'local', 'no-project',
+        ]);
+        for (const title of ['Improve the website', 'Local visibility', 'No project']) {
+            assert.match(html, new RegExp(`aria-label="Add a task to ${title}"`));
+            assert.match(html, new RegExp(`aria-label="Add from a playbook to ${title}"`));
+        }
+        assert.doesNotMatch(html, /Foundation|Growth|Scale|Onboarding|Backlog/);
     }
-    assert.equal(html.match(/data-add="(?:foundation|growth|scale)"/g)?.length, 3);
-    assert.match(html, /Add from a playbook/);
-    assert.match(html, /data-playbook-open="plan"/);
-    for (const phase of ['foundation', 'growth', 'scale'] as const) {
-        assert.match(html, new RegExp(`data-playbook-open="${phase}"`));
-        assert.match(html, new RegExp(`aria-label="Add from a playbook to ${PHASE_STAGE_COPY[phase].title}"`));
-    }
-    assert.match(html, /You can also choose saved tasks with Add from a playbook/);
-    assert.doesNotMatch(html, /data-plan-month-control|data-plan-add="true"|data-plan-section="onboarding"|data-plan-section="this_month"|data-plan-footer|Done this month/);
-    assert.doesNotMatch(html, /Month 1|Month 2|Month 3/);
 });
 
-test('an existing month plan still shows Onboarding, This month, and Backlog', () => {
+test('legacy stages do not affect project placement', () => {
     const html = render([
-        task({ id: 'crawl', title: 'Crawl the site', stage: 'month_1', dueDate: '2026-10-12' }),
-        task({ id: 'kickoff', title: 'Kickoff call', stage: 'onboarding' }),
+        task({ id: 'crawl', title: 'Crawl the site', stage: 'growth', initiativeId: 'site' }),
+        task({ id: 'kickoff', title: 'Kickoff call', stage: 'onboarding', initiativeId: 'site' }),
         task({ id: 'later', title: 'Later cleanup', stage: 'backlog' }),
     ]);
-    assert.match(html, /data-plan-board="months"/);
-    assert.match(html, /data-plan-section="onboarding"[\s\S]*Kickoff call/);
-    assert.match(html, /data-plan-section="this_month"[\s\S]*Crawl the site/);
-    assert.match(html, /data-plan-section="backlog"[\s\S]*Later cleanup/);
+    const site = html.slice(html.indexOf('data-plan-section="site"'), html.indexOf('data-plan-section="local"'));
+    assert.match(site, /Crawl the site/);
+    assert.match(site, /Kickoff call/);
+    assert.match(html.slice(html.indexOf('data-plan-section="no-project"')), /Later cleanup/);
     assert.match(html, /data-plan-month-control/);
-    assert.match(html, /data-playbook-open="onboarding"/);
-    assert.match(html, /data-playbook-open="this_month"/);
-    assert.match(html, /data-playbook-open="backlog"/);
-    assert.doesNotMatch(html, /data-plan-section="foundation"|data-add="growth"|Fixing the basics/);
 });
 
-test('quick-add writes the phase stage and does not invent a due date', async () => {
+test('quick-add writes the selected project and keeps the phase default', async () => {
+    const initiativeId = '208dbc36-3333-4111-8111-111111111111';
     const rows: Record<string, unknown>[] = [];
     const dependencies: StageAddDependencies = {
         session: async () => ({
@@ -87,6 +78,7 @@ test('quick-add writes the phase stage and does not invent a due date', async ()
         enabled: () => true,
         now: () => '2026-10-16T17:00:00.000Z',
         loadClient: async () => true,
+        loadProject: async (_org, _client, id) => id === initiativeId,
         loadParent: async () => ({ title: 'Fix the sitemap', stage: 'foundation', parentTaskId: null }),
         maxPosition: async () => null,
         insertTasks: async inserted => {
@@ -101,9 +93,10 @@ test('quick-add writes the phase stage and does not invent a due date', async ()
         },
     };
     const clientId = '7071eda4-ccc6-4122-abef-4cb0702bc682';
-    const added = await createStageTasks(clientId, { stage: 'growth', titles: ['Write the service page'] }, dependencies);
+    const added = await createStageTasks(clientId, { stage: 'foundation', initiativeId, titles: ['Write the service page'] }, dependencies);
     assert.equal(added.status, 200);
-    assert.equal(rows[0]?.stage, 'growth');
+    assert.equal(rows[0]?.stage, 'foundation');
+    assert.equal(rows[0]?.initiative_id, initiativeId);
     assert.equal(rows[0]?.title, 'Write the service page');
     assert.equal(rows[0]?.due_date ?? null, null);
 
@@ -115,6 +108,30 @@ test('quick-add writes the phase stage and does not invent a due date', async ()
     assert.equal(child.status, 200);
     assert.equal(rows[1]?.stage, 'foundation');
     assert.equal(rows[1]?.parent_task_id, '208dbc36-1111-4111-8111-111111111111');
+
+    const monthProject = await createStageTasks(clientId, {
+        stage: 'backlog',
+        initiativeId,
+        items: [{ title: 'Review the new page', depth: 0 }, { title: 'Check the heading', depth: 1 }],
+        dueDate: '2026-10-31',
+    }, dependencies);
+    assert.equal(monthProject.status, 200);
+    assert.equal(rows[2]?.initiative_id, initiativeId);
+    assert.equal(rows[2]?.stage, 'backlog');
+    assert.equal(rows[2]?.due_date, '2026-10-31');
+    assert.equal(rows[3]?.initiative_id ?? null, null);
+
+    const noProject = await createStageTasks(clientId, {
+        stage: 'foundation', initiativeId: null, titles: ['Check analytics'],
+    }, dependencies);
+    assert.equal(noProject.status, 200);
+    assert.equal(rows[4]?.initiative_id, null);
+
+    const otherClient = await createStageTasks(clientId, {
+        stage: 'foundation', initiativeId: clientId, titles: ['Do not add'],
+    }, dependencies);
+    assert.equal(otherClient.status, 404);
+    assert.equal(rows.length, 5);
 
     const rejected = await createStageTasks(clientId, { stage: 'month_4', titles: ['Nope'] }, dependencies);
     assert.equal(rejected.status, 400);

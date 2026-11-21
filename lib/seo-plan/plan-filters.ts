@@ -19,7 +19,7 @@ export const PLAN_FILTER_QUERY_KEYS = [
 
 export const PLAN_FILTER_EMPTY = 'No tasks match these filters.';
 export const PLAN_FILTER_SECTION_META = 'No matching tasks';
-export const PLAN_PART_OF_EMPTY = 'No tasks are part of this.';
+export const PLAN_PART_OF_EMPTY = 'No tasks in this project.';
 
 const QUERY_MAX = 200;
 
@@ -71,7 +71,7 @@ export interface PlanBoardFilters {
     /** A person id, or `none` for nobody assigned. */
     assignee: string;
     stage: PlanFilterStage | '';
-    /** Roadmap row id. The screen calls this Part of. */
+    /** Project id. */
     partOf: string;
 }
 
@@ -253,7 +253,7 @@ function hasRowFilters(filters: PlanBoardFilters): boolean {
 
 /**
  * Keep tasks that match every set filter.
- * Part of keeps the main task and the tasks nested under it.
+ * The project filter keeps the main task and the tasks nested under it.
  * A nested task that matches keeps its main task so it still has a place.
  * A nested task that does not match stays hidden.
  * Title search is separate: the board grouping already does that.

@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 
 import { StagePlanListView } from '../../components/seo-plan/StagePlanListView.tsx';
-import type { StageReorderMove } from './stage-reorder.ts';
+import { applyStageReorder, type StageReorderMove } from './stage-reorder.ts';
 import type { StageListTask } from './stage-list.ts';
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -140,9 +140,10 @@ function Board({
         onOpenTask: () => undefined,
         onAddTasks: async () => undefined,
         onReorder: async (move: StageReorderMove) => {
-            setRows(current => current.map(item => (
-                item.id === move.taskId ? { ...item, stage: move.stage } : item
-            )));
+            setRows(current => {
+                const plan = applyStageReorder(current, move);
+                return plan.ok ? plan.tasks : current;
+            });
         },
         today: '2026-11-07',
         people: [
@@ -237,33 +238,30 @@ test('filters combine, quick views and Clear reset them, and the address keeps t
     }
 });
 
-test('dragging to another stage hides the task when that stage is filtered out, and keeps it otherwise', async () => {
-    window.history.replaceState(null, '', '/workspace/harbor?tab=campaign');
+test('legacy stage filters are ignored and drag is limited to one project group', async () => {
+    window.history.replaceState(null, '', '/workspace/harbor?tab=campaign&planStage=foundation');
     const root = await mount(createElement(Board, { tasks: seed }));
     try {
-        await act(async () => { setControl('[data-plan-filter="stage"]', 'foundation'); });
-        assert.deepEqual(rowIds(), ['heading', 'page']);
+        assert.equal(document.querySelector('[data-plan-filter="stage"]'), null);
+        assert.equal(new URL(window.location.href).searchParams.get('planStage'), null);
+        assert.deepEqual(rowIds(), ['footer', 'heading', 'later', 'page']);
         const page = document.querySelector('[data-task-id="page"]');
-        const growth = document.querySelector('[data-plan-section="growth"]');
-        assert.equal(page?.getAttribute('data-stage-drag'), 'task');
-        assert.equal(growth?.getAttribute('data-stage-drop'), 'growth');
+        const unassigned = document.querySelector('[data-plan-section="no-project"]');
         await act(async () => {
             page?.dispatchEvent(dragEvent('dragstart'));
-            growth?.dispatchEvent(dragEvent('drop'));
+            unassigned?.dispatchEvent(dragEvent('drop'));
         });
-        assert.equal(rowIds().includes('page'), false);
-        assert.match(document.querySelector('[data-plan-section="growth"]')?.textContent ?? '', /No tasks in Growth match these filters|No matching tasks/);
+        assert.equal(page?.closest('[data-plan-section]')?.getAttribute('data-plan-section'), RANK);
 
-        await act(async () => { setControl('[data-plan-filter="stage"]', ''); });
-        await act(async () => { setControl('[data-plan-filter="status"]', 'in_progress'); });
         const footer = document.querySelector('[data-task-id="footer"]');
-        const scale = document.querySelector('[data-plan-section="scale"]');
-        assert.equal(footer?.getAttribute('data-stage-drag'), 'task');
+        const unassignedRows = () => [...(unassigned?.querySelectorAll('[data-plan-row]') ?? [])]
+            .map(row => row.getAttribute('data-plan-row'));
+        assert.deepEqual(unassignedRows(), ['footer', 'later']);
         await act(async () => {
             footer?.dispatchEvent(dragEvent('dragstart'));
-            scale?.dispatchEvent(dragEvent('drop'));
+            unassigned?.dispatchEvent(dragEvent('drop'));
         });
-        assert.equal(document.querySelector('[data-task-id="footer"]')?.closest('[data-plan-section]')?.getAttribute('data-plan-section'), 'scale');
+        assert.deepEqual(unassignedRows(), ['later', 'footer']);
     } finally {
         await act(async () => { root.unmount(); });
     }

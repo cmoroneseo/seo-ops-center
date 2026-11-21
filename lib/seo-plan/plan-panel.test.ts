@@ -291,7 +291,7 @@ test('duplicate, delete, time, and Basecamp stay on data the task already has', 
     assert.equal(planDuplicateTitle('Citations cleanup'), 'Citations cleanup copy');
     const removed = planTasksWithout([citations, houzz, yelp, kitchen], 'citations');
     assert.deepEqual(removed.map(item => item.id), ['kitchen']);
-    assert.equal(planDeleteCopy(2), 'Delete this pillar and its 2 subtasks?');
+    assert.equal(planDeleteCopy(2), 'Delete this task and its 2 subtasks?');
 
     const months = groupPlanTimeByMonth([
         { date: '2026-10-14', hours: 0.5 },

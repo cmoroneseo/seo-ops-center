@@ -69,20 +69,20 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 
 const seed: StageListTask[] = [
     task({ id: 'kickoff', title: 'Kickoff call recap', stage: 'onboarding', position: 1 }),
-    task({ id: 'done', title: 'Finished onboarding', stage: 'onboarding', position: 2, status: 'done' }),
-    task({ id: 'pillar', title: 'Citations cleanup', stage: 'onboarding', position: 3 }),
+    task({ id: 'done', title: 'Finished onboarding', stage: 'onboarding', position: 6, status: 'done' }),
+    task({ id: 'pillar', title: 'Citations cleanup', stage: 'onboarding', position: 2 }),
     task({ id: 'child', title: 'Fix NAP', stage: 'onboarding', position: 1, parentTaskId: 'pillar' }),
     task({ id: 'sibling', title: 'Other citation', stage: 'onboarding', position: 2, parentTaskId: 'pillar' }),
     task({
         id: 'kitchen',
         title: 'Service page refresh: Kitchen remodeling',
         stage: 'backlog',
-        position: 1,
+        position: 3,
         dueDate: '2026-10-17',
         status: 'in_progress',
         blockedReason: 'Waiting on the client',
     }),
-    task({ id: 'later', title: 'Later backlog', stage: 'backlog', position: 2 }),
+    task({ id: 'later', title: 'Later backlog', stage: 'backlog', position: 5 }),
 ];
 
 function key(target: EventTarget, keyName: string, init: KeyboardEventInit = {}) {
@@ -356,7 +356,7 @@ test('shortcuts stay off in text fields, and escape still runs the field', async
         assert.equal(document.querySelector('[data-live-url] input'), null);
 
         await act(async () => { key(add, 'Tab'); });
-        assert.equal(document.querySelector('[data-plan-add-chip]')?.getAttribute('data-plan-add-chip'), 'backlog');
+        assert.equal(document.querySelector('[data-plan-add-chip]'), null);
         const liveAdd = addInput();
         await act(async () => { setValue(liveAdd, 'Write the kitchen page'); });
         await act(async () => { key(liveAdd, 'Enter'); });
@@ -370,13 +370,6 @@ test('shortcuts stay off in text fields, and escape still runs the field', async
         await act(async () => { key(add, 'Escape'); });
         assert.equal(document.querySelector('[data-plan-add-preview]'), null);
         assert.equal(adds.length, 1);
-
-        const chip = document.querySelector('[data-plan-add-chip]');
-        assert.ok(chip instanceof dom.window.HTMLButtonElement);
-        await act(async () => { chip.click(); });
-        assert.ok(document.querySelector('[data-plan-add-option="onboarding"]'));
-        await act(async () => { key(chip, 'Escape'); });
-        assert.equal(document.querySelector('[data-plan-add-option="onboarding"]'), null);
 
         const search = searchInput();
         await act(async () => {

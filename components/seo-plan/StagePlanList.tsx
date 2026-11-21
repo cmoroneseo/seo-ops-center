@@ -149,6 +149,7 @@ export function StagePlanList({
                 stage: requested.stage,
                 parentTaskId: requested.parentTaskId,
                 index: requested.index,
+                projectGroup: requested.projectGroup,
                 ...(requested.dueDate !== undefined ? { dueDate: requested.dueDate } : {}),
             }),
         });
@@ -366,7 +367,7 @@ export function StagePlanList({
         const currentTasks = tasks ?? [];
         const snapshot = currentTasks.find(task => task.id === taskId);
         if (!snapshot) return 'That task is not on this plan.';
-        if (save.field === 'partOf' && snapshot.parentTaskId) return 'Part of applies to the main task.';
+        if (save.field === 'partOf' && snapshot.parentTaskId) return 'Project applies to the main task.';
         if (save.field === 'parent') {
             const planned = planParentMove(currentTasks, taskId, save.parentTaskId);
             if (!planned.ok) return planned.error;
@@ -481,11 +482,12 @@ export function StagePlanList({
             : input.titles.map(title => ({ title: title.trim(), publishedUrl: null }));
         updateList(current => {
             if (!current) return current;
-            const positions = nextStagePositions(endPosition(current, input.stage, parentTaskId), drafts.length);
+            const positions = nextStagePositions(endPosition(current, input.stage, parentTaskId, input.initiativeId !== undefined), drafts.length);
             return appendStageTasks(current, pendingStageTasks({
                 titles: drafts.map(draft => draft.title),
                 publishedUrls: drafts.map(draft => draft.publishedUrl),
                 stage: input.stage,
+                initiativeId: input.initiativeId,
                 parentTaskId,
                 ids,
                 createdAt,
@@ -499,6 +501,7 @@ export function StagePlanList({
                 cache: 'no-store',
                 body: JSON.stringify({
                     stage: input.stage,
+                    initiativeId: input.initiativeId,
                     titles: input.titles,
                     ...(parentTaskId ? { parentTaskId } : {}),
                 }),
@@ -537,7 +540,7 @@ export function StagePlanList({
         updateList(current => {
             if (!current) return current;
             const topCount = parentIds.filter(parentId => parentId == null).length;
-            const topPositions = nextStagePositions(endPosition(current, input.stage, null), topCount);
+            const topPositions = nextStagePositions(endPosition(current, input.stage, null, input.initiativeId !== undefined), topCount);
             let topCursor = 0;
             const childCursor = new Map<string, number>();
             return appendStageTasks(current, items.map((item, index) => {
@@ -556,6 +559,7 @@ export function StagePlanList({
                     title: item.title.trim(),
                     status: 'todo',
                     stage: input.stage,
+                    initiativeId: parentTaskId ? null : input.initiativeId,
                     position,
                     parentTaskId,
                     createdAt,
@@ -573,6 +577,7 @@ export function StagePlanList({
                 cache: 'no-store',
                 body: JSON.stringify({
                     stage: input.stage,
+                    initiativeId: input.initiativeId,
                     dueDate: input.dueDate ?? null,
                     items: items.map(item => ({ title: item.title, depth: item.depth })),
                 }),
@@ -742,8 +747,7 @@ export function StagePlanList({
     if (!tasks || board == null) return <PanelSkeleton label="Loading SEO plan" />;
 
     const visibleTasks = shownTasks ?? tasks;
-    const linksKnown = visibleTasks.some(task => 'initiativeId' in task);
-    const partOf = linksKnown ? partOfChoices : null;
+    const partOf = partOfChoices;
     const open = panel && tasks.some(task => task.id === panel.id) ? panel : null;
     const selected = open ? tasks.find(task => task.id === open.id) : undefined;
     const model = open && selected ? planPanelTask({

@@ -297,7 +297,7 @@ export function planParentMove(
     if (!task) return { ok: false, error: 'That task is not on this plan.' };
     if ((task.parentTaskId ?? null) === parentTaskId) return { ok: true, move: null };
     const field = planParentField(tasks, taskId);
-    if (field.kind === 'pillar') return { ok: false, error: 'A pillar stays with its subtasks.' };
+    if (field.kind === 'pillar') return { ok: false, error: 'A task with subtasks can’t be moved under another task.' };
     if (field.kind === 'locked') return { ok: false, error: 'That task cannot be nested.' };
     if (parentTaskId && !field.choices.some(choice => choice.id === parentTaskId)) {
         return { ok: false, error: 'Tasks can only nest one level deep.' };
@@ -667,8 +667,8 @@ export function visiblePlanRowIds(root: ParentNode): string[] {
 }
 
 export function planDeleteCopy(childCount: number): string {
-    if (childCount === 1) return 'Delete this pillar and its subtask?';
-    if (childCount > 1) return `Delete this pillar and its ${childCount} subtasks?`;
+    if (childCount === 1) return 'Delete this task and its subtask?';
+    if (childCount > 1) return `Delete this task and its ${childCount} subtasks?`;
     return 'Delete this task?';
 }
 

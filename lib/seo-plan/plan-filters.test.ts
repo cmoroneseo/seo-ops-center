@@ -172,7 +172,7 @@ test('quick views are presets, and Clear is the empty filter set', () => {
 
 test('empty copy stays plain and a title search keeps its own sentence', () => {
     assert.equal(planFilterEmptyCopy(state({ query: 'citations' })), planSearchMissCopy('citations'));
-    assert.equal(planFilterEmptyCopy(state({ partOf: RANK })), 'No tasks are part of this.');
+    assert.equal(planFilterEmptyCopy(state({ partOf: RANK })), 'No tasks in this project.');
     assert.equal(planFilterEmptyCopy(state({ status: 'done', query: 'page' })), 'No tasks match these filters.');
     assert.equal(planFilterEmptyCopy(state({ assignee: 'none' })), 'No tasks match these filters.');
     assert.equal(PLAN_QUICK_VIEWS.find(view => view.id === 'not-started')?.label, TASK_STATUS_LABELS.todo);

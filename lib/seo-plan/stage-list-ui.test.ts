@@ -24,7 +24,7 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 }
 
 const tasks: StageListTask[] = [
-    task({ id: 'setup', title: 'SEO Setup', stage: 'onboarding', position: 1, category: 'admin' }),
+    task({ id: 'setup', title: 'SEO Setup', initiativeId: 'setup-project', stage: 'onboarding', position: 1, category: 'admin' }),
     task({
         id: 'keywords',
         title: 'Add keywords to Position tracking',
@@ -49,6 +49,7 @@ const tasks: StageListTask[] = [
 function render(query = '', extraTasks: StageListTask[] = []) {
     return renderToStaticMarkup(createElement(StagePlanListView, {
         tasks: [...tasks, ...extraTasks],
+        partOfChoices: [{ id: 'setup-project', title: 'Get started' }, { id: 'empty-project', title: 'Site updates' }],
         query,
         onQueryChange: () => undefined,
         onOpenTask: () => undefined,
@@ -60,7 +61,7 @@ function render(query = '', extraTasks: StageListTask[] = []) {
     }));
 }
 
-test('a client with no tasks shows one empty plan and the add box', () => {
+test('a client with no tasks can add a task under No project', () => {
     const html = renderToStaticMarkup(createElement(StagePlanListView, {
         tasks: [],
         query: '',
@@ -72,17 +73,14 @@ test('a client with no tasks shows one empty plan and the add box', () => {
         today: '2026-10-19',
         initialMonth: '2026-10',
     }));
-    assert.match(html, /data-plan-empty/);
-    assert.match(html, /This plan is empty/);
-    assert.match(html, /search engine optimization/);
-    assert.match(html, /Add task box above/);
-    assert.match(html, /data-plan-add/);
-    assert.doesNotMatch(html, /data-plan-section/);
+    assert.match(html, /data-plan-section="no-project"/);
+    assert.match(html, /No tasks yet/);
+    assert.match(html, /aria-label="Add a task to No project"/);
 });
 
-test('the list renders Onboarding, This month, and Backlog, including empty ones', () => {
+test('the list renders projects in order, including empty ones', () => {
     const html = render();
-    const sections = ['onboarding', 'this_month', 'backlog'];
+    const sections = ['setup-project', 'empty-project', 'no-project'];
     let cursor = 0;
     for (const section of sections) {
         const index = html.indexOf(`data-plan-section="${section}"`, cursor);
@@ -92,27 +90,24 @@ test('the list renders Onboarding, This month, and Backlog, including empty ones
     assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_|SEO Plan sections/);
     assert.doesNotMatch(html, /emerald|text-green|#22c55e|#16a34a|Basecamp/);
     assert.doesNotMatch(html, /Floor Co Design USA/);
-    assert.match(html, /data-plan-section="onboarding"[\s\S]*data-count="4"/);
-    assert.match(html, /data-plan-section="this_month"[\s\S]*data-count="0"/);
-    assert.match(html, /data-plan-section="backlog"[\s\S]*data-count="1"/);
-    assert.match(html, /data-plan-section="backlog"[^>]*data-plan-collapsed="true"/);
-    assert.match(html, /Nothing due in October\. Add a task above, or give a Backlog task a date\./);
+    assert.match(html, /data-plan-section="setup-project"[\s\S]*?data-count="1"/);
+    assert.match(html, /data-plan-section="empty-project"[\s\S]*?data-count="0"/);
+    assert.match(html, /data-plan-section="no-project"[^>]*data-plan-collapsed="false"/);
     assert.match(html, /placeholder="Search tasks"/);
     assert.match(html, />Search tasks</);
 });
 
-test('subtasks render under the pillar and a done subtask stays folded', () => {
+test('open and done subtasks render under their main task', () => {
     const html = render();
     const children = html.slice(html.indexOf('data-stage-children="setup"'), html.indexOf('data-task-id="roadmap"'));
     assert.match(children, /data-stage-role="subtask" data-task-id="keywords"/);
     assert.match(children, /Subtask of SEO Setup/);
-    assert.doesNotMatch(children, /data-task-id="cookies"/);
+    assert.match(children, /data-stage-role="subtask" data-task-id="cookies"/);
     assert.doesNotMatch(html, /data-stage-role="task" data-task-id="keywords"/);
     assert.match(html, />1\/2</);
     assert.doesNotMatch(html, /Pillar · 1\/2/);
     assert.match(html, /aria-expanded="true"[^>]*aria-label="Hide 2 subtasks of SEO Setup"/);
-    assert.match(html, /Show 1 done/);
-    assert.doesNotMatch(html, /Set Up Empire Cookies/);
+    assert.match(html, /Set Up Empire Cookies/);
 });
 
 test('a subtask-only match expands the parent and hides the other subtask', () => {
@@ -124,8 +119,7 @@ test('a subtask-only match expands the parent and hides the other subtask', () =
     assert.doesNotMatch(html, /Add keywords to Position tracking/);
     assert.doesNotMatch(html, /Create SEO Roadmap/);
     assert.doesNotMatch(html, /Review robots\.txt/);
-    assert.match(html, /No tasks match (?:&quot;|")cookies(?:&quot;|") in October\./);
-    assert.match(html, /data-plan-section="backlog"[^>]*data-plan-collapsed="true"/);
+    assert.equal([...html.matchAll(/data-plan-section="([^"]+)"/g)].length, 3);
 });
 
 test('a failed push shows one red dot and the popover, and a client-wide failure is one line', () => {
