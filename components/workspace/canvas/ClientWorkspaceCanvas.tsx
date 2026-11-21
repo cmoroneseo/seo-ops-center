@@ -8,6 +8,7 @@ import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { dueDateMoveError } from '@/lib/workspace-canvas/calendar';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
+import { orderedInitiatives } from '@/lib/campaign-workspace/initiatives';
 import type { PartOfChoice, PartOfTask } from '@/lib/tasks/part-of';
 import type { ClientProject } from '@/lib/types';
 import { actionForegroundChoice, oklchContrast, type ActionForeground } from '@/lib/workspace-canvas/palette';
@@ -109,7 +110,7 @@ export function ClientWorkspaceCanvas({
         let active = true;
         setProjects(null);
         void listCampaignInitiatives(client.id).then(result => {
-            if (active && !result.unavailable) setProjects(result.initiatives);
+            if (active && !result.unavailable) setProjects(orderedInitiatives(result.initiatives));
         });
         return () => { active = false; };
     }, [client.id, organizationId, refreshKey]);

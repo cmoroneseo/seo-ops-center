@@ -52,6 +52,7 @@ import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
 import { RESUMED_OPEN_TIMER_MESSAGE, openTimerRows } from '@/lib/timer/attempt-state';
 import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
+import { orderedInitiatives } from '@/lib/campaign-workspace/initiatives';
 import { createTask, deleteTask, getTask, getTaskTemplates, updateTask } from '@/lib/supabase/tasks';
 import { filterProjectTasks, projectProgress } from '@/lib/projects/project-cards';
 import type { PartOfChoice } from '@/lib/tasks/part-of';
@@ -204,7 +205,7 @@ export function StagePlanList({
         setPartOfChoices(null);
         void listCampaignInitiatives(clientId).then(result => {
             if (cancelled) return;
-            setPartOfChoices(result.unavailable ? null : result.initiatives.map(item => ({ id: item.id, title: item.title })));
+            setPartOfChoices(result.unavailable ? null : orderedInitiatives(result.initiatives).map(item => ({ id: item.id, title: item.title })));
         });
         return () => { cancelled = true; };
     }, [clientId, reloadKey]);

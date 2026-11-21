@@ -8,7 +8,7 @@ import { StagePlanList } from '@/components/seo-plan/StagePlanList';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { TaskListView } from '@/components/tasks/TaskListView';
 import {
-    CATEGORY_LABEL, INITIATIVE_CATEGORIES, INITIATIVE_STATES, formatInitiativeDay,
+    CATEGORY_LABEL, INITIATIVE_CATEGORIES, INITIATIVE_STATES, formatInitiativeDay, orderedInitiatives,
     type CampaignInitiative, type InitiativeState,
 } from '@/lib/campaign-workspace/initiatives';
 import { buildProjectDraft, filterProjectTasks, PROJECT_STATUS, projectProgress } from '@/lib/projects/project-cards';
@@ -247,7 +247,7 @@ export function WorkspaceProjects({ clientId, clientName, organizationId, projec
             .then(([result, rows]) => {
                 if (!active) return;
                 if (result.unavailable) throw new Error('Projects unavailable');
-                setProjects(result.initiatives.filter(project => project.organizationId === organizationId));
+                setProjects(orderedInitiatives(result.initiatives.filter(project => project.organizationId === organizationId)));
                 setTasks(rows.filter(task => task.organizationId === organizationId));
                 setError(false);
             })
