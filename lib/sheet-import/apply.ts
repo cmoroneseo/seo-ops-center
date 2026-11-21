@@ -24,7 +24,6 @@ interface PlanItem extends CommonFields {
 interface Task extends CommonFields {
     status: 'todo' | 'done' | 'in_progress';
     category: 'content';
-    stage: 'backlog';
 }
 
 export type ApplyPlan = ReturnType<typeof planApply>;
@@ -58,11 +57,11 @@ export function planApply(previewRows: PreviewRow[]) {
                     step_key: row.step_key, priority: 'medium', is_custom: true, source: 'sheet',
                 } });
             } else if (row.sheet_tab === 'Content Plan' && row.target_table === 'tasks') {
-                if (row.category !== 'content' || row.stage !== 'backlog'
+                if (row.category !== 'content'
                     || (status !== 'todo' && status !== 'done' && status !== 'in_progress')) {
-                    throw new Error('Invalid task category, stage, or status');
+                    throw new Error('Invalid task category or status');
                 }
-                tasks.push({ ...payload, status, category: 'content', stage: 'backlog' });
+                tasks.push({ ...payload, status, category: 'content' });
             } else {
                 throw new Error('Invalid sheet tab and target table combination');
             }

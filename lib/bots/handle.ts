@@ -102,7 +102,6 @@ export interface BotTaskRecord {
     projectId: string | null;
     title: string;
     status: string;
-    stage?: string | null;
     priority?: string | null;
     completedAt: string | null;
     statusHistory: TaskStatusHistoryEntryLike[];

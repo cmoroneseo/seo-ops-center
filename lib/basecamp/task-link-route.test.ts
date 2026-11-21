@@ -10,7 +10,7 @@ const projectId = '202';
 const now = '2026-11-20T21:00:00Z';
 const parent: BasecampLinkedTask = {
     id: '2d6b57f1-c4cd-4b47-a07e-bba8d1b2612b', organizationId: 'org', clientId: 'client',
-    title: 'SEO Set Up', stage: 'onboarding', category: 'technical', priority: 'high',
+    title: 'SEO Set Up', category: 'technical', priority: 'high',
     parentTaskId: null, basecampTodoId: null, basecampProjectId: null,
 };
 const session = {
@@ -120,7 +120,7 @@ test('links an existing task, keeps a unique local title match, and imports the 
     assert.deepEqual(await result.json(), { todoId, projectId, imported: 8, linked: 1 });
     assert.equal(f.root.basecampTodoId, todoId);
     assert.equal(local.basecampTodoId, String(f.steps[0].id));
-    assert.ok(f.inserted.every(row => row.parent_task_id === parent.id && row.stage === parent.stage));
+    assert.ok(f.inserted.every(row => row.parent_task_id === parent.id && !Object.hasOwn(row, 'stage')));
     assert.equal(f.tasks.filter(row => row.parentTaskId === null).length, 1);
     const repeated = await f.call('link');
     assert.equal(repeated.status, 200);

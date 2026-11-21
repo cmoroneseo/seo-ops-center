@@ -3,7 +3,7 @@ import type { RoadmapRow, TaskRow } from './model';
 
 export const CLIENT_COLUMNS = 'id,organization_id,roadmap_sheet_id,sheet_mirror_enabled';
 export const ROADMAP_COLUMNS = 'id,title,step_key,status,priority,due_date,roadmap_phase,roadmap_included,sort_order,task_id,updated_at';
-export const TASK_COLUMNS = 'id,title,parent_task_id,category,stage,status,start_date,due_date,completed_at,published_url,basecamp_project_id,basecamp_todo_id';
+export const TASK_COLUMNS = 'id,title,parent_task_id,category,status,start_date,due_date,completed_at,published_url,basecamp_project_id,basecamp_todo_id';
 export const LOG_COLUMNS = 'started_at,finished_at,status,trigger,rows_written,error';
 
 export interface MirrorClient {

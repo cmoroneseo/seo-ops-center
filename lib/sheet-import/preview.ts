@@ -106,7 +106,7 @@ export function buildPreview(manifest: Manifest, grids: Grids): PreviewRow[] {
                 sheet_id: client.sheetId, sheet_tab: tab, sheet_row: String(row), title: source?.title ?? '',
                 status: mapStatus(cell('Status'), target), roadmap_phase: roadmap ? phase : '',
                 month_label: monthLabel, step_key: roadmap ? mapStepKey(cell('Category')) : '',
-                category: roadmap ? '' : 'content', stage: roadmap ? '' : 'backlog',
+                category: roadmap ? '' : 'content',
                 description: description.filter(Boolean).join('\n\n'), import_key: importKey,
                 covered_by: coveredBy ?? '', needs_new_plan: needsPlan ? 'yes' : '',
                 notes: notes.filter(Boolean).join('\n'),

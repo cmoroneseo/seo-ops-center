@@ -25,7 +25,7 @@ import {
 
 type Role = 'owner' | 'admin' | 'member' | 'viewer';
 
-const TASK_COLUMNS = 'id, organization_id, client_id, project_id, title, status, stage, priority, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
+const TASK_COLUMNS = 'id, organization_id, client_id, project_id, title, status, priority, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
 
 function admin() {
     return createAdminClient();
@@ -39,7 +39,6 @@ function taskRecord(row: Record<string, unknown>): BotTaskRecord {
         projectId: typeof row.project_id === 'string' ? row.project_id : null,
         title: String(row.title),
         status: typeof row.status === 'string' ? row.status : 'todo',
-        stage: typeof row.stage === 'string' ? row.stage : null,
         priority: typeof row.priority === 'string' ? row.priority : null,
         completedAt: typeof row.completed_at === 'string' ? row.completed_at : null,
         statusHistory: Array.isArray(row.status_history) ? row.status_history : [],

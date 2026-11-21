@@ -368,7 +368,7 @@ test('a chunk that failed to insert announces no completions', async () => {
     assert.deepEqual(completions, []);
 });
 
-test('an imported to-do remembers which list it came from', async () => {
+test('an imported onboarding to-do remembers its list and omits stage', async () => {
     const { buildBasecampTaskRows } = await loadRouteModule();
     const built = await buildBasecampTaskRows({
         tasks: [{ basecampTodoId: 77, basecampProjectId: 202, basecampTodolistId: 45 }],
@@ -381,6 +381,7 @@ test('an imported to-do remembers which list it came from', async () => {
     assert.equal(built.ok, true);
     if (!built.ok) return;
     assert.deepEqual(built.rows[0].custom_fields, { basecamp_source_todolist_id: '45' });
+    assert.equal(Object.hasOwn(built.rows[0], 'stage'), false);
 });
 
 /**
@@ -429,7 +430,6 @@ test('Basecamp steps import as children of the to-do, and a re-import does not d
     const stored: Array<{
         id: string;
         basecampTodoId: number;
-        stage: string | null;
         parentTaskId: string | null;
         row: Record<string, unknown>;
     }> = [];
@@ -463,7 +463,6 @@ test('Basecamp steps import as children of the to-do, and a re-import does not d
                     stored.push({
                         id: isChild ? `step-${sequence}` : `parent-${sequence}`,
                         basecampTodoId: Number(row.basecamp_todo_id),
-                        stage: typeof row.stage === 'string' ? row.stage : 'backlog',
                         parentTaskId: isChild ? String(row.parent_task_id) : null,
                         row,
                     });
@@ -477,7 +476,6 @@ test('Basecamp steps import as children of the to-do, and a re-import does not d
                     .map(record => ({
                         id: record.id,
                         basecampTodoId: record.basecampTodoId,
-                        stage: record.stage,
                         parentTaskId: record.parentTaskId,
                     }));
             },
@@ -508,8 +506,7 @@ test('Basecamp steps import as children of the to-do, and a re-import does not d
     assert.equal(publish.row.client_id, 'client-a');
     assert.equal(approval.row.client_id, 'client-a');
     assert.equal(publish.row.organization_id, 'org-a');
-    assert.equal(publish.stage, 'backlog');
-    assert.equal(publish.row.stage, 'backlog');
+    assert.equal(Object.hasOwn(publish.row, 'stage'), false);
     assert.equal(publish.row.status, 'todo');
     assert.equal(publish.row.due_date, '2026-10-30');
     assert.equal(publish.row.completed_at, null);
@@ -540,7 +537,7 @@ test('Basecamp steps import as children of the to-do, and a re-import does not d
     assert.equal(completions.length, 1);
 });
 
-test('steps attached to an existing to-do take that task\'s stage', async () => {
+test('steps attached to an existing to-do omit stage', async () => {
     const { createBasecampImportTasksPost } = await loadRouteModule();
     const stored = [{
         id: 'task-faqs',
@@ -570,7 +567,6 @@ test('steps attached to an existing to-do take that task\'s stage', async () => 
                     stored.push({
                         id: `step-${stored.length}`,
                         basecampTodoId: Number(row.basecamp_todo_id),
-                        stage: typeof row.stage === 'string' ? row.stage : 'backlog',
                         parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
                         row,
                     });
@@ -584,7 +580,6 @@ test('steps attached to an existing to-do take that task\'s stage', async () => 
                     .map(record => ({
                         id: record.id,
                         basecampTodoId: record.basecampTodoId,
-                        stage: record.stage,
                         parentTaskId: record.parentTaskId,
                     }));
             },
@@ -601,7 +596,7 @@ test('steps attached to an existing to-do take that task\'s stage', async () => 
     assert.deepEqual(await responseBody(response), { imported: 2, errors: [] });
     const children = stored.filter(record => record.parentTaskId);
     assert.equal(children.length, 2);
-    assert.ok(children.every(child => child.parentTaskId === 'task-faqs' && child.row.stage === 'onboarding'));
+    assert.ok(children.every(child => child.parentTaskId === 'task-faqs' && !Object.hasOwn(child.row, 'stage')));
 });
 
 const SETUP_LIST = '10424777299';
@@ -617,7 +612,6 @@ function memoryStore() {
     const stored: Array<{
         id: string;
         basecampTodoId: number;
-        stage: string | null;
         parentTaskId: string | null;
         row: Record<string, unknown>;
     }> = [];
@@ -635,7 +629,6 @@ function memoryStore() {
                     stored.push({
                         id: isChild ? `step-${sequence}` : `task-${sequence}`,
                         basecampTodoId: Number(row.basecamp_todo_id),
-                        stage: typeof row.stage === 'string' ? row.stage : null,
                         parentTaskId: isChild ? String(row.parent_task_id) : null,
                         row,
                     });
@@ -649,7 +642,6 @@ function memoryStore() {
                     .map(record => ({
                         id: record.id,
                         basecampTodoId: record.basecampTodoId,
-                        stage: record.stage,
                         parentTaskId: record.parentTaskId,
                     }));
             },
@@ -704,202 +696,6 @@ test('import skips concurrently claimed to-dos and steps and imports the rest of
     assert.deepEqual(activityCounts, [2]);
 });
 
-test('todos from the configured onboarding list land in Onboarding, in list order', async () => {
-    const { createBasecampImportTasksPost } = await loadRouteModule();
-    const memory = memoryStore();
-    let maxReads = 0;
-    const post = createBasecampImportTasksPost({
-        authorizeClient: async () => authorized,
-        createAccessSource: () => externalSource(['49321952']),
-        isConfigured: () => true,
-        getTodo: async (_projectId, todoId) => ({
-            id: Number(todoId),
-            title: todoId === '10425524627' ? 'SEO Set Up' : 'Perform keyword research',
-            description: '',
-            due_on: null,
-            completed: false,
-            assignees: [],
-            parent: { id: Number(SETUP_LIST), type: 'Todolist' },
-        }),
-        getSteps: async () => [],
-        resolveAssignees: async () => new Map(),
-        loadOnboardingScope: async (organizationId, clientId) => {
-            assert.equal(organizationId, 'org-a');
-            assert.equal(clientId, 'client-a');
-            return onboardingScope();
-        },
-        maxOnboardingPosition: async () => {
-            maxReads += 1;
-            return null;
-        },
-        createWriter: () => memory.writer,
-        now: () => '2026-10-20T22:44:55.000Z',
-    });
-
-    const response = await post(request({
-        tasks: [
-            { basecampTodoId: 10425524627, basecampProjectId: 49321952, basecampTodolistId: Number(SETUP_LIST) },
-            { basecampTodoId: 10424777331, basecampProjectId: 49321952, basecampTodolistId: Number(SETUP_LIST) },
-        ],
-    }));
-
-    assert.equal(response.status, 200);
-    assert.deepEqual(await responseBody(response), { imported: 2, errors: [] });
-    assert.equal(maxReads, 1);
-    assert.deepEqual(memory.inserted.map(row => ({
-        title: row.title,
-        stage: row.stage,
-        position: row.position,
-    })), [
-        { title: 'SEO Set Up', stage: 'onboarding', position: 1 },
-        { title: 'Perform keyword research', stage: 'onboarding', position: 2 },
-    ]);
-});
-
-test('a sibling list and the SEO Plan list keep the backlog default', async () => {
-    const { createBasecampImportTasksPost } = await loadRouteModule();
-    const memory = memoryStore();
-    const post = createBasecampImportTasksPost({
-        authorizeClient: async () => authorized,
-        createAccessSource: () => externalSource(['49321952']),
-        isConfigured: () => true,
-        getTodo: async (_projectId, todoId) => ({
-            id: Number(todoId),
-            title: todoId === '11' ? 'Internal kickoff' : 'October blog',
-            description: '',
-            due_on: null,
-            completed: false,
-            assignees: [],
-            parent: { id: todoId === '11' ? Number(SIBLING_LIST) : Number(SEO_PLAN_LIST), type: 'Todolist' },
-        }),
-        resolveAssignees: async () => new Map(),
-        loadOnboardingScope: async () => onboardingScope(),
-        maxOnboardingPosition: async () => { throw new Error('backlog rows do not ask for an onboarding position'); },
-        createWriter: () => memory.writer,
-        now: () => '2026-10-20T22:44:55.000Z',
-    });
-
-    const response = await post(request({
-        tasks: [
-            { basecampTodoId: 11, basecampProjectId: 49321952, basecampTodolistId: Number(SIBLING_LIST) },
-            { basecampTodoId: 12, basecampProjectId: 49321952, basecampTodolistId: Number(SEO_PLAN_LIST) },
-        ],
-    }));
-
-    assert.equal(response.status, 200);
-    assert.equal(memory.inserted.length, 2);
-    assert.ok(memory.inserted.every(row => !Object.hasOwn(row, 'stage') && !Object.hasOwn(row, 'position')));
-});
-
-test('a group inside the onboarding list lands in Onboarding, including when only the provider names it', async () => {
-    const { createBasecampImportTasksPost } = await loadRouteModule();
-    const memory = memoryStore();
-    const post = createBasecampImportTasksPost({
-        authorizeClient: async () => authorized,
-        createAccessSource: () => externalSource(['49321952']),
-        isConfigured: () => true,
-        getTodo: async (_projectId, todoId) => ({
-            id: Number(todoId),
-            title: todoId === '21' ? 'Grouped setup' : 'Parent named the group',
-            description: '',
-            due_on: null,
-            completed: false,
-            assignees: [],
-            parent: todoId === '22' ? { id: Number(GROUP_ID), type: 'Todolist::Group' } : undefined,
-        }),
-        resolveAssignees: async () => new Map(),
-        loadOnboardingScope: async () => onboardingScope(),
-        maxOnboardingPosition: async () => 4,
-        createWriter: () => memory.writer,
-        now: () => '2026-10-20T22:44:55.000Z',
-    });
-
-    const response = await post(request({
-        tasks: [
-            { basecampTodoId: 21, basecampProjectId: 49321952, basecampTodolistId: Number(GROUP_ID) },
-            { basecampTodoId: 22, basecampProjectId: 49321952 },
-        ],
-    }));
-
-    assert.equal(response.status, 200);
-    assert.deepEqual(memory.inserted.map(row => row.position), [5, 6]);
-    assert.ok(memory.inserted.every(row => row.stage === 'onboarding'));
-});
-
-test('re-import leaves a re-staged task where it is, and a new onboarding to-do appends', async () => {
-    const { createBasecampImportTasksPost } = await loadRouteModule();
-    const memory = memoryStore();
-    const post = createBasecampImportTasksPost({
-        authorizeClient: async () => authorized,
-        createAccessSource: () => externalSource(['49321952']),
-        isConfigured: () => true,
-        getTodo: async (_projectId, todoId) => ({
-            id: Number(todoId),
-            title: todoId === '31' ? 'SEO Set Up' : 'Campaign Launch',
-            description: '',
-            due_on: null,
-            completed: false,
-            assignees: [],
-            parent: { id: Number(SETUP_LIST), type: 'Todolist' },
-        }),
-        getSteps: async () => [{
-            id: 3101,
-            title: 'Connect analytics',
-            completed: false,
-            position: 1,
-            parent: { id: 31, type: 'Todo' },
-        }],
-        resolveAssignees: async () => new Map(),
-        loadOnboardingScope: async () => onboardingScope(),
-        maxOnboardingPosition: async () => {
-            const positions = memory.stored
-                .filter(record => record.parentTaskId == null && record.stage === 'onboarding')
-                .map(record => record.row.position)
-                .filter((position): position is number => typeof position === 'number');
-            return positions.length > 0 ? Math.max(...positions) : null;
-        },
-        createWriter: () => memory.writer,
-        now: () => '2026-10-20T22:44:55.000Z',
-    });
-
-    const first = await post(request({
-        tasks: [{ basecampTodoId: 31, basecampProjectId: 49321952, basecampTodolistId: Number(SETUP_LIST) }],
-    }));
-    assert.equal(first.status, 200);
-    assert.deepEqual(await responseBody(first), { imported: 2, errors: [] });
-    const parent = memory.stored.find(record => record.basecampTodoId === 31);
-    const step = memory.stored.find(record => record.basecampTodoId === 3101);
-    assert.ok(parent && step);
-    assert.equal(parent.row.stage, 'onboarding');
-    assert.equal(parent.row.position, 1);
-    assert.equal(step.row.stage, 'onboarding');
-    assert.equal(step.parentTaskId, parent.id);
-
-    parent.stage = 'backlog';
-    memory.stored.push({
-        id: 'task-kept',
-        basecampTodoId: 99,
-        stage: 'onboarding',
-        parentTaskId: null,
-        row: { title: 'Already in Onboarding', stage: 'onboarding', position: 4 },
-    });
-    const before = memory.inserted.length;
-    const again = await post(request({
-        tasks: [
-            { basecampTodoId: 31, basecampProjectId: 49321952, basecampTodolistId: Number(SETUP_LIST) },
-            { basecampTodoId: 32, basecampProjectId: 49321952, basecampTodolistId: Number(SETUP_LIST) },
-        ],
-    }));
-    assert.equal(again.status, 200);
-    assert.deepEqual(await responseBody(again), { imported: 1, errors: [] });
-    assert.equal(memory.inserted.length, before + 1);
-    assert.equal(memory.inserted.at(-1)?.title, 'Campaign Launch');
-    assert.equal(memory.inserted.at(-1)?.stage, 'onboarding');
-    assert.equal(memory.inserted.at(-1)?.position, 5);
-    assert.equal(parent.stage, 'backlog');
-    assert.equal(memory.stored.filter(record => record.basecampTodoId === 31).length, 1);
-});
-
 test('steps added later follow the parent stage, including after it was moved to backlog', async () => {
     const { createBasecampImportTasksPost } = await loadRouteModule();
     const memory = memoryStore();
@@ -945,38 +741,8 @@ test('steps added later follow the parent stage, including after it was moved to
     const step = memory.stored.find(record => record.basecampTodoId === 4101);
     assert.ok(step);
     assert.equal(step.parentTaskId, 'task-existing');
-    assert.equal(step.row.stage, 'backlog');
+    assert.equal(Object.hasOwn(step.row, 'stage'), false);
     assert.equal(memory.stored.filter(record => record.basecampTodoId === 41).length, 1);
-});
-
-test('a failed onboarding-list lookup still imports the to-dos in Backlog', async () => {
-    const { createBasecampImportTasksPost } = await loadRouteModule();
-    const memory = memoryStore();
-    const post = createBasecampImportTasksPost({
-        authorizeClient: async () => authorized,
-        createAccessSource: () => externalSource(['49321952']),
-        isConfigured: () => true,
-        getTodo: async () => ({
-            id: 51,
-            title: 'SEO Set Up',
-            description: '',
-            due_on: null,
-            completed: false,
-            assignees: [],
-        }),
-        resolveAssignees: async () => new Map(),
-        loadOnboardingScope: async () => { throw new Error('clients unavailable'); },
-        maxOnboardingPosition: async () => { throw new Error('no stage was decided'); },
-        createWriter: () => memory.writer,
-        now: () => '2026-10-20T22:44:55.000Z',
-    });
-
-    const response = await post(request({
-        tasks: [{ basecampTodoId: 51, basecampProjectId: 49321952, basecampTodolistId: Number(SETUP_LIST) }],
-    }));
-    assert.equal(response.status, 200);
-    assert.deepEqual(await responseBody(response), { imported: 1, errors: [] });
-    assert.equal(Object.hasOwn(memory.inserted[0], 'stage'), false);
 });
 
 test('a non-numeric source list is refused before the provider is called', async () => {

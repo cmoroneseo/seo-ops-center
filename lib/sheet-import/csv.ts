@@ -1,7 +1,7 @@
 export const previewColumns = [
     'approve', 'action', 'target_table', 'client_name', 'client_id', 'sheet_id', 'sheet_tab',
     'sheet_row', 'title', 'status', 'roadmap_phase', 'month_label', 'step_key', 'category',
-    'stage', 'description', 'import_key', 'possible_duplicate_of', 'match_score', 'covered_by',
+    'description', 'import_key', 'possible_duplicate_of', 'match_score', 'covered_by',
     'needs_new_plan', 'notes',
 ] as const;
 
@@ -70,13 +70,18 @@ export function toPreviewCsv(rows: PreviewRow[]): string {
 
 export function parsePreviewCsv(csv: string): PreviewRow[] {
     const [header, ...rows] = parseCsv(csv);
-    if (header?.length !== previewColumns.length || previewColumns.some(column => !header.includes(column))) {
+    // Previously generated previews can still be approved and imported.
+    const importColumns = header?.filter(column => column !== 'stage');
+    if (!header || importColumns?.length !== previewColumns.length
+        || header.length - importColumns.length > 1
+        || previewColumns.some(column => !importColumns.includes(column))) {
         throw new Error('Invalid preview CSV header');
     }
     return rows.flatMap((row, index) => {
         if (row.every(cell => !cell.trim())) return [];
         if (row.length !== header.length) throw new Error(`Invalid preview CSV record ${index + 2}`);
-        return [Object.fromEntries(header.map((column, position) => {
+        return [Object.fromEntries(previewColumns.map(column => {
+            const position = header.indexOf(column);
             const cell = row[position];
             return [column, cell.startsWith("'") && unsafePrefix.test(cell.slice(1)) ? cell.slice(1) : cell];
         })) as PreviewRow];
