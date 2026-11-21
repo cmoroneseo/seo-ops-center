@@ -18,7 +18,6 @@ export function groupTasksByProject(
     );
     for (const { groups } of groupTasksByStage(tasks, query)) {
         for (const group of groups) {
-            if (group.parentBreadcrumb) continue;
             sections.get(projectGroupId(group.task, projects))?.push({
                 ...group,
                 urlCount: group.children.filter(child => Boolean(child.publishedUrl?.trim())).length,

@@ -9,6 +9,7 @@ const projects = [
     { id: 'second', title: 'Second' },
     { id: 'first', title: 'First' },
     { id: 'empty', title: 'Empty' },
+    { id: 'blank', title: 'Blank' },
 ];
 
 function task(id: string, overrides: Partial<StageListTask> = {}): StageListTask {
@@ -18,7 +19,7 @@ function task(id: string, overrides: Partial<StageListTask> = {}): StageListTask
     };
 }
 
-test('project order follows the client list, empty projects remain, and unrecognized links go last', () => {
+test('project order follows the client list, empty projects remain, unrecognized links go last, and a subtask whose parent is not on the board stays visible', () => {
     const tasks = [
         task('parent', { initiativeId: 'first', stage: 'foundation' }),
         task('child', { initiativeId: 'second', parentTaskId: 'parent', stage: 'onboarding' }),
@@ -29,12 +30,15 @@ test('project order follows the client list, empty projects remain, and unrecogn
     ];
     const groups = groupTasksByProject(tasks, projects);
 
-    assert.deepEqual(groups.map(group => group.id), ['second', 'first', 'empty', 'no-project']);
+    assert.deepEqual(groups.map(group => group.id), ['second', 'first', 'empty', 'blank', 'no-project']);
     assert.deepEqual(groups.map(group => group.groups.map(row => row.task.id)), [
-        ['other'], ['parent'], [], ['unassigned', 'unknown'],
+        ['other'], ['parent'], ['orphan'], [], ['unassigned', 'unknown'],
     ]);
+    const orphan = groups[2].groups.find(row => row.task.id === 'orphan');
+    assert.equal(orphan?.parentBreadcrumb, 'Under another task');
     assert.equal(groups[0].meta, '1 / 1 done');
-    assert.equal(groups[2].meta, '0 / 0 done');
+    assert.equal(groups[2].meta, '0 / 1 done');
+    assert.equal(groups[3].meta, '0 / 0 done');
     assert.deepEqual(groups[1].groups[0].children.map(child => child.id), ['child']);
 
     const results = groupTasksByProject(tasks, projects, 'child');
