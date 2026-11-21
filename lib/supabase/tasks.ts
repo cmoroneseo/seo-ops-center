@@ -1,3 +1,4 @@
+import { TASK_DATA_CHANGED_EVENT } from '../tasks/my-tasks';
 import { createClient } from './client';
 import { createNotification } from './notifications';
 import { logActivity } from './client-activity';
@@ -389,6 +390,10 @@ export async function getTask(taskId: string): Promise<{
 // Mutations
 // ---------------------------------------------------------------------------
 
+function notifyTaskDataChanged() {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(TASK_DATA_CHANGED_EVENT));
+}
+
 export async function createTask(
     t: TaskInsert,
 ): Promise<{
@@ -406,7 +411,11 @@ export async function createTask(
             const result = await supabase.rpc('create_task_from_marketing_plan_item', { p_item_id: t.sourceMarketingPlanItemId });
             data = result.data?.task;
             error = result.error;
-            if (!error && data && result.data?.created === false) return { success: true, data: rowToTask(data) };
+            if (!error && data && result.data?.created === false) {
+                const existingTask = rowToTask(data);
+                notifyTaskDataChanged();
+                return { success: true, data: existingTask };
+            }
         } else if (t.sourceInvestigationId) {
             const result = await supabase.rpc('create_task_from_search_investigation', {
                 p_investigation_id: t.sourceInvestigationId,
@@ -523,6 +532,7 @@ export async function createTask(
             });
         }
 
+        notifyTaskDataChanged();
         return { success: true, data: task, ...(basecampSync ? { basecampSync } : {}) };
     } catch (err: any) {
         console.error('Error creating task:', err);
@@ -880,6 +890,7 @@ export async function updateTask(
             });
         }
 
+        notifyTaskDataChanged();
         return { success: true, data: updatedTask };
     } catch (err: any) {
         console.error('Error updating task:', err);
@@ -894,6 +905,7 @@ export async function deleteTask(taskId: string): Promise<{ success: boolean; er
         // Subtasks cascade via FK; comments cascade via FK
         const { error } = await supabase.from('tasks').delete().eq('id', taskId);
         if (error) throw error;
+        notifyTaskDataChanged();
         return { success: true };
     } catch (err: any) {
         console.error('Error deleting task:', err);

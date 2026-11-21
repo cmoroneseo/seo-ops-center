@@ -245,15 +245,12 @@ function pipelineClientSections(
 }
 
 export function agencyLinks(options: { agencyDashboard: boolean }): AgencyLink[] {
-    const links: AgencyLink[] = [
-        { id: 'home', label: 'Agency home', href: AGENCY_HOME_HREF },
-    ];
+    const links: AgencyLink[] = [];
     if (options.agencyDashboard) {
         links.push({ id: 'dashboard', label: 'Dashboard', href: '/agency' });
     }
     links.push(
         { id: 'clients', label: 'All clients', href: ALL_CLIENTS_HREF, dividerAfter: true },
-        { id: 'tasks', label: 'Tasks', href: '/tasks' },
         { id: 'approvals', label: 'Approvals', href: '/approvals' },
         { id: 'deliverables', label: 'Deliverables', href: '/deliverables' },
         { id: 'time', label: 'Time', href: '/timesheets' },

@@ -59,6 +59,13 @@ export function groupMyTasks(tasks: Task[], today: string) {
     return groups;
 }
 
+export const TASK_DATA_CHANGED_EVENT = 'task:data-changed';
+
+export function countMyOverdueTasks(tasks: Task[], today: string, userId?: string | null): number {
+    if (!userId) return 0;
+    return groupMyTasks(filterTasks(tasks, 'mine', today, userId), today).overdue.length;
+}
+
 export function myTasksSubtitle(groups: ReturnType<typeof groupMyTasks>): string {
     return `${groups.today.length} due today · ${groups.overdue.length} overdue · ${groups.upcoming.length} upcoming`;
 }

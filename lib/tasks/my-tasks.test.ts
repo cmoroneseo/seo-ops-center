@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterTasks, groupMyTasks, localDateKey, myTasksSubtitle, resolveTaskFilter } from './my-tasks';
+import { countMyOverdueTasks, filterTasks, groupMyTasks, localDateKey, myTasksSubtitle, resolveTaskFilter } from './my-tasks';
 import type { Task } from '../types';
 
 test('task filter defaults to the personal queue unless scoped to a client', () => {
@@ -36,4 +36,22 @@ test('the personal queue uses local dates and accepts current and legacy assigne
     ] as const) {
         assert.deepEqual(filterTasks(tasks, filter, today).map(task => task.id), expected);
     }
+});
+
+test('the overdue count includes only open past-due tasks assigned to the current user', () => {
+    const today = '2026-11-20';
+    const overdue = { status: 'todo', dueDate: '2026-11-19', assigneeIds: ['me'] } as Task;
+    const tasks: Task[] = [
+        overdue,
+        { ...overdue, status: 'in_progress', assigneeIds: ['someone-else', 'me'] },
+        { ...overdue, status: 'done' },
+        { ...overdue, dueDate: today },
+        { ...overdue, dueDate: '2026-11-21' },
+        { ...overdue, assigneeIds: ['someone-else'] },
+        { ...overdue, assigneeIds: [] },
+    ];
+
+    assert.equal(countMyOverdueTasks(tasks, today, 'me'), 2);
+    assert.equal(countMyOverdueTasks(tasks, today), 0);
+    assert.equal(countMyOverdueTasks(tasks, today, null), 0);
 });
