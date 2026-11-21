@@ -6,7 +6,6 @@ import { projectsHref } from '@/lib/projects/project-links';
 import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { Check, ChevronRight, GripVertical, Play } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
-import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
 import {
     EMPTY_PLAN_FILTERS,
     filterPlanTasks,
@@ -18,36 +17,25 @@ import {
 import { isChecklistTaskId } from '@/lib/seo-plan/plan-work';
 import { groupTasksByProject, NO_PROJECT_GROUP, projectGroupId } from '@/lib/seo-plan/project-groups';
 import {
-    isBoardStage,
-    type BoardStage,
-    type PlanBoard,
-} from '@/lib/seo-plan/plan-phases';
-import {
     formatPlanDue,
     formatPlanHours,
     isPlanDone,
-    isPlanMonth,
-    monthKeyFromDay,
     planHourRollup,
-    shiftPlanMonth,
     type PlanGroup,
 } from '@/lib/seo-plan/plan-sections';
-import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { type PlanPanelField } from '@/lib/seo-plan/plan-panel';
 import { compareStageListTasks, stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
 import type { PartOfChoice } from '@/lib/tasks/part-of';
-import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
-import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
+import { calendarDay } from '@/lib/seo-plan/this-month';
+import { stageMoveBy, type StageReorderMove } from '@/lib/seo-plan/stage-reorder';
 import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { CompletionDatePrompt } from '@/components/tasks/CompletionDatePrompt';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { planRowTimeText, planRowTimerLabel, planTimerTask, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
-import { DoneThisMonthFooter } from './DoneThisMonthFooter';
-import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { StageAddBar } from './StageAddBar';
-import { PLAYBOOK_COPY, playbookStageButtonLabel, type PlaybookExisting, type PlaybookOrgTask, type PlaybookScope } from '@/lib/seo-plan/playbook';
+import { PLAYBOOK_COPY, playbookProjectButtonLabel, type PlaybookExisting, type PlaybookOrgTask, type PlaybookScope } from '@/lib/seo-plan/playbook';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { PlanShortcutSheet } from './PlanShortcutSheet';
@@ -59,14 +47,13 @@ const NO_ORG_TASKS: readonly PlaybookOrgTask[] = [];
 const NO_PLAN_ROWS: readonly PlaybookExisting[] = [];
 
 export interface StageAddRequest {
-    stage: BoardStage;
     initiativeId?: string | null;
     titles: string[];
     parentTaskId?: string;
     /** Set by the plan add line. Null leaves the task undated. */
     dueDate?: string | null;
     /** Mixed parents. Depth 1 belongs to the nearest depth-0 line above it. */
-    items?: PlanAddSubmission['items'];
+    items?: { title: string; depth: 0 | 1 }[];
 }
 
 export interface PlanAssignee {
@@ -218,7 +205,6 @@ function samePlanFilters(left: PlanBoardFilters, right: PlanBoardFilters): boole
     return left.status === right.status
         && left.priority === right.priority
         && left.assignee === right.assignee
-        && left.stage === right.stage
         && left.partOf === right.partOf;
 }
 
@@ -238,15 +224,9 @@ export function StagePlanListView({
     onToggleCheck,
     resultsByTaskId,
     today,
-    initialMonth,
     people = [],
     loggedHours = {},
-    monthLogs,
-    monthLogsFor,
-    onMonthChange,
-    timeZone = STAGE_LIST_TIME_ZONE,
     clientId,
-    onOpenResults,
     clientName,
     timerByTaskId,
     pendingTimerTaskId = null,
@@ -260,7 +240,6 @@ export function StagePlanListView({
     integrationsHref = '/settings',
     onRetrySync,
     doneHoldMs = 4000,
-    board = 'months',
     orgTasks = NO_ORG_TASKS,
     orgTasksReady = true,
     planRows = NO_PLAN_ROWS,
@@ -284,8 +263,6 @@ export function StagePlanListView({
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     /** Calendar day YYYY-MM-DD in the org timezone. Defaults to today in Pacific time. */
     today?: string;
-    /** Selected month YYYY-MM. Defaults to the month of `today`. */
-    initialMonth?: string;
     people?: readonly PlanAssignee[];
     /** Logged hours by task id. All-time, finalized logs only. */
     loggedHours?: Readonly<Record<string, number>>;
@@ -300,19 +277,10 @@ export function StagePlanListView({
     /** After a confirmed stop-and-complete, open the live URL field on this task. */
     urlPromptTaskId?: string | null;
     /**
-     * Finalized time logs for the selected month. Null while that query is in flight.
      * Omit it when the caller has no logs to load; the footer then shows zeros.
      */
-    monthLogs?: readonly DoneThisMonthLog[] | null;
-    /** Month the `monthLogs` array was loaded for. A mismatch keeps hours pending. */
-    monthLogsFor?: string | null;
-    /** Tells the parent which month the footer hours should cover. */
-    onMonthChange?: (month: string) => void;
     /** Org timezone for completion and log boundaries. Defaults to Pacific. */
-    timeZone?: string;
     clientId?: string;
-    /** Opens this client's Results view for the selected month. */
-    onOpenResults?: (month: string) => void;
     /** Kept for callers. The plan header does not repeat the client name. */
     clientName?: string;
     /** Beside the list. No scrim, and the list stays clickable. */
@@ -325,8 +293,6 @@ export function StagePlanListView({
     onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
     /** How long Undo is available after completing a task. */
     doneHoldMs?: number;
-    /** The stored board kind controls add defaults and monthly reporting. */
-    board?: PlanBoard;
     /** Tasks the organization already saved. Loaded by the plan, not by this view. */
     orgTasks?: readonly PlaybookOrgTask[];
     orgTasksReady?: boolean;
@@ -352,12 +318,9 @@ export function StagePlanListView({
     const onQueryChangeRef = useRef(onQueryChange);
     onQueryChangeRef.current = onQueryChange;
     const day = today ?? calendarDay(new Date());
-    const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
-    const urlMonth = useRef<string | null | undefined>(undefined);
-    const phaseBoard = board === 'phases' || Boolean(project);
     const boardProjects = project ? [project] : partOfChoices;
     const partOfActive = !project && partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
-    const appliedFilters: PlanBoardFilters = { ...filters, partOf: partOfActive, stage: '' };
+    const appliedFilters: PlanBoardFilters = { ...filters, partOf: partOfActive };
     const listed = filterPlanTasks(tasks, appliedFilters);
     const attributeCount = [appliedFilters.status, appliedFilters.priority, appliedFilters.assignee, appliedFilters.partOf]
         .filter(Boolean).length;
@@ -366,7 +329,6 @@ export function StagePlanListView({
     const searching = query.trim().length > 0;
     const filterState = { ...appliedFilters, query };
     const nothingMatches = (searching || attributeCount > 0) && sections.every(section => section.groups.length === 0);
-    const current = month === monthKeyFromDay(day);
     const clientFailure = Boolean(basecamp?.connected && basecamp.failure);
     void clientName;
 
@@ -380,9 +342,6 @@ export function StagePlanListView({
         onOpenTask(taskId, field);
     }, [onOpenTask]);
 
-    const shiftMonth = useCallback((delta: -1 | 1) => {
-        setMonth(currentMonth => shiftPlanMonth(currentMonth, delta));
-    }, []);
     const [playbook, setPlaybook] = useState<{ from: string | null } | null>(null);
     const [finishPrompt, setFinishPrompt] = useState<string | null>(null);
     const [holdSeed, setHoldSeed] = useState<{ taskId: string; token: number } | null>(null);
@@ -405,6 +364,11 @@ export function StagePlanListView({
     const checkFromKeyboard = useCallback((taskId: string) => {
         beginFinish(taskId);
     }, [beginFinish]);
+    const moveFromKeyboard = (taskId: string, direction: 'up' | 'down') => {
+        const requested = stageMoveBy(tasks.filter(task => !isChecklistTaskId(task.id)), taskId, direction, boardProjects);
+        if (requested) void onReorder(requested).catch(() => setKeyboardMoveError(true));
+    };
+    const [keyboardMoveError, setKeyboardMoveError] = useState(false);
     const { helpOpen, closeHelp } = usePlanKeymap({
         rootRef: listRef,
         searchRef,
@@ -417,33 +381,11 @@ export function StagePlanListView({
         onClosePanel,
         onToggleCheck: onToggleCheck ? checkFromKeyboard : undefined,
         onRowTimer,
-        onShiftMonth: phaseBoard ? () => undefined : shiftMonth,
+        onMoveTask: moveFromKeyboard,
     });
 
     useEffect(() => {
-        const requested = readOverviewMonth(window.location.search);
-        urlMonth.current = requested;
-        if (requested) setMonth(requested);
-    }, []);
-
-    useEffect(() => {
-        if (phaseBoard) return;
-        if (urlMonth.current === undefined) return;
-        if (typeof urlMonth.current === 'string' && month !== urlMonth.current) return;
-        urlMonth.current = null;
-        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        const next = hrefWithOverviewMonth(current, month);
-        if (next !== current) window.history.replaceState(window.history.state, '', next);
-    }, [month, phaseBoard]);
-
-    useEffect(() => {
-        if (phaseBoard) return;
-        onMonthChange?.(month);
-    }, [month, onMonthChange, phaseBoard]);
-
-    useEffect(() => {
         const read = readPlanFilters(window.location.search);
-        read.filters.stage = '';
         urlFilters.current = read;
         setFilters(read.filters);
         if (read.query !== queryRef.current) onQueryChangeRef.current(read.query);
@@ -468,40 +410,9 @@ export function StagePlanListView({
     }, [filters.partOf, partOfChoices, partOfReady]);
 
     const list = (
-        <div ref={listRef} data-seo-plan-stage-list data-plan-board={board} data-plan-month={phaseBoard ? undefined : month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
+        <div ref={listRef} data-seo-plan-stage-list className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
             {!project && <div className="flex flex-wrap items-center justify-between gap-3">
-                {phaseBoard ? <span className="text-sm font-medium">Work plan</span> : (
-                <div className="flex items-center gap-2" data-plan-month-control>
-                    <button
-                        type="button"
-                        aria-label="Previous month"
-                        onClick={() => setMonth(currentMonth => shiftPlanMonth(currentMonth, -1))}
-                        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3f3f46] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                    >
-                        ‹
-                    </button>
-                    {current ? (
-                        <span className="rounded-full bg-[#ec4899]/15 px-2 py-0.5 text-[11px] font-medium text-[#ec4899]">This month</span>
-                    ) : (
-                        <button
-                            type="button"
-                            onClick={() => setMonth(monthKeyFromDay(day))}
-                            className="rounded-full border border-[#d4d4d8] px-2 py-0.5 text-[11px] text-[#3f3f46] hover:text-[#18181b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                        >
-                            This month
-                        </button>
-                    )}
-                    <span className="text-sm font-medium" data-plan-month-label>{monthLabel(month)}</span>
-                    <button
-                        type="button"
-                        aria-label="Next month"
-                        onClick={() => setMonth(currentMonth => shiftPlanMonth(currentMonth, 1))}
-                        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3f3f46] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                    >
-                        ›
-                    </button>
-                </div>
-                )}
+                <span className="text-sm font-medium">Work plan</span>
                 <button
                     type="button"
                     data-playbook-open="plan"
@@ -512,7 +423,6 @@ export function StagePlanListView({
                 </button>
             </div>}
             <PlanFilterBar
-                board={phaseBoard ? 'phases' : 'months'}
                 query={query}
                 filters={filters}
                 people={people}
@@ -522,6 +432,8 @@ export function StagePlanListView({
                 onQueryChange={onQueryChange}
                 onFiltersChange={setFilters}
             />
+
+            {keyboardMoveError && <p role="alert">Could not move that task.</p>}
 
             {clientFailure && <PlanSyncBanner href={integrationsHref} />}
 
@@ -554,7 +466,6 @@ export function StagePlanListView({
                 sections={sections}
                 query={query}
                 nothingMatches={nothingMatches}
-                month={phaseBoard ? undefined : month}
                 projects={boardProjects}
                 clientId={project ? undefined : clientId}
                 projectPage={Boolean(project)}
@@ -581,17 +492,6 @@ export function StagePlanListView({
                 onAddInSection={onAddTasks}
                 onOpenPlaybook={id => setPlaybook({ from: id === NO_PROJECT_GROUP ? null : id })}
             />
-            {phaseBoard ? null : (
-            <DoneThisMonthFooter
-                tasks={tasks}
-                logs={monthLogs}
-                hoursPending={monthLogs === null || (monthLogsFor != null && monthLogsFor !== month)}
-                month={month}
-                timeZone={timeZone}
-                clientId={clientId}
-                onOpenResults={onOpenResults}
-            />
-            )}
         </div>
     );
     const body = (
@@ -606,9 +506,6 @@ export function StagePlanListView({
             {helpOpen && <PlanShortcutSheet onClose={closeHelp} />}
             {playbook && (
                 <PlaybookDrawer
-                    board={board}
-                    month={month}
-                    today={day}
                     openedFrom={playbook.from}
                     projects={partOfChoices}
                     tasks={tasks}
@@ -624,21 +521,11 @@ export function StagePlanListView({
     );
 }
 
-function monthLabel(month: string): string {
-    const [year, monthIndex] = month.split('-').map(Number);
-    return new Date(Date.UTC(year, monthIndex - 1, 1)).toLocaleString('en-US', {
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'UTC',
-    });
-}
-
 function PlanSections({
     tasks,
     sections,
     query,
     nothingMatches,
-    month,
     projects,
     clientId,
     projectPage,
@@ -672,7 +559,6 @@ function PlanSections({
     projectPage: boolean;
     query: string;
     nothingMatches: boolean;
-    month?: string;
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
@@ -696,7 +582,7 @@ function PlanSections({
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     doneHoldMs: number;
     onAddInSection: (input: StageAddRequest) => Promise<void>;
-    onOpenPlaybook: (stage: string) => void;
+    onOpenPlaybook: (projectId: string) => void;
 }) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
     const [heldDone, setHeldDone] = useState<Record<string, true>>({});
@@ -792,10 +678,10 @@ function PlanSections({
             && (parentTaskId != null || projectGroupId(task, projects) === section))
             .sort(compareStageListTasks);
         const index = beforeTaskId ? siblings.findIndex(task => task.id === beforeTaskId) : siblings.length;
-        if (index < 0 || !isBoardStage(dragged.stage)) return;
+        if (index < 0) return;
         setMoveError(null);
         const requested: StageReorderMove = {
-            taskId: dragged.id, stage: dragged.stage, parentTaskId, index, projectGroup: section, projects,
+            taskId: dragged.id, parentTaskId, index, projectGroup: section, projects,
         };
         void onReorder(requested).catch(() => setMoveError('Could not move that task.'));
     };
@@ -853,7 +739,7 @@ function PlanSections({
                             {!projectPage && <button
                                 type="button"
                                 data-playbook-open={section.id}
-                                aria-label={playbookStageButtonLabel(section.title)}
+                                aria-label={playbookProjectButtonLabel(section.title)}
                                 onClick={() => onOpenPlaybook(section.id)}
                                 className="shrink-0 text-[12px] font-medium text-[#ec4899] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                             >
@@ -906,25 +792,12 @@ function PlanSections({
                             })}
                             {dropLine(section.id, null, null)}
                             <div className="border-t border-[#e4e4e7] px-3 py-2">
-                                {month ? (
-                                    <PlanAddLine
-                                        month={month}
-                                        fixedDestination
-                                        label={`Add a task to ${section.title}`}
-                                        onAdd={submission => onAddInSection({
-                                            ...submission,
-                                            initiativeId,
-                                            titles: submission.items.map(item => item.title),
-                                        })}
-                                    />
-                                ) : (
                                     <StageAddBar
                                         label={`Add a task to ${section.title}`}
                                         placeholder="Add a task"
-                                        stage={section.id}
-                                        onAdd={titles => onAddInSection({ stage: 'foundation', initiativeId, titles })}
+                                        groupId={section.id}
+                                        onAdd={titles => onAddInSection({ initiativeId, titles })}
                                     />
-                                )}
                             </div>
                         </div>
                     </section>
@@ -1014,7 +887,6 @@ function PlanRow({
         leading?: ReactNode;
         pillar?: boolean;
         childIds?: string[];
-        hiddenChildren?: number;
         urlCount?: number;
         childDone?: number;
         childCount?: number;
@@ -1209,11 +1081,6 @@ function PlanRow({
                             {options.urlCount} URLs
                         </button>
                     )}
-                    {(options.hiddenChildren ?? 0) > 0 && (
-                        <span className="shrink-0 text-[11px] text-[#71717a]" data-other-months={options.hiddenChildren}>
-                            +{options.hiddenChildren} other months
-                        </span>
-                    )}
                     <LiveUrlControl
                         url={task.publishedUrl}
                         category={task.category}
@@ -1306,7 +1173,6 @@ function PlanRow({
                 nextId: nextTopId,
                 pillar,
                 childIds,
-                hiddenChildren: group.hiddenChildren,
                 urlCount: group.urlCount,
                 childDone: group.childDone,
                 childCount: group.childCount,

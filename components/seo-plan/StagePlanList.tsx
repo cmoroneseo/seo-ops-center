@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
@@ -46,7 +46,6 @@ import { loadMarketingPlan } from '@/lib/seo-plan/prefetch';
 import { isChecklistTaskId, withChecklistTasks, type PlanChecklistItem } from '@/lib/seo-plan/plan-work';
 import { parsePlanBasecampBanner, type PlanBasecampBanner, type PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { queuePlanBasecampPush } from '@/lib/seo-plan/basecamp-push-queue';
-import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { parseStageListTasks, type StageListTask } from '@/lib/seo-plan/stage-list';
 import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
@@ -70,7 +69,6 @@ import {
 import { PanelSkeleton } from './PanelSkeleton';
 import { PlanSidePanel } from './PlanSidePanel';
 import { StagePlanListView, type PlanAssignee, type StageAddRequest } from './StagePlanListView';
-import type { PlanBoard } from '@/lib/seo-plan/plan-phases';
 
 /**
  * Loads the session-scoped stage list, creates tasks from the add bar, and
@@ -87,14 +85,12 @@ function initialsOf(name: string): string {
 export function StagePlanList({
     clientId,
     clientName,
-    onOpenResults,
     checklistScope,
     project,
     onProjectProgress,
 }: {
     clientId: string;
     clientName: string;
-    onOpenResults?: (month: string) => void;
     checklistScope?: PlaybookScope;
     project?: PartOfChoice;
     onProjectProgress?: (progress: ReturnType<typeof projectProgress>) => void;
@@ -106,16 +102,7 @@ export function StagePlanList({
     const [partOfChoices, setPartOfChoices] = useState<PartOfChoice[] | null>(null);
     const [people, setPeople] = useState<PlanAssignee[]>([]);
     const [loggedHours, setLoggedHours] = useState<Record<string, number>>({});
-    const [footerMonth, setFooterMonth] = useState<string | null>(null);
-    const [footerLogs, setFooterLogs] = useState<DoneThisMonthLog[] | null>(null);
-    const [footerLogsFor, setFooterLogsFor] = useState<string | null>(null);
-    const footerMonthRef = useRef(footerMonth);
-    footerMonthRef.current = footerMonth;
-    const onMonthChange = useCallback((month: string) => {
-        setFooterMonth(month);
-    }, []);
     const [error, setError] = useState(false);
-    const [board, setBoard] = useState<PlanBoard | null>(null);
     const [planItems, setPlanItems] = useState<PlanChecklistItem[]>([]);
     const [planRows, setPlanRows] = useState<PlaybookExisting[]>([]);
     const [orgTasks, setOrgTasks] = useState<PlaybookOrgTask[]>([]);
@@ -153,11 +140,9 @@ export function StagePlanList({
             cache: 'no-store',
             body: JSON.stringify({
                 taskId: requested.taskId,
-                stage: requested.stage,
                 parentTaskId: requested.parentTaskId,
                 index: requested.index,
                 projectGroup: requested.projectGroup,
-                ...(requested.dueDate !== undefined ? { dueDate: requested.dueDate } : {}),
             }),
         });
         const payload = await response.json().catch(() => null) as { tasks?: unknown; basecamp?: unknown } | null;
@@ -173,7 +158,6 @@ export function StagePlanList({
         if (seenClient.current !== clientId) {
             seenClient.current = clientId;
             setList(null);
-            setBoard(null);
             setQuery('');
             setPanel(null);
             setDetail(null);
@@ -183,13 +167,12 @@ export function StagePlanList({
         fetch(`/api/seo-plan/stage-list/${encodeURIComponent(clientId)}`, { cache: 'no-store' })
             .then(async response => {
                 if (!response.ok) throw new Error('unavailable');
-                return response.json() as Promise<{ tasks?: unknown; board?: unknown; basecampAccountId?: unknown; basecamp?: unknown }>;
+                return response.json() as Promise<{ tasks?: unknown; basecampAccountId?: unknown; basecamp?: unknown }>;
             })
             .then(body => {
                 if (cancelled) return;
                 const account = typeof body?.basecampAccountId === 'string' ? body.basecampAccountId.trim() : '';
                 setAccountId(account || null);
-                setBoard(body?.board === 'phases' ? 'phases' : 'months');
                 setBasecamp(parsePlanBasecampBanner(body?.basecamp));
                 const fresh = parseStageListTasks(body?.tasks);
                 updateList(loaded => mergeRefreshedTasks(loaded, fresh, dirtyPanelTaskIds(ledgerRef.current)));
@@ -250,32 +233,6 @@ export function StagePlanList({
         }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [organization?.id, clientId, reloadKey]);
-
-    // One client-scoped read for the footer. Row totals above stay all-time.
-    // getTimeLogs already drops the running timer and unconfirmed imports.
-    useEffect(() => {
-        const organizationId = organization?.id;
-        if (!organizationId || !footerMonth) return;
-        let cancelled = false;
-        setFooterLogs(null);
-        setFooterLogsFor(null);
-        getTimeLogs(organizationId, { clientId, month: footerMonth }).then(logs => {
-            if (cancelled) return;
-            setFooterLogs(logs.map(log => ({
-                clientId: log.clientId,
-                hours: log.hours,
-                countsTowardBudget: log.countsTowardBudget,
-                date: log.date,
-                status: log.status,
-            })));
-            setFooterLogsFor(footerMonth);
-        }).catch(() => {
-            if (cancelled) return;
-            setFooterLogs([]);
-            setFooterLogsFor(footerMonth);
-        });
-        return () => { cancelled = true; };
-    }, [organization?.id, clientId, footerMonth, reloadKey]);
 
     useEffect(() => {
         let cancelled = false;
@@ -431,9 +388,8 @@ export function StagePlanList({
         const source = tasks?.find(task => task.id === sourceId);
         if (!sourceId || !source || !organizationId) return 'Could not duplicate that task.';
         if (isPendingStageTaskId(sourceId)) return 'That task is still being added.';
-        const stage = source.stage === 'onboarding' ? 'onboarding' : 'backlog';
         const parentTaskId = source.parentTaskId;
-        const position = nextStagePositions(endPosition(tasks ?? [], stage, parentTaskId), 1)[0];
+        const position = nextStagePositions(endPosition(tasks ?? [], parentTaskId, source.initiativeId), 1)[0];
         const full = detail?.id === source.id ? detail : null;
         const description = full?.description || source.description || '';
         const estimatedHours = full?.estimatedHours ?? source.estimatedHours;
@@ -448,8 +404,7 @@ export function StagePlanList({
             ...(source.category ? { category: source.category } : {}),
             ...(full ? { tags: full.tags ?? [] } : {}),
             status: 'todo',
-            stage,
-            ...(parentTaskId ? { parentTaskId } : {}),
+            ...(parentTaskId ? { parentTaskId } : { initiativeId: source.initiativeId ?? undefined }),
             position,
             ...(userId ? { createdBy: userId } : {}),
         });
@@ -457,7 +412,7 @@ export function StagePlanList({
         if (seenClient.current !== clientId) return null;
         const created = result.data;
         queuePlanBasecampPush(created.id);
-        const row = stageRowFromTask(created, { stage, position, parentTaskId });
+        const row = stageRowFromTask(created, { position, parentTaskId });
         updateList(current => current ? [...current.filter(task => task.id !== created.id), row] : [row]);
         setDetail(created);
         setPanel({ id: created.id, field: null });
@@ -491,11 +446,10 @@ export function StagePlanList({
             : input.titles.map(title => ({ title: title.trim(), publishedUrl: null }));
         updateList(current => {
             if (!current) return current;
-            const positions = nextStagePositions(endPosition(current, input.stage, parentTaskId, input.initiativeId !== undefined), drafts.length);
+            const positions = nextStagePositions(endPosition(current, parentTaskId, input.initiativeId), drafts.length);
             return appendStageTasks(current, pendingStageTasks({
                 titles: drafts.map(draft => draft.title),
                 publishedUrls: drafts.map(draft => draft.publishedUrl),
-                stage: input.stage,
                 initiativeId: input.initiativeId,
                 parentTaskId,
                 ids,
@@ -509,7 +463,6 @@ export function StagePlanList({
                 headers: { 'Content-Type': 'application/json' },
                 cache: 'no-store',
                 body: JSON.stringify({
-                    stage: input.stage,
                     initiativeId: input.initiativeId,
                     titles: input.titles,
                     ...(parentTaskId ? { parentTaskId } : {}),
@@ -549,7 +502,7 @@ export function StagePlanList({
         updateList(current => {
             if (!current) return current;
             const topCount = parentIds.filter(parentId => parentId == null).length;
-            const topPositions = nextStagePositions(endPosition(current, input.stage, null, input.initiativeId !== undefined), topCount);
+            const topPositions = nextStagePositions(endPosition(current, null, input.initiativeId), topCount);
             let topCursor = 0;
             const childCursor = new Map<string, number>();
             return appendStageTasks(current, items.map((item, index) => {
@@ -567,7 +520,6 @@ export function StagePlanList({
                     id: ids[index] ?? pendingStageTaskId(),
                     title: item.title.trim(),
                     status: 'todo',
-                    stage: input.stage,
                     initiativeId: parentTaskId ? null : input.initiativeId,
                     position,
                     parentTaskId,
@@ -585,7 +537,6 @@ export function StagePlanList({
                 headers: { 'Content-Type': 'application/json' },
                 cache: 'no-store',
                 body: JSON.stringify({
-                    stage: input.stage,
                     initiativeId: input.initiativeId,
                     dueDate: input.dueDate ?? null,
                     items: items.map(item => ({ title: item.title, depth: item.depth })),
@@ -723,18 +674,6 @@ export function StagePlanList({
             }
             setLoggedHours(totals);
             setLogs(entries);
-            const month = footerMonth;
-            if (!month) return;
-            const monthEntries = await getTimeLogs(organizationId, { clientId, month });
-            if (seenClient.current !== clientId || footerMonthRef.current !== month) return;
-            setFooterLogs(monthEntries.map(log => ({
-                clientId: log.clientId,
-                hours: log.hours,
-                countsTowardBudget: log.countsTowardBudget,
-                date: log.date,
-                status: log.status,
-            })));
-            setFooterLogsFor(month);
         }).catch(caught => {
             setTimerError(caught instanceof Error ? caught.message : 'Unable to update this task.');
         });
@@ -757,7 +696,7 @@ export function StagePlanList({
             </p>
         );
     }
-    if (!tasks || board == null) return <PanelSkeleton label={project ? 'Loading project tasks' : 'Loading SEO plan'} />;
+    if (!tasks) return <PanelSkeleton label={project ? 'Loading project tasks' : 'Loading SEO plan'} />;
 
     const visibleTasks = shownTasks ?? tasks;
     const panelTasks = project ? visibleTasks : tasks;
@@ -796,7 +735,6 @@ export function StagePlanList({
             {timerNotice && <p role="status" data-plan-timer-notice className="mb-2 text-sm text-muted-foreground">{timerNotice}</p>}
             {timerError && <p role="alert" className="mb-2 text-sm text-[#dc2626]">{timerError}</p>}
             <StagePlanListView
-                board={board}
                 project={project}
                 tasks={visibleTasks}
                 query={query}
@@ -821,11 +759,7 @@ export function StagePlanList({
                 onRowTimer={onRowTimer}
                 onCheckRunning={onCheckRunning}
                 urlPromptTaskId={urlPromptTaskId}
-                monthLogs={footerLogs}
-                monthLogsFor={footerLogsFor}
-                onMonthChange={onMonthChange}
                 clientId={clientId}
-                onOpenResults={onOpenResults}
                 basecamp={basecamp}
                 integrationsHref={`/workspace/${clientId}?tab=integrations`}
                 onRetrySync={retryBasecamp}
@@ -847,7 +781,6 @@ export function StagePlanList({
                         onDuplicate={duplicatePanel}
                         onDelete={deletePanel}
                         onAddSubtasks={titles => addTasks({
-                            stage: model.stage,
                             titles,
                             parentTaskId: model.id,
                         })}
@@ -909,8 +842,6 @@ function panelPatch(save: Exclude<PlanPanelSave, { field: 'parent' }>) {
             return { category: save.category, tags: save.tags };
         case 'blocked':
             return { blockedReason: save.blockedReason };
-        case 'onboarding':
-            return { stage: save.stage };
         case 'liveUrl':
             return { publishedUrl: save.publishedUrl };
         case 'partOf':
@@ -920,13 +851,12 @@ function panelPatch(save: Exclude<PlanPanelSave, { field: 'parent' }>) {
 
 function stageRowFromTask(
     created: Task,
-    fallback: { stage: 'onboarding' | 'backlog'; position: number; parentTaskId: string | null },
+    fallback: { position: number; parentTaskId: string | null },
 ): StageListTask {
     return {
         id: created.id,
         title: created.title,
         status: created.status,
-        stage: created.stage ?? fallback.stage,
         position: created.position ?? fallback.position,
         parentTaskId: created.parentTaskId ?? fallback.parentTaskId,
         createdAt: created.createdAt ?? new Date().toISOString(),

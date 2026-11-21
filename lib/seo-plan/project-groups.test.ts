@@ -14,7 +14,7 @@ const projects = [
 
 function task(id: string, overrides: Partial<StageListTask> = {}): StageListTask {
     return {
-        id, title: id, stage: 'backlog', status: 'todo', position: 1, parentTaskId: null,
+        id, title: id, status: 'todo', position: 1, parentTaskId: null,
         category: null, createdAt: '', basecamp: false, recurring: false, ...overrides,
     };
 }
@@ -23,7 +23,7 @@ test('project order follows the client list, empty projects remain, unrecognized
     const tasks = [
         task('parent', { initiativeId: 'first', stage: 'foundation' }),
         task('child', { initiativeId: 'second', parentTaskId: 'parent', stage: 'onboarding' }),
-        task('other', { initiativeId: 'second', stage: 'growth', status: 'done' }),
+        task('other', { initiativeId: 'second', status: 'done' }),
         task('unknown', { initiativeId: 'outside-client' }),
         task('unassigned', { initiativeId: null }),
         task('orphan', { parentTaskId: 'missing', initiativeId: 'empty' }),
@@ -47,19 +47,19 @@ test('project order follows the client list, empty projects remain, unrecognized
     assert.equal(results[1].groups[0].expandChildren, true);
 });
 
-test('project reorder writes only positions in the group, even across stored stages', () => {
+test('project reorder writes only positions in the group, without stage metadata', () => {
     const tasks = [
         task('one', { initiativeId: 'first', stage: 'foundation' }),
-        task('two', { initiativeId: 'first', stage: 'growth', position: 2 }),
+        task('two', { initiativeId: 'first', position: 2 }),
         task('untouched', { initiativeId: 'second', position: 7 }),
     ];
     const move = applyStageReorder(tasks, {
-        taskId: 'two', stage: 'growth', parentTaskId: null, index: 0, projectGroup: 'first', projects,
+        taskId: 'two', parentTaskId: null, index: 0, projectGroup: 'first', projects,
     });
     assert.ok(move.ok);
     assert.deepEqual(move.writes, [
-        { id: 'two', stage: 'growth', position: 1, parentTaskId: null },
-        { id: 'one', stage: 'foundation', position: 2, parentTaskId: null },
+        { id: 'two', position: 1, parentTaskId: null },
+        { id: 'one', position: 2, parentTaskId: null },
     ]);
     assert.deepEqual(groupTasksByProject(move.tasks, projects)[1].groups.map(group => group.task.id), ['two', 'one']);
 });

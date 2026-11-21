@@ -188,9 +188,6 @@ export type TaskCategory = 'content' | 'technical' | 'local' | 'links' | 'strate
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskStatus = 'todo' | 'in_progress' | 'done';
 
-/** Roadmap columns for tasks.stage. Onboarding, then backlog. Migration 107 retired the month columns. */
-export const TASK_STAGES = ['onboarding', 'backlog'] as const;
-export type TaskStage = (typeof TASK_STAGES)[number];
 
 export interface TaskStatusHistoryEntry {
     status: TaskStatus;
@@ -232,7 +229,6 @@ export interface TaskTemplate {
 export interface Task {
     id: string;
     /** Roadmap column from migration 103. Absent until that column exists. */
-    stage?: TaskStage;
     organizationId: string;
     projectId?: string;
     clientId?: string;
@@ -273,7 +269,7 @@ export interface Task {
     /** How much of a day the planner has blocked for it (migration 028). */
     scheduledMinutes?: number;
     sortOrder?: number;
-    /** Order within a client, stage, and parent. Absent until migration 103. */
+    /** Order within a project and parent. Absent until migration 103. */
     position?: number;
     statusHistory?: TaskStatusHistoryEntry[];
     customFields?: Record<string, unknown>;

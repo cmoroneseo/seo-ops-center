@@ -129,25 +129,6 @@ test.after(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = previous.act;
 });
 
-test('overviewMonth opens that month and the arrows write it back', async () => {
-    window.history.replaceState(null, '', '/workspace/client?tab=campaign&overviewTask=later&overviewMonth=2026-11');
-    const root = await mount(createElement(StagePlanListView, viewProps(null, null)));
-    try {
-        assert.equal(document.querySelector('[data-plan-month]')?.getAttribute('data-plan-month'), '2026-11');
-        assert.match(window.location.search, /overviewMonth=2026-11/);
-        assert.match(window.location.search, /overviewTask=later/);
-        const next = document.querySelector('[aria-label="Next month"]');
-        assert.ok(next instanceof dom.window.HTMLButtonElement);
-        await act(async () => { next.click(); });
-        assert.equal(document.querySelector('[data-plan-month]')?.getAttribute('data-plan-month'), '2026-12');
-        assert.match(window.location.search, /overviewMonth=2026-12/);
-        assert.match(window.location.search, /tab=campaign/);
-        assert.match(window.location.search, /overviewTask=later/);
-    } finally {
-        await act(async () => { root.unmount(); });
-    }
-});
-
 test('an expanded project group stays expanded when the panel opens', async () => {
     window.history.replaceState(null, '', '/workspace/client?tab=campaign');
     const root = await mount(createElement(ShellHarness, { open: false }));

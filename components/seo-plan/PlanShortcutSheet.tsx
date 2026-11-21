@@ -51,7 +51,7 @@ export function PlanShortcutSheet({ onClose }: { onClose: () => void }) {
                     ))}
                 </ul>
                 <p className="mt-3 text-[11px] leading-relaxed text-[#71717a]">
-                    Shortcuts stay off while you are typing. Enter, Esc, and Tab still work in Add task.
+                    Shortcuts stay off while you are typing. Enter and Esc still work in Add task.
                 </p>
             </div>
         </div>

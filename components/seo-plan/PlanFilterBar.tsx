@@ -11,7 +11,6 @@ import {
     matchingPlanPreset,
     planFilterCountLabel,
     type PlanBoardFilters,
-    type PlanFilterBoard,
     type PlanFilterPriority,
     type PlanFilterStatus,
     type PlanQuickView,
@@ -26,7 +25,6 @@ const SELECT = 'max-w-48 rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-2 py
  * Quick views set those same filters. Clear removes all of them.
  */
 export function PlanFilterBar({
-    board,
     query,
     filters,
     people,
@@ -36,7 +34,6 @@ export function PlanFilterBar({
     onQueryChange,
     onFiltersChange,
 }: {
-    board: PlanFilterBoard;
     query: string;
     filters: PlanBoardFilters;
     people: readonly { id: string; name: string }[];
@@ -49,11 +46,10 @@ export function PlanFilterBar({
     const searchId = useId();
     const partOfValue = partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
     const count = activePlanFilterCount(
-        { ...filters, query, partOf: partOfValue, stage: '' },
-        board,
+        { ...filters, query, partOf: partOfValue },
         true,
     );
-    const preset = matchingPlanPreset({ ...filters, query, partOf: partOfValue, stage: '' }, viewerId);
+    const preset = matchingPlanPreset({ ...filters, query, partOf: partOfValue }, viewerId);
     const assigneeKnown = filters.assignee === 'none'
         || people.some(person => person.id === filters.assignee)
         || filters.assignee === viewerId;

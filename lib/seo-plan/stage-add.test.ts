@@ -10,12 +10,12 @@ import {
     pendingStageTasks,
     rollbackStageTasks,
 } from './stage-add.ts';
-import { groupTasksByStage, type StageListTask } from './stage-list.ts';
+import { groupTaskTrees, type StageListTask } from './stage-list.ts';
 
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
     return {
         status: 'todo',
-        stage: 'onboarding',
+
         position: 1,
         parentTaskId: null,
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -29,9 +29,9 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 const current: StageListTask[] = [
     task({ id: 'setup', title: 'SEO Setup', position: 1 }),
     task({ id: 'roadmap', title: 'Create SEO Roadmap', position: 2 }),
-    task({ id: 'robots', title: 'Review robots.txt', stage: 'backlog', position: 4 }),
+    task({ id: 'robots', title: 'Review robots.txt', initiativeId: 'other', position: 4 }),
     task({ id: 'keywords', title: 'Add keywords', parentTaskId: 'setup', position: 2 }),
-    task({ id: 'cookies', title: 'Set Up Empire Cookies', stage: 'backlog', parentTaskId: 'setup', position: 9 }),
+    task({ id: 'cookies', title: 'Set Up Empire Cookies', parentTaskId: 'setup', position: 9 }),
 ];
 
 test('new positions start at 1 and then walk forward from the end', () => {
@@ -43,26 +43,26 @@ test('new positions start at 1 and then walk forward from the end', () => {
     assert.deepEqual(nextStagePositions(1, 0), []);
 });
 
-test('top-level placement stays inside the stage, and a subtask follows the whole pillar', () => {
-    assert.equal(endPosition(current, 'onboarding', null), 2);
-    assert.equal(endPosition(current, 'backlog', null), 4);
-    assert.equal(endPosition([], 'backlog', null), null);
-    assert.equal(endPosition(current, 'onboarding', 'setup'), 9);
+test('top-level placement stays inside the project, and a subtask follows the whole pillar', () => {
+    assert.equal(endPosition(current, null), 2);
+    assert.equal(endPosition(current, null, 'other'), 4);
+    assert.equal(endPosition([], null), null);
+    assert.equal(endPosition(current, 'setup'), 9);
 });
 
-test('optimistic rows render at the end of the stage and roll back without touching other rows', () => {
-    const positions = nextStagePositions(endPosition(current, 'onboarding', null), 2);
+test('optimistic rows render at the end of the project and roll back without touching other rows', () => {
+    const positions = nextStagePositions(endPosition(current, null), 2);
     const pending = pendingStageTasks({
         titles: ['Hold kickoff', 'Confirm access'],
-        stage: 'onboarding',
+
         parentTaskId: null,
         ids: ['pending:kickoff', 'pending:access'],
         createdAt: '2026-10-16T12:00:00.000Z',
         positions,
     });
     const shown = appendStageTasks(current, pending);
-    const onboarding = groupTasksByStage(shown, '').find(section => section.stage === 'onboarding');
-    assert.deepEqual(onboarding?.groups.map(group => group.task.title), [
+    const onboarding = groupTaskTrees(shown, '').filter(group => !group.task.initiativeId);
+    assert.deepEqual(onboarding.map(group => group.task.title), [
         'SEO Setup',
         'Create SEO Roadmap',
         'Hold kickoff',
@@ -73,7 +73,7 @@ test('optimistic rows render at the end of the stage and roll back without touch
 
     const other = pendingStageTasks({
         titles: ['Later'],
-        stage: 'backlog',
+
         parentTaskId: null,
         ids: ['pending:later'],
         createdAt: '2026-10-16T12:00:01.000Z',
@@ -87,7 +87,7 @@ test('optimistic rows render at the end of the stage and roll back without touch
 test('a saved task replaces its pending row and is not duplicated when the list already has it', () => {
     const pending = pendingStageTasks({
         titles: ['Hold kickoff'],
-        stage: 'onboarding',
+
         parentTaskId: null,
         ids: ['pending:kickoff'],
         createdAt: '2026-10-16T12:00:00.000Z',
@@ -106,13 +106,13 @@ test('a pasted subtask is counted immediately, and the parent push lands on the 
     const parent = task({ id: 'setup', title: 'SEO Setup', position: 1 });
     const added = appendStageTasks([parent], pendingStageTasks({
         titles: ['Houzz photos', 'Porch listing'],
-        stage: 'onboarding',
+
         parentTaskId: 'setup',
         ids: ['pending:houzz', 'pending:porch'],
         createdAt: '2026-10-16T12:00:00.000Z',
         positions: [1, 2],
     }));
-    const group = groupTasksByStage(added, '').flatMap(section => section.groups).find(item => item.task.id === 'setup');
+    const group = groupTaskTrees(added, '').find(item => item.task.id === 'setup');
     assert.equal(group?.childCount, 2);
     assert.equal(group?.childDone, 0);
 

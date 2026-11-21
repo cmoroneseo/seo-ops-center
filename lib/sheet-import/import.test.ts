@@ -79,7 +79,7 @@ test('parses physical sheet row numbers and previews only listed rows', () => {
     assert.match(item.notes, /Example Client — SEO Plan/);
     assert.match(item.description, /^Sheet: Month 5\n/);
     assert.match(item.description, /First note[\s\S]*A report[\s\S]*Roadmap row 7/);
-    assert.equal(task.stage, 'backlog');
+    assert.equal(Object.hasOwn(task, 'stage'), false);
     assert.match(task.description, /Content Type: Article[\s\S]*Due Date: 10\/15[\s\S]*Month: Oct 2026/);
     assert.equal(skip.covered_by, 'existing-task');
     assert.match(skip.notes, /likely covered by existing task existing-task/);
@@ -89,6 +89,10 @@ test('preview CSV round-trips quoted fields and guards formula prefixes', () => 
     const [row] = buildPreview(manifest, grids);
     const special = { ...row, title: '=SUM(1,2)', description: 'First, "quoted"\r\nSecond line', notes: "'@literal" };
     assert.deepEqual(parsePreviewCsv(toPreviewCsv([special])), [special]);
+    const legacy = toPreviewCsv([row]).split('\r\n');
+    legacy[0] += ',stage';
+    legacy[1] += ',backlog';
+    assert.deepEqual(parsePreviewCsv(legacy.join('\r\n')), [row]);
     for (const prefix of ['=', '+', '-', '@']) {
         const csv = toPreviewCsv([{ ...row, title: prefix + 'unsafe' }]);
         assert.ok(csv.includes(`,'${prefix}unsafe,`));
@@ -105,7 +109,7 @@ test('apply planning accepts approved creates only and reports invalid approved 
     for (const invalid of [
         { ...item, import_key: 'invalid' }, { ...item, roadmap_phase: 'month_5' },
         { ...item, status: 'in_progress' }, { ...task, category: 'technical' },
-        { ...task, stage: 'month_1' }, { ...task, title: '' },
+        { ...task, title: '' },
     ]) {
         const rejected = planApply([{ ...invalid, approve: 'Y' }]);
         assert.equal(rejected.errors.length, 1);

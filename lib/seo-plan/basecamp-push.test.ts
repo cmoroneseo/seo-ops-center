@@ -5,7 +5,6 @@ import {
     classifyBasecampHttpFailure,
     formatBasecampHttpFailure,
     formatPlanSyncAttempt,
-    isSeoPlanTask,
     planTaskIgnoresBasecampReopen,
     nightlyBasecampRetryIds,
     planBasecampBanner,
@@ -14,42 +13,27 @@ import {
     PLAN_BASECAMP_PUSH_DEBOUNCE_MS,
 } from './basecamp-push.ts';
 
-test('a backlog task with no due date does not qualify, and a due date or onboarding does', () => {
-    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'backlog', dueDate: null }), false);
-    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'backlog', dueDate: '' }), false);
-    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'backlog', dueDate: '2026-10-31' }), true);
-    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'onboarding', dueDate: null }), true);
-    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'foundation', dueDate: null }), true);
-    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'growth', dueDate: null }), true);
-    assert.equal(planTaskQualifiesForBasecampPush({ stage: 'scale', dueDate: null }), true);
-    assert.equal(planTaskQualifiesForBasecampPush({ stage: null, dueDate: null }), false);
+test('a backlog task with no due date does not qualify, and a due date or project does', () => {
+    assert.equal(planTaskQualifiesForBasecampPush({ dueDate: null }), false);
+    assert.equal(planTaskQualifiesForBasecampPush({ dueDate: '' }), false);
+    assert.equal(planTaskQualifiesForBasecampPush({ dueDate: '2026-10-31' }), true);
+    assert.equal(planTaskQualifiesForBasecampPush({ initiativeId: 'initiative', dueDate: null }), true);
+    assert.equal(planTaskQualifiesForBasecampPush({ initiativeId: 'initiative', dueDate: null }), true);
+    assert.equal(planTaskQualifiesForBasecampPush({ initiativeId: 'initiative', dueDate: null }), true);
+    assert.equal(planTaskQualifiesForBasecampPush({ initiativeId: 'initiative', dueDate: null }), true);
+    assert.equal(planTaskQualifiesForBasecampPush({ dueDate: null }), false);
     assert.equal(PLAN_BASECAMP_PUSH_DEBOUNCE_MS, 2000);
-});
-
-test('onboarding, backlog, and the phase stages are plan tasks', () => {
-    assert.equal(isSeoPlanTask('onboarding'), true);
-    assert.equal(isSeoPlanTask('backlog'), true);
-    assert.equal(isSeoPlanTask('foundation'), true);
-    assert.equal(isSeoPlanTask('growth'), true);
-    assert.equal(isSeoPlanTask('scale'), true);
-    assert.equal(isSeoPlanTask('month_1'), false);
-    assert.equal(isSeoPlanTask(null), false);
-    assert.equal(isSeoPlanTask(undefined), false);
-    assert.equal(planTaskIgnoresBasecampReopen('backlog', 'ok'), true);
-    assert.equal(planTaskIgnoresBasecampReopen('backlog', 'failed'), true);
-    assert.equal(planTaskIgnoresBasecampReopen('backlog', null), false);
-    assert.equal(planTaskIgnoresBasecampReopen(null, 'ok'), false);
 });
 
 test('nightly retry keeps failed qualifying tasks and drops the rest', () => {
     const ids = nightlyBasecampRetryIds([
-        { id: 'dated', state: 'failed', stage: 'backlog', dueDate: '2026-11-30', hasProject: true },
-        { id: 'undated', state: 'failed', stage: 'backlog', dueDate: null, hasProject: true },
-        { id: 'setup', state: 'failed', stage: 'onboarding', dueDate: null, hasProject: true },
-        { id: 'healthy', state: 'ok', stage: 'onboarding', dueDate: '2026-10-31', hasProject: true },
-        { id: 'unbound', state: 'failed', stage: 'onboarding', dueDate: '2026-10-31', hasProject: false },
-        { id: 'waiting', state: null, stage: 'onboarding', dueDate: '2026-10-31', hasProject: true },
-        { id: 'phase', state: 'failed', stage: 'growth', dueDate: null, hasProject: true },
+        { id: 'dated', state: 'failed', dueDate: '2026-11-30', hasProject: true },
+        { id: 'undated', state: 'failed', dueDate: null, hasProject: true },
+        { id: 'setup', state: 'failed', initiativeId: 'initiative', dueDate: null, hasProject: true },
+        { id: 'healthy', state: 'ok', dueDate: '2026-10-31', hasProject: true },
+        { id: 'unbound', state: 'failed', dueDate: '2026-10-31', hasProject: false },
+        { id: 'waiting', state: null, dueDate: '2026-10-31', hasProject: true },
+        { id: 'phase', state: 'failed', initiativeId: 'initiative', dueDate: null, hasProject: true },
     ]);
     assert.deepEqual(ids, ['dated', 'setup', 'phase']);
 });
@@ -91,7 +75,7 @@ test('a client with no project stays quiet, and a client-wide failure is one lin
 test('the side-panel readout is the stored state and does not invent a push', () => {
     const readout = planBasecampReadout({
         taskId: 'task-1',
-        stage: 'backlog',
+
         dueDate: null,
         sync: { state: 'failed', error: 'Basecamp returned 404.', attemptedAt: '2026-10-20T18:14:00.000Z' },
         basecampTodoId: null,
@@ -102,4 +86,10 @@ test('the side-panel readout is the stored state and does not invent a push', ()
     assert.equal(readout.clientFailure, null);
     assert.equal(formatPlanSyncAttempt('2026-10-20T18:14:00.000Z', 'UTC'), 'Last try 6:14 PM');
     assert.equal(formatPlanSyncAttempt(null), '');
+});
+
+test('recorded plan sync state protects completion from a Basecamp reopen', () => {
+    assert.equal(planTaskIgnoresBasecampReopen('ok'), true);
+    assert.equal(planTaskIgnoresBasecampReopen('failed'), true);
+    assert.equal(planTaskIgnoresBasecampReopen(null), false);
 });

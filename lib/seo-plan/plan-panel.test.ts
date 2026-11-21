@@ -22,7 +22,6 @@ import {
     planDescriptionSave,
     planDuplicateTitle,
     planLiveUrlSave,
-    planOnboardingStage,
     planPanelDue,
     planPanelKeyAction,
     planPanelTask,
@@ -44,7 +43,7 @@ import type { Task } from '../types.ts';
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
     return {
         status: 'todo',
-        stage: 'backlog',
+
         position: 1,
         parentTaskId: null,
         createdAt: '2026-10-02T15:00:00.000Z',
@@ -58,7 +57,7 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 const kitchen = task({
     id: 'kitchen',
     title: 'Service page refresh: Kitchen remodeling',
-    stage: 'backlog',
+
     dueDate: '2026-10-17',
     assigneeIds: ['miguel'],
     category: 'content',
@@ -67,25 +66,25 @@ const kitchen = task({
 const citations = task({
     id: 'citations',
     title: 'Citations cleanup',
-    stage: 'backlog',
+
     position: 2,
     parentTaskId: null,
 });
 const houzz = task({
     id: 'houzz',
     title: 'Houzz photos',
-    stage: 'backlog',
+
     position: 1,
     parentTaskId: 'citations',
 });
 const yelp = task({
     id: 'yelp',
     title: 'Yelp profile',
-    stage: 'backlog',
+
     position: 2,
     parentTaskId: 'citations',
 });
-const setup = task({ id: 'setup', title: 'SEO Setup', stage: 'onboarding', position: 1 });
+const setup = task({ id: 'setup', title: 'SEO Setup', position: 1 });
 
 test('status is To do, In progress, or Done', () => {
     assert.deepEqual(PLAN_PANEL_STATUSES.map(status => PLAN_PANEL_STATUS_LABEL[status]), [
@@ -195,7 +194,7 @@ test('labels are multi-select and keep tags that are not plan labels', () => {
     assert.equal(writePlanLabels([], ['client-note']).category, null);
 });
 
-test('estimate, live URL, and onboarding parse without a new column', () => {
+test('estimate and live URL parse without a new column', () => {
     assert.deepEqual(parsePlanEstimate('2'), { ok: true, hours: 2 });
     assert.deepEqual(parsePlanEstimate('90m'), { ok: true, hours: 1.5 });
     assert.deepEqual(parsePlanEstimate(''), { ok: true, hours: null });
@@ -206,8 +205,6 @@ test('estimate, live URL, and onboarding parse without a new column', () => {
     });
     assert.deepEqual(planLiveUrlSave(''), { ok: true, publishedUrl: null });
     assert.equal(planLiveUrlSave('not a url').ok, false);
-    assert.equal(planOnboardingStage(true), 'onboarding');
-    assert.equal(planOnboardingStage(false), 'backlog');
 });
 
 test('the parent picker is one level, and a pillar cannot move under another task', () => {
@@ -239,7 +236,6 @@ test('the parent picker is one level, and a pillar cannot move under another tas
     assert.equal(under.ok, true);
     if (!under.ok || !under.move) return;
     assert.equal(under.move.parentTaskId, 'citations');
-    assert.equal(under.move.stage, 'backlog');
     const applied = applyStageReorder(tasks, under.move);
     assert.equal(applied.ok, true);
     if (!applied.ok) return;
@@ -250,24 +246,7 @@ test('the parent picker is one level, and a pillar cannot move under another tas
     assert.equal(unnest.ok, true);
     if (!unnest.ok || !unnest.move) return;
     assert.equal(unnest.move.parentTaskId, null);
-    assert.equal(unnest.move.stage, 'backlog');
     assert.equal(planParentMove(tasks, 'kitchen', null).move, null);
-});
-
-test('un-nesting a Growth subtask keeps growth', () => {
-    const pages = task({ id: 'pages', title: 'Service pages', stage: 'growth', position: 1 });
-    const copy = task({ id: 'copy', title: 'Write the service page', stage: 'growth', position: 1, parentTaskId: 'pages' });
-    const unnest = planParentMove([pages, copy], 'copy', null);
-    assert.equal(unnest.ok, true);
-    if (!unnest.ok || !unnest.move) return;
-    assert.equal(unnest.move.parentTaskId, null);
-    assert.equal(unnest.move.stage, 'growth');
-    const applied = applyStageReorder([pages, copy], unnest.move);
-    assert.equal(applied.ok, true);
-    if (!applied.ok) return;
-    assert.equal(applied.tasks.find(item => item.id === 'copy')?.stage, 'growth');
-    assert.equal(applied.tasks.find(item => item.id === 'copy')?.parentTaskId, null);
-    assert.equal(applied.tasks.find(item => item.id === 'pages')?.stage, 'growth');
 });
 
 test('adding a subtask updates the live count from the same rows', () => {
@@ -349,7 +328,6 @@ test('the panel model reads the list row and fills detail without dropping assig
     assert.equal(model.createdByLabel, 'CM');
     assert.equal(model.basecampHref, 'https://3.basecamp.com/5338018/buckets/202/todos/77');
     assert.equal(model.timeByMonth[0]?.hours, 0.5);
-    assert.equal(model.stage, 'backlog');
 
     const waiting = planPanelTask({ task: kitchen, tasks: [kitchen], detail: null });
     assert.equal(waiting.detailsReady, false);
@@ -392,7 +370,7 @@ test('a saved task row keeps the list fields the panel writes', () => {
         id: 'kitchen',
         title: 'Kitchen page',
         status: 'in_progress',
-        stage: 'onboarding',
+
         parentTaskId: undefined,
         category: 'technical',
         publishedUrl: 'https://mayasconstruction.com/kitchen',
@@ -401,7 +379,6 @@ test('a saved task row keeps the list fields the panel writes', () => {
         assigneeIds: ['miguel', 'carlos'],
     });
     assert.equal(merged.title, 'Kitchen page');
-    assert.equal(merged.stage, 'onboarding');
     assert.equal(merged.parentTaskId, null);
     assert.deepEqual(merged.assigneeIds, ['miguel', 'carlos']);
     assert.equal(merged.completedAt, null);
@@ -423,8 +400,6 @@ test('a panel save updates the list row, including Done and a cleared label', ()
     assert.equal(backdated.completedAt, '2026-09-30T19:00:00.000Z');
     const cleared = applyPlanPanelSave(row, { field: 'labels', category: null, tags: [] }, '2026-10-20T12:00:00.000Z');
     assert.equal(cleared.category, null);
-    const flagged = applyPlanPanelSave(row, { field: 'onboarding', stage: 'onboarding' }, '2026-10-20T12:00:00.000Z');
-    assert.equal(flagged.stage, 'onboarding');
     assert.equal(applyPlanPanelSave(row, { field: 'parent', parentTaskId: 'pillar' }, '2026-10-20T12:00:00.000Z'), row);
 });
 

@@ -384,7 +384,6 @@ export default function ClientDetailPage() {
                 gbp: client.setupScope?.gbp === true,
                 listings: client.setupScope?.listings === true,
             }}
-            onOpenResults={month => setActiveTab('insights', { range: month })}
         />
     ) : (
         <MarketingPlanTab

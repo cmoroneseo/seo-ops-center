@@ -23,11 +23,7 @@ export interface BasecampWebhookTask {
     title: string;
     basecampTodoId: string;
     basecampProjectId: string;
-    /**
-     * Present on every task (onboarding or backlog). Reopen is ignored only
-     * when basecampSyncState is also set, which is the silent plan push.
-     */
-    stage?: string | null;
+    /** Recorded by the work plan Basecamp push. */
     basecampSyncState?: string | null;
 }
 
@@ -188,9 +184,8 @@ export function createBasecampWebhookPost(dependencies: Dependencies) {
 
             const desiredStatus = providerTodo.completed ? 'done' : 'todo';
             // Completion still applies to every linked task. Reopen is ignored
-            // only for a row the silent plan push owns. Other tasks, including
-            // ones that share the backlog stage, still follow the provider.
-            if (desiredStatus === 'todo' && planTaskIgnoresBasecampReopen(task.stage, task.basecampSyncState)) {
+            // for tasks whose plan push has recorded a sync state.
+            if (desiredStatus === 'todo' && planTaskIgnoresBasecampReopen(task.basecampSyncState)) {
                 await dependencies.store.markDeliveryProcessed(payload.eventId, 'skipped:plan-reopen');
                 return json({ ok: true, skipped: 'plan reopen' });
             }

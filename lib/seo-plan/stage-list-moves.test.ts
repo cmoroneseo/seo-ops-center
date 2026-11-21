@@ -33,7 +33,7 @@ globalThis.cancelAnimationFrame = (id: number) => clearTimeout(id);
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
     return {
         status: 'todo',
-        stage: 'onboarding',
+
         position: null,
         parentTaskId: null,
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -64,9 +64,7 @@ function Harness({
     };
     const buttons: [string, string, StageMoveDirection][] = [
         ['Move Alpha down', 'alpha', 'down'],
-        ['Move Alpha to Backlog', 'alpha', 'next-stage'],
         ['Move Add keywords out of SEO Setup', 'keywords', 'unnest'],
-        ['Move Add keywords to Backlog', 'keywords', 'next-stage'],
     ];
     return createElement(
         'div',
@@ -131,7 +129,6 @@ test('move buttons keep saving after the first click', async () => {
         await act(async () => { button('Move Alpha down').click(); });
         assert.deepEqual(calls.map(call => call.index), [1]);
         assert.equal(calls[0].taskId, 'alpha');
-        assert.equal(calls[0].stage, 'onboarding');
         assert.equal(calls[0].parentTaskId, null);
         assert.deepEqual(order(), ['bravo', 'alpha', 'charlie']);
 
@@ -139,11 +136,6 @@ test('move buttons keep saving after the first click', async () => {
         assert.deepEqual(calls.map(call => call.index), [1, 2]);
         assert.deepEqual(order(), ['bravo', 'charlie', 'alpha']);
 
-        await act(async () => { button('Move Alpha to Backlog').click(); });
-        assert.equal(calls.length, 3);
-        assert.equal(calls[2].stage, 'backlog');
-        assert.equal(calls[2].parentTaskId, null);
-        assert.ok(order().includes('alpha'));
     } finally {
         await act(async () => { root.unmount(); });
     }
@@ -195,13 +187,7 @@ test('moving a subtask out of its pillar uses the same save', async () => {
         assert.equal(calls.length, 1);
         assert.equal(calls[0].taskId, 'keywords');
         assert.equal(calls[0].parentTaskId, null);
-        assert.equal(calls[0].stage, 'onboarding');
 
-        await act(async () => { button('Move Add keywords to Backlog').click(); });
-        assert.equal(calls.length, 2);
-        assert.equal(calls[1].stage, 'backlog');
-        assert.equal(calls[1].parentTaskId, null);
-        assert.ok(order().includes('keywords'));
     } finally {
         await act(async () => { root.unmount(); });
     }

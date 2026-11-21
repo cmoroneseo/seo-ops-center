@@ -8,11 +8,10 @@ import {
 import type { StageListTask } from './stage-list';
 
 /**
- * Optimistic stage-list edits.
+ * Optimistic task reordering.
  * The next list is decided here, before React applies state. A setState updater
  * does not run before the following line once a component has updated once, so
- * a save that waits on that updater never leaves the browser. Drag and the
- * move buttons both call `move`. Saves run one at a time so a later click is
+ * a save that waits on that updater never leaves the browser. Drag and keyboard moves both call `move`. Saves run one at a time so a later click is
  * not dropped while an earlier save is still in flight.
  */
 export function useStageListMoves(
@@ -40,16 +39,10 @@ export function useStageListMoves(
         const current = tasksRef.current;
         if (!current) return Promise.resolve();
         const plan = applyStageReorder(current, requested);
-        const dueDate = requested.dueDate;
-        const currentDue = current.find(task => task.id === requested.taskId)?.dueDate ?? null;
-        const dueChanges = dueDate !== undefined && (currentDue ?? null) !== dueDate;
-        if (!plan.ok || (plan.writes.length === 0 && !dueChanges)) return Promise.resolve();
+        if (!plan.ok || plan.writes.length === 0) return Promise.resolve();
         const snapshot = current;
         const writeIds = plan.writes.map(write => write.id);
-        if (dueChanges && !writeIds.includes(requested.taskId)) writeIds.push(requested.taskId);
-        const optimistic = dueDate === undefined
-            ? plan.tasks
-            : plan.tasks.map(task => task.id === requested.taskId ? { ...task, dueDate } : task);
+        const optimistic = plan.tasks;
         const save = persistRef.current;
         tasksRef.current = optimistic;
         setTasks(optimistic);

@@ -73,7 +73,7 @@ function fake(options: {
                                     id: 'created',
                                     title: 'Review robots.txt',
                                     status: 'todo',
-                                    stage: 'backlog',
+
                                     position: 5,
                                     parent_task_id: null,
                                     created_at: '2026-10-16T00:00:00.000Z',
@@ -107,12 +107,12 @@ test('the client check is limited to the session organization', async () => {
 test('a parent read cannot cross clients or organizations', async () => {
     const store = fake({
         parent: {
-            data: { title: 'SEO Setup', stage: 'onboarding', parent_task_id: null },
+            data: { title: 'SEO Setup', parent_task_id: null },
             error: null,
         },
     });
     const parent = await loadStageAddParent(store.client, org, clientId, parentId);
-    assert.deepEqual(parent, { title: 'SEO Setup', stage: 'onboarding', parentTaskId: null });
+    assert.deepEqual(parent, { title: 'SEO Setup', parentTaskId: null });
     assert.equal(store.calls.find(call => call.column === 'id')?.value, parentId);
     assert.equal(store.calls.find(call => call.column === 'organization_id')?.value, org);
     assert.equal(store.calls.find(call => call.column === 'client_id')?.value, clientId);
@@ -120,16 +120,16 @@ test('a parent read cannot cross clients or organizations', async () => {
     assert.equal(/email|assignee|secret|credential/i.test(store.calls.map(call => call.columns ?? '').join(' ')), false);
 });
 
-test('top-level placement is the stage, and a subtask placement is the pillar', async () => {
+test('top-level placement is the project, and a subtask placement is the pillar', async () => {
     const top = fake();
-    assert.equal(await maxStageAddPosition(top.client, org, clientId, 'backlog', null), 4);
+    assert.equal(await maxStageAddPosition(top.client, org, clientId, null, 'project'), 4);
     assert.equal(top.calls.find(call => call.op === 'is' && call.column === 'parent_task_id')?.value, null);
-    assert.equal(top.calls.find(call => call.column === 'stage')?.value, 'backlog');
+    assert.equal(top.calls.find(call => call.column === 'initiative_id')?.value, 'project');
     assert.equal(top.calls.find(call => call.column === 'organization_id')?.value, org);
     assert.equal(top.calls.find(call => call.column === 'client_id')?.value, clientId);
 
     const child = fake();
-    await maxStageAddPosition(child.client, org, clientId, 'onboarding', parentId);
+    await maxStageAddPosition(child.client, org, clientId, parentId);
     assert.equal(child.calls.find(call => call.column === 'parent_task_id')?.value, parentId);
     assert.equal(child.calls.some(call => call.column === 'stage'), false);
     assert.equal(child.calls.some(call => call.op === 'is'), false);
@@ -151,7 +151,7 @@ test('database failures stay generic', async () => {
     const secret = { data: null, error: { message: 'token sk_live_secret' } };
     await assert.rejects(clientBelongsToOrganization(fake({ client: secret }).client, org, clientId), /Unable to load client/);
     await assert.rejects(loadStageAddParent(fake({ parent: secret }).client, org, clientId, parentId), /Unable to load task/);
-    await assert.rejects(maxStageAddPosition(fake({ max: secret }).client, org, clientId, 'backlog', null), /Unable to place tasks/);
+    await assert.rejects(maxStageAddPosition(fake({ max: secret }).client, org, clientId, null, 'project'), /Unable to place tasks/);
     await assert.rejects(insertStageTasks(fake({ insert: secret }).client, [{}]), /Unable to create tasks/);
     await assert.rejects(insertStageTasks(fake({ insert: secret }).client, [{}]), (error: Error) => {
         assert.equal(error.message.includes('sk_live'), false);

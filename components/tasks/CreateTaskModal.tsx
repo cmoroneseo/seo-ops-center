@@ -6,8 +6,7 @@ import {
     CheckCircle2, AlertCircle, RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Task, TaskPriority, TaskStatus, TaskCategory, TaskStage, TaskTemplate, ClientProject, TASK_STAGES } from '@/lib/types';
-import { TASK_STAGE_LABELS } from '@/lib/seo-plan/stage-list';
+import { Task, TaskPriority, TaskStatus, TaskCategory, TaskTemplate, ClientProject } from '@/lib/types';
 import { createTaskFromTemplate, createTask as createTaskRequest, type TaskInsert } from '@/lib/supabase/tasks';
 import { getOrganizationMembers } from '@/lib/supabase/organizations';
 import { RecurrenceSelector } from './RecurrenceSelector';
@@ -136,7 +135,6 @@ export function CreateTaskModal({
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [priority, setPriority] = useState<TaskPriority>('medium');
-    const [stage, setStage] = useState<TaskStage>('backlog');
     const [category, setCategory] = useState<TaskCategory | ''>('');
     const [dueDate, setDueDate] = useState(defaultDueDate ?? '');
     const [recurrence, setRecurrence] = useState<Task['recurrence']>(undefined);
@@ -174,14 +172,12 @@ export function CreateTaskModal({
                 setTitle(templatePrefill.name);
                 setDescription(templatePrefill.description ?? '');
                 setPriority(templatePrefill.priority ?? 'medium');
-                setStage('backlog');
                 setCategory(templatePrefill.category ?? '');
                 setRecurrence(templatePrefill.recurrence);
             } else {
                 setTitle(defaultTitle ?? '');
                 setDescription(defaultDescription ?? '');
                 setPriority(defaultPriority ?? 'medium');
-                setStage('backlog');
                 setCategory(defaultCategory ?? '');
                 setRecurrence(undefined);
             }
@@ -303,7 +299,6 @@ export function CreateTaskModal({
             description: description.trim() || undefined,
             priority,
             status,
-            stage,
             category: category as TaskCategory || undefined,
             tags: defaultTags,
             dueDate: dueDate || undefined,
@@ -547,20 +542,6 @@ export function CreateTaskModal({
                                 onSyncTimeToBasecampChange={setSyncTimeToBasecamp}
                             />
                         )}
-
-                        <div>
-                            <label htmlFor="create-task-stage" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Stage</label>
-                            <select
-                                id="create-task-stage"
-                                value={stage}
-                                onChange={e => setStage(e.target.value as TaskStage)}
-                                className="w-full mt-1 p-2 rounded-lg border border-border bg-muted/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                            >
-                                {TASK_STAGES.map(value => (
-                                    <option key={value} value={value}>{TASK_STAGE_LABELS[value]}</option>
-                                ))}
-                            </select>
-                        </div>
 
                         {/* Priority + Category row */}
                         <div className="grid grid-cols-2 gap-3">

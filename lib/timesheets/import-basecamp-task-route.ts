@@ -59,7 +59,7 @@ export interface ImportBasecampTaskDependencies {
         organizationId: string,
         clientId: string,
         basecampTodoId: number,
-    ): Promise<{ id: string; title: string; stage?: string | null; priority?: string | null } | null>;
+    ): Promise<{ id: string; title: string; priority?: string | null } | null>;
     /**
      * Recording ids already stored on tasks in this client. A step id lives in
      * `basecamp_todo_id`, so a second import can skip it.
@@ -69,7 +69,7 @@ export interface ImportBasecampTaskDependencies {
         clientId: string,
         basecampIds: number[],
     ): Promise<Array<{ basecampTodoId: number }>>;
-    insertTask(row: Record<string, unknown>): Promise<{ id: string; title: string; stage?: string | null }>;
+    insertTask(row: Record<string, unknown>): Promise<{ id: string; title: string }>;
     logImport(payload: {
         organizationId: string;
         clientId: string;
@@ -130,7 +130,6 @@ async function attachSteps(input: {
     projectId: string;
     todoId: string;
     parentTaskId: string;
-    parentStage: string | null;
     priority: unknown;
     now: string;
     drafts?: readonly ImportedStepDraft[];
@@ -173,7 +172,6 @@ async function attachSteps(input: {
         parents: [{
             basecampTodoId: Number(input.todoId),
             taskId: input.parentTaskId,
-            stage: input.parentStage,
         }],
         alreadyImportedStepIds: new Set(known.map(record => record.basecampTodoId)),
     });
@@ -267,7 +265,6 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
                     projectId,
                     todoId,
                     parentTaskId: existing.id,
-                    parentStage: existing.stage ?? null,
                     priority: existing.priority,
                     now: dependencies.now(),
                 });
@@ -321,7 +318,7 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
         });
         if (!built.ok) return json({ error: built.error }, built.status);
 
-        let created: { id: string; title: string; stage?: string | null };
+        let created: { id: string; title: string };
         try {
             created = await dependencies.insertTask(built.rows[0]);
         } catch {
@@ -349,7 +346,6 @@ export function createImportBasecampTaskPost(dependencies: ImportBasecampTaskDep
             projectId,
             todoId,
             parentTaskId: created.id,
-            parentStage: created.stage ?? null,
             priority: built.rows[0].priority,
             now: dependencies.now(),
             drafts: built.steps,

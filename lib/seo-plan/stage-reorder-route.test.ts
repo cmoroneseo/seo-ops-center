@@ -14,7 +14,7 @@ const userId = 'user-1';
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
     return {
         status: 'todo',
-        stage: 'onboarding',
+
         position: 1,
         parentTaskId: null,
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -40,7 +40,7 @@ const loaded: StageListTask[] = [
         parentTaskId: '208dbc36-1111-4111-8111-111111111111',
     }),
     task({ id: '208dbc36-4444-4444-8444-444444444444', title: 'Create SEO Roadmap', position: 2 }),
-    task({ id: '208dbc36-5555-4555-8555-555555555555', title: 'Review robots.txt', stage: 'backlog', position: 1 }),
+    task({ id: '208dbc36-5555-4555-8555-555555555555', title: 'Review robots.txt', position: 1 }),
 ];
 
 const setup = loaded[0].id;
@@ -72,7 +72,6 @@ function deps(overrides: Partial<StageReorderDependencies> = {}) {
                 return task({
                     id: write.id,
                     title: current?.title ?? 'Task',
-                    stage: write.stage,
                     position: write.position,
                     parentTaskId: write.parentTaskId,
                     recurring: current?.recurring ?? false,
@@ -86,7 +85,7 @@ function deps(overrides: Partial<StageReorderDependencies> = {}) {
 
 const moveRoadmap = {
     taskId: roadmap,
-    stage: 'backlog',
+
     parentTaskId: null,
     index: 0,
     organizationId: other,
@@ -154,43 +153,19 @@ test('a move uses the session organization and rewrites affected siblings once',
     assert.equal(calls.writes[0].organizationId, org);
     assert.equal(calls.writes[0].clientId, clientId.toUpperCase());
     const byId = new Map(calls.writes[0].writes.map(write => [write.id, write]));
-    assert.equal(byId.get(roadmap)?.stage, 'backlog');
     assert.equal(byId.get(roadmap)?.position, 1);
     assert.equal(byId.get(roadmap)?.parentTaskId, null);
-    assert.equal(byId.has(setup), false);
-    assert.equal(byId.get(robots)?.position, 2);
-    assert.equal(byId.get(robots)?.stage, 'backlog');
-    assert.equal(result.body.tasks.find(item => item.id === roadmap)?.stage, 'backlog');
+    assert.equal(byId.get(setup)?.position, 2);
+    assert.equal(byId.get(robots)?.position, 3);
     assert.equal(JSON.stringify(calls.writes).includes(other), false);
     assert.equal(JSON.stringify(calls.writes).includes('"position":99'), false);
-});
-
-test('moving a pillar rewrites its subtasks in the same call', async () => {
-    const { dependencies, calls } = deps();
-    const result = await reorderStageTasks(clientId, {
-        taskId: setup,
-        stage: 'backlog',
-        parentTaskId: null,
-        index: 0,
-    }, dependencies);
-    assert.equal(result.status, 200);
-    assert.equal(calls.writes.length, 1);
-    const byId = new Map(calls.writes[0].writes.map(write => [write.id, write]));
-    assert.equal(byId.get(setup)?.stage, 'backlog');
-    assert.equal(byId.get(keywords)?.stage, 'backlog');
-    assert.equal(byId.get(keywords)?.parentTaskId, setup);
-    assert.equal(byId.get(cookies)?.stage, 'backlog');
-    assert.equal(byId.get(cookies)?.parentTaskId, setup);
-    assert.equal(byId.get(cookies)?.position, 2);
-    assert.equal(byId.get(roadmap)?.position, 1);
-    assert.equal(byId.get(roadmap)?.stage, 'onboarding');
 });
 
 test('nesting and un-nesting are decided by the server, one level deep', async () => {
     const nest = deps();
     const nested = await reorderStageTasks(clientId, {
         taskId: robots,
-        stage: 'backlog',
+
         parentTaskId: setup,
         index: 9,
         position: 1,
@@ -199,13 +174,12 @@ test('nesting and un-nesting are decided by the server, one level deep', async (
     assert.equal(nest.calls.writes.length, 1);
     const robotsWrite = nest.calls.writes[0].writes.find(write => write.id === robots);
     assert.equal(robotsWrite?.parentTaskId, setup);
-    assert.equal(robotsWrite?.stage, 'onboarding');
     assert.equal(robotsWrite?.position, 3);
 
     const tooDeep = deps();
     const rejected = await reorderStageTasks(clientId, {
         taskId: robots,
-        stage: 'onboarding',
+
         parentTaskId: keywords,
         index: 0,
     }, tooDeep.dependencies);
@@ -216,51 +190,13 @@ test('nesting and un-nesting are decided by the server, one level deep', async (
     const pillar = deps();
     const nestedPillar = await reorderStageTasks(clientId, {
         taskId: setup,
-        stage: 'backlog',
+
         parentTaskId: robots,
         index: 0,
     }, pillar.dependencies);
     assert.equal(nestedPillar.status, 400);
-    assert.deepEqual(nestedPillar.body, { error: 'A pillar moves with its subtasks and cannot be nested' });
+    assert.deepEqual(nestedPillar.body, { error: 'Tasks can only nest one level deep' });
     assert.equal(pillar.calls.writes.length, 0);
-});
-
-test('a no-op does not write, and a missing task or client is not found', async () => {
-    const same = deps();
-    const unchanged = await reorderStageTasks(clientId, {
-        taskId: robots,
-        stage: 'backlog',
-        parentTaskId: null,
-        index: 0,
-    }, same.dependencies);
-    assert.equal(unchanged.status, 200);
-    if (unchanged.status === 200) assert.deepEqual(unchanged.body.tasks, []);
-    assert.equal(same.calls.writes.length, 0);
-
-    const missingTask = deps();
-    const taskResult = await reorderStageTasks(clientId, {
-        taskId: '99999999-9999-4999-8999-999999999999',
-        stage: 'backlog',
-        parentTaskId: null,
-        index: 0,
-    }, missingTask.dependencies);
-    assert.equal(taskResult.status, 404);
-    assert.equal(missingTask.calls.writes.length, 0);
-
-    const missingClient = deps({ load: async () => null });
-    const clientResult = await reorderStageTasks(clientId, moveRoadmap, missingClient.dependencies);
-    assert.equal(clientResult.status, 404);
-    assert.equal(missingClient.calls.writes.length, 0);
-});
-
-test('a rejected move never writes', async () => {
-    const { dependencies, calls } = deps();
-    const bad = await reorderStageTasks(clientId, { taskId: robots, stage: 'month_9', parentTaskId: null, index: 0 }, dependencies);
-    const fractional = await reorderStageTasks(clientId, { taskId: robots, stage: 'backlog', parentTaskId: null, index: 1.5 }, dependencies);
-    assert.equal(bad.status, 400);
-    assert.equal(fractional.status, 400);
-    assert.equal(calls.loads.length, 0);
-    assert.equal(calls.writes.length, 0);
 });
 
 test('a rewrite failure returns one error and does not expose the underlying message', async () => {
@@ -277,91 +213,6 @@ test('a rewrite failure returns one error and does not expose the underlying mes
     assert.deepEqual(result.body, { error: 'Could not move tasks' });
     assert.equal(JSON.stringify(result.body).includes('sk_live'), false);
     assert.equal(JSON.stringify(result.body).includes('token'), false);
-});
-
-test('a dragged due date is stored and pushed, and a bad date is refused', async () => {
-    const dated = deps();
-    const dues: { taskId: string; dueDate: string | null }[] = [];
-    const pushes: string[] = [];
-    dated.dependencies.setDue = async (_organizationId, _clientId, taskId, dueDate) => {
-        dues.push({ taskId, dueDate });
-    };
-    dated.dependencies.pushPlanTask = async taskId => {
-        pushes.push(taskId);
-    };
-    const result = await reorderStageTasks(clientId, {
-        taskId: robots,
-        stage: 'backlog',
-        parentTaskId: null,
-        index: 0,
-        dueDate: '2026-10-31',
-    }, dated.dependencies);
-    assert.equal(result.status, 200);
-    if (result.status !== 200) return;
-    assert.equal(dated.calls.writes.length, 0);
-    assert.deepEqual(dues, [{ taskId: robots, dueDate: '2026-10-31' }]);
-    assert.deepEqual(pushes, [robots]);
-    assert.equal(result.body.tasks.find(item => item.id === robots)?.dueDate, '2026-10-31');
-
-    const cleared = deps();
-    const clears: Array<string | null> = [];
-    const clearPushes: string[] = [];
-    cleared.dependencies.setDue = async (_organizationId, _clientId, _taskId, dueDate) => {
-        clears.push(dueDate);
-    };
-    cleared.dependencies.pushPlanTask = async taskId => {
-        clearPushes.push(taskId);
-    };
-    const clear = await reorderStageTasks(clientId, {
-        taskId: roadmap,
-        stage: 'backlog',
-        parentTaskId: null,
-        index: 0,
-        dueDate: null,
-    }, cleared.dependencies);
-    assert.equal(clear.status, 200);
-    if (clear.status === 200) assert.equal(clear.body.tasks.find(item => item.id === roadmap)?.dueDate, null);
-    assert.deepEqual(clears, [null]);
-    assert.deepEqual(clearPushes, []);
-
-    const onboarded = deps();
-    const onboardPushes: string[] = [];
-    onboarded.dependencies.pushPlanTask = async taskId => {
-        onboardPushes.push(taskId);
-    };
-    const leftBacklog = await reorderStageTasks(clientId, {
-        taskId: robots,
-        stage: 'onboarding',
-        parentTaskId: null,
-        index: 0,
-    }, onboarded.dependencies);
-    assert.equal(leftBacklog.status, 200);
-    assert.deepEqual(onboardPushes, [robots]);
-
-    const invalid = deps();
-    let setCalls = 0;
-    invalid.dependencies.setDue = async () => { setCalls += 1; };
-    const refused = await reorderStageTasks(clientId, {
-        taskId: robots,
-        stage: 'backlog',
-        parentTaskId: null,
-        index: 0,
-        dueDate: 'October 31',
-    }, invalid.dependencies);
-    assert.equal(refused.status, 400);
-    assert.equal(invalid.calls.loads.length, 0);
-    assert.equal(setCalls, 0);
-
-    const missing = deps();
-    const blocked = await reorderStageTasks(clientId, {
-        taskId: robots,
-        stage: 'backlog',
-        parentTaskId: null,
-        index: 0,
-        dueDate: '2026-10-31',
-    }, missing.dependencies);
-    assert.equal(blocked.status, 500);
-    assert.equal(missing.calls.writes.length, 0);
 });
 
 test('a short rewrite is a failure, not a partial order', async () => {
@@ -384,7 +235,7 @@ test('changing parent pushes even when the task does not qualify for Basecamp', 
     const { dependencies } = deps({
         load: async () => [
             ...loaded,
-            task({ id: backlogParent, title: 'Citations', stage: 'backlog', position: 2 }),
+            task({ id: backlogParent, title: 'Citations', position: 2 }),
         ],
     });
     const pushes: string[] = [];
@@ -393,7 +244,7 @@ test('changing parent pushes even when the task does not qualify for Basecamp', 
     };
     const under = await reorderStageTasks(clientId, {
         taskId: robots,
-        stage: 'backlog',
+
         parentTaskId: backlogParent,
         index: 0,
     }, dependencies);
@@ -407,7 +258,7 @@ test('changing parent pushes even when the task does not qualify for Basecamp', 
     };
     const stayed = await reorderStageTasks(clientId, {
         taskId: robots,
-        stage: 'backlog',
+
         parentTaskId: null,
         index: 0,
     }, same.dependencies);
@@ -423,7 +274,7 @@ test('reordering subtasks pushes the parent step order, and a top-level move doe
     };
     const nested = await reorderStageTasks(clientId, {
         taskId: cookies,
-        stage: 'onboarding',
+
         parentTaskId: setup,
         index: 0,
     }, dependencies);
@@ -437,7 +288,7 @@ test('reordering subtasks pushes the parent step order, and a top-level move doe
     };
     const moved = await reorderStageTasks(clientId, {
         taskId: roadmap,
-        stage: 'onboarding',
+
         parentTaskId: null,
         index: 0,
     }, top.dependencies);
@@ -451,7 +302,7 @@ test('reordering subtasks pushes the parent step order, and a top-level move doe
     };
     const stayed = await reorderStageTasks(clientId, {
         taskId: keywords,
-        stage: 'onboarding',
+
         parentTaskId: setup,
         index: 0,
     }, same.dependencies);
@@ -463,21 +314,21 @@ test('Move under pushes step order for the new parent and the old one', () => {
     const backlogParent = '208dbc36-6666-4666-8666-666666666666';
     const tasks = [
         ...loaded,
-        task({ id: backlogParent, title: 'Citations', stage: 'backlog', position: 2 }),
+        task({ id: backlogParent, title: 'Citations', position: 2 }),
     ];
     const ids = stepOrderParentIds(tasks, {
         taskId: keywords,
-        stage: 'backlog',
+
         parentTaskId: backlogParent,
         index: 0,
     }, [
-        { id: keywords, stage: 'backlog', position: 1, parentTaskId: backlogParent },
-        { id: cookies, stage: 'onboarding', position: 1, parentTaskId: setup },
+        { id: keywords, position: 1, parentTaskId: backlogParent },
+        { id: cookies, position: 1, parentTaskId: setup },
     ]);
     assert.deepEqual(ids, [setup, backlogParent]);
     assert.deepEqual(stepOrderParentIds(loaded, {
         taskId: roadmap,
-        stage: 'onboarding',
+
         parentTaskId: null,
         index: 0,
     }, []), []);

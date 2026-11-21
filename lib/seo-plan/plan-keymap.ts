@@ -4,8 +4,6 @@
  * `j`, `k`, Enter, and Escape-to-close-the-panel stay in `planPanelKeyAction`
  * (the side panel). This map adds the rest of the shortcut table and decides
  * which single key wins when a field, preview, or sheet is open.
- * `[` and `]` are the month step from the list header. They live here so the
- * tab has one listener, not a second one.
  */
 
 import { planPanelKeyAction } from './plan-panel';
@@ -13,14 +11,13 @@ import { planPanelKeyAction } from './plan-panel';
 export const PLAN_KEYMAP = [
     { keys: 'c', label: 'Focus Add task' },
     { keys: '↵', label: 'Save the add line, or open the row' },
-    { keys: 'Tab', label: 'Cycle the due chip' },
     { keys: 'Esc', label: 'Close the panel, popover, or preview' },
+    { keys: 'Alt + ↑ / ↓', label: 'Move task up or down' },
     { keys: 'j / k', label: 'Next and previous row' },
     { keys: 'x', label: 'Check or uncheck' },
     { keys: 't', label: 'Start or pause the timer' },
     { keys: 'u', label: 'Add or edit the live URL' },
     { keys: '/', label: 'Focus search' },
-    { keys: '[ / ]', label: 'Previous and next month' },
     { keys: '→ / ←', label: 'Expand or collapse a pillar' },
     { keys: '?', label: 'Shortcut sheet' },
 ] as const;
@@ -31,7 +28,6 @@ export type PlanKeymapAction =
     | { type: 'close' }
     | { type: 'focus-add' }
     | { type: 'focus-search' }
-    | { type: 'shift-month'; delta: -1 | 1 }
     | { type: 'check'; taskId: string }
     | { type: 'url'; taskId: string }
     | { type: 'pillar'; taskId: string; expand: boolean }
@@ -122,8 +118,6 @@ export function planKeymapAction(input: PlanKeymapInput): PlanKeymapAction {
     if (input.key === 'c') return { type: 'focus-add' };
     if (input.key === '/' && !input.shiftKey) return { type: 'focus-search' };
     if (helpKey(input)) return { type: 'help' };
-    if (input.key === '[') return { type: 'shift-month', delta: -1 };
-    if (input.key === ']') return { type: 'shift-month', delta: 1 };
 
     const taskId = focusedVisible(input);
     if (!taskId) return { type: 'none' };

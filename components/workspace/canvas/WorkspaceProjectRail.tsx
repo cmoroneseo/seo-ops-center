@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { projectsHref } from '@/lib/projects/project-links';
 import { linkedTaskProgress, type PartOfChoice, type PartOfTask } from '@/lib/tasks/part-of';
 
-export function WorkspacePhaseRail({ clientId, projects, tasks }: {
+export function WorkspaceProjectRail({ clientId, projects, tasks }: {
     projects: readonly PartOfChoice[];
     tasks: readonly PartOfTask[];
     clientId: string;

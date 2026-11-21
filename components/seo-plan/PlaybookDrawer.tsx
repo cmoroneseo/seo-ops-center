@@ -8,8 +8,6 @@ import {
     playbookAddLabel,
     playbookAddTitles,
     playbookCatalog,
-    playbookChoiceId,
-    playbookChoices,
     playbookItems,
     playbookMatching,
     playbookRowState,
@@ -21,7 +19,6 @@ import {
     type PlaybookScope,
 } from '@/lib/seo-plan/playbook';
 import type { PartOfChoice } from '@/lib/tasks/part-of';
-import type { PlanBoard } from '@/lib/seo-plan/plan-phases';
 import { cn } from '@/lib/utils';
 
 /**
@@ -30,9 +27,6 @@ import { cn } from '@/lib/utils';
  * The add button calls the plan's existing task create path.
  */
 export function PlaybookDrawer({
-    board,
-    month,
-    today,
     openedFrom,
     projects,
     tasks,
@@ -43,9 +37,6 @@ export function PlaybookDrawer({
     onClose,
     onAdd,
 }: {
-    board: PlanBoard;
-    month: string;
-    today: string;
     openedFrom: string | null;
     projects: readonly PartOfChoice[];
     tasks: readonly { title: string; status?: string; excluded?: boolean }[];
@@ -75,9 +66,7 @@ export function PlaybookDrawer({
         [tasks, planRows],
     );
     const selectedItems = allItems.filter(item => selected.has(item.id));
-    const choices = playbookChoices(board, month, today);
-    const choice = choices.find(item => item.id === playbookChoiceId(board, null)) ?? choices[0];
-    const titles = choice ? playbookAddTitles(selectedItems, existing) : [];
+    const titles = playbookAddTitles(selectedItems, existing);
 
     useEffect(() => {
         const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -131,8 +120,8 @@ export function PlaybookDrawer({
     }
 
     async function add() {
-        if (!choice || titles.length === 0 || busy) return;
-        const calls = playbookAddCalls(titles, choice, projects.some(project => project.id === projectId) ? projectId : null);
+        if (titles.length === 0 || busy) return;
+        const calls = playbookAddCalls(titles, projects.some(project => project.id === projectId) ? projectId : null);
         setBusy(true);
         setError(null);
         let landed = 0;

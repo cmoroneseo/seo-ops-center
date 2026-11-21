@@ -1,13 +1,11 @@
 import { applyStageReorder, type StageReorderMove } from './stage-reorder';
-import { groupTasksByStage, type StageListTask } from './stage-list';
+import { groupTaskTrees, type StageListTask } from './stage-list';
 import { isPendingStageTaskId } from './stage-add';
 import { formatPlanDue, formatPlanHours, isPlanDone, planMonthTitle } from './plan-sections';
 import { dueDay, formatDueDay } from './this-month';
 import { liveSubtasks } from '../tasks/subtask-progress';
-import { isTaskStage } from '../tasks/stage';
 import { parseLiveUrlInput } from '../tasks/live-url';
-import type { Task, TaskStage } from '../types';
-import { isBoardStage, isPlanPhase, type BoardStage } from './plan-phases';
+import type { Task } from '../types';
 
 /**
  * Side panel for one SEO Plan task.
@@ -168,10 +166,6 @@ export function planLiveUrlSave(raw: string): { ok: true; publishedUrl: string |
     return parseLiveUrlInput(withScheme);
 }
 
-export function planOnboardingStage(on: boolean): TaskStage {
-    return on ? 'onboarding' : 'backlog';
-}
-
 export function planDuplicateTitle(title: string): string {
     const base = title.trim() || 'Task';
     const next = `${base} copy`;
@@ -259,35 +253,6 @@ export function planParentField(tasks: readonly StageListTask[], taskId: string)
     };
 }
 
-function boardStageOf(task: StageListTask): BoardStage {
-    if (isPlanPhase(task.stage)) return task.stage;
-    return isTaskStage(task.stage) ? task.stage : 'backlog';
-}
-
-function siblingIndex(
-    tasks: readonly StageListTask[],
-    stage: BoardStage,
-    parentTaskId: string | null,
-    taskId: string,
-): number {
-    const groups = groupTasksByStage(tasks, '');
-    if (parentTaskId) {
-        for (const section of groups) {
-            const group = section.groups.find(item => item.task.id === parentTaskId);
-            if (group) return group.children.filter(child => child.id !== taskId).length;
-        }
-        return 0;
-    }
-    let count = 0;
-    for (const section of groups) {
-        for (const group of section.groups) {
-            if (group.task.id === taskId) continue;
-            if (boardStageOf(group.task) === stage) count += 1;
-        }
-    }
-    return count;
-}
-
 export function planParentMove(
     tasks: readonly StageListTask[],
     taskId: string,
@@ -302,15 +267,12 @@ export function planParentMove(
     if (parentTaskId && !field.choices.some(choice => choice.id === parentTaskId)) {
         return { ok: false, error: 'Tasks can only nest one level deep.' };
     }
-    const parent = parentTaskId ? tasks.find(item => item.id === parentTaskId) : undefined;
-    const stage: BoardStage = parent
-        ? (isBoardStage(parent.stage) ? parent.stage : 'backlog')
-        : boardStageOf(task);
     const move: StageReorderMove = {
         taskId,
-        stage,
         parentTaskId,
-        index: siblingIndex(tasks, stage, parentTaskId, taskId),
+        index: groupTaskTrees(tasks, '').filter(group => !parentTaskId
+            && group.task.id !== taskId && (group.task.initiativeId ?? null) === (task.initiativeId ?? null)).length
+            + (parentTaskId ? planSubtasks(tasks, parentTaskId).filter(child => child.id !== taskId).length : 0),
     };
     const plan = applyStageReorder(tasks, move);
     if (!plan.ok) return { ok: false, error: plan.error };
@@ -404,7 +366,6 @@ export function planPanelDue(task: Pick<StageListTask, 'dueDate' | 'status' | 'c
     const formatted = formatPlanDue({
         id: '',
         title: '',
-        stage: null,
         position: null,
         parentTaskId: null,
         createdAt: null,
@@ -434,7 +395,6 @@ export interface PlanPanelTask {
     loggedHours: number;
     category: string | null;
     tags: string[];
-    stage: TaskStage;
     parentTaskId: string | null;
     /** Null when this task is not part of a roadmap row. Absent when the column was not read. */
     initiativeId?: string | null;
@@ -497,7 +457,6 @@ export function planPanelTask(input: {
         loggedHours: input.loggedHours ?? loggedFromEntries,
         category: input.task.category,
         tags: detail?.tags ?? [],
-        stage: input.task.stage === 'onboarding' ? 'onboarding' : 'backlog',
         parentTaskId: input.task.parentTaskId,
         ...('initiativeId' in input.task ? { initiativeId: input.task.initiativeId ?? null } : {}),
         childCount: children.length,
@@ -525,7 +484,6 @@ export type PlanPanelSave =
     | { field: 'estimate'; estimatedHours: number | null }
     | { field: 'labels'; category: string | null; tags: string[] }
     | { field: 'blocked'; blockedReason: string | null }
-    | { field: 'onboarding'; stage: TaskStage }
     | { field: 'parent'; parentTaskId: string | null }
     | { field: 'partOf'; initiativeId: string | null }
     | { field: 'liveUrl'; publishedUrl: string | null };
@@ -535,7 +493,6 @@ export function mergePlanTask(task: StageListTask, data: Task): StageListTask {
         ...task,
         title: data.title,
         status: data.status,
-        stage: data.stage ?? task.stage,
         parentTaskId: data.parentTaskId ?? null,
         ...('initiativeId' in data ? { initiativeId: data.initiativeId ?? null } : {}),
         category: data.category ?? null,
@@ -569,8 +526,6 @@ export function applyPlanPanelSave(task: StageListTask, save: PlanPanelSave, now
             return { ...task, assigneeIds: [...save.assigneeIds] };
         case 'labels':
             return { ...task, category: save.category };
-        case 'onboarding':
-            return { ...task, stage: save.stage };
         case 'liveUrl':
             return { ...task, publishedUrl: save.publishedUrl };
         case 'partOf':

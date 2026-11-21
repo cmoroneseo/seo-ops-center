@@ -31,18 +31,6 @@ export type PlanFilterStatus = (typeof PLAN_FILTER_STATUSES)[number];
 export const PLAN_FILTER_PRIORITIES = ['urgent', 'high', 'medium', 'low'] as const;
 export type PlanFilterPriority = (typeof PLAN_FILTER_PRIORITIES)[number];
 
-export const PLAN_FILTER_STAGES = [
-    'foundation',
-    'growth',
-    'scale',
-    'backlog',
-    'onboarding',
-    'this_month',
-] as const;
-export type PlanFilterStage = (typeof PLAN_FILTER_STAGES)[number];
-
-export type PlanFilterBoard = 'phases' | 'months';
-
 export const PLAN_QUICK_VIEWS = [
     { id: 'mine', label: 'My tasks' },
     { id: 'not-started', label: TASK_STATUS_LABELS.todo },
@@ -70,7 +58,6 @@ export interface PlanBoardFilters {
     priority: PlanFilterPriority | '';
     /** A person id, or `none` for nobody assigned. */
     assignee: string;
-    stage: PlanFilterStage | '';
     /** Project id. */
     partOf: string;
 }
@@ -83,7 +70,6 @@ export const EMPTY_PLAN_FILTERS: PlanBoardFilters = {
     status: '',
     priority: '',
     assignee: '',
-    stage: '',
     partOf: '',
 };
 
@@ -91,7 +77,6 @@ export interface PlanFilterTask {
     id: string;
     title: string;
     status: string;
-    stage: string | null;
     parentTaskId: string | null;
     initiativeId?: string | null;
     assigneeIds?: readonly string[];
@@ -100,24 +85,6 @@ export interface PlanFilterTask {
 
 const STATUS_SET = new Set<string>(PLAN_FILTER_STATUSES);
 const PRIORITY_SET = new Set<string>(PLAN_FILTER_PRIORITIES);
-const STAGE_SET = new Set<string>(PLAN_FILTER_STAGES);
-
-export function planStageOptions(board: PlanFilterBoard): { value: PlanFilterStage; label: string }[] {
-    if (board === 'phases') {
-        return [
-            { value: 'foundation', label: 'Foundation' },
-            { value: 'growth', label: 'Growth' },
-            { value: 'scale', label: 'Scale' },
-            { value: 'backlog', label: 'Later' },
-        ];
-    }
-    return [
-        { value: 'onboarding', label: 'Onboarding' },
-        { value: 'this_month', label: 'This month' },
-        { value: 'backlog', label: 'Backlog' },
-    ];
-}
-
 export function planFilterCountLabel(count: number): string {
     return count === 1 ? '1 filter' : `${count} filters`;
 }
@@ -126,13 +93,8 @@ export function planSectionFilterEmpty(title: string): string {
     return `No tasks in ${title} match these filters.`;
 }
 
-export function knownStage(stage: string, board: PlanFilterBoard): boolean {
-    return planStageOptions(board).some(option => option.value === stage);
-}
-
 export function activePlanFilterCount(
     state: PlanFilterUrlState,
-    board: PlanFilterBoard,
     partOfKnown = true,
 ): number {
     let count = 0;
@@ -140,7 +102,6 @@ export function activePlanFilterCount(
     if (state.status) count += 1;
     if (state.priority) count += 1;
     if (state.assignee) count += 1;
-    if (state.stage && knownStage(state.stage, board)) count += 1;
     if (state.partOf && partOfKnown) count += 1;
     return count;
 }
@@ -148,7 +109,7 @@ export function activePlanFilterCount(
 /** Words for an empty board. A title-only search keeps the sentence the board already uses. */
 export function planFilterEmptyCopy(state: PlanFilterUrlState): string {
     const query = state.query.trim();
-    const narrowed = Boolean(state.status || state.priority || state.assignee || state.stage || state.partOf);
+    const narrowed = Boolean(state.status || state.priority || state.assignee || state.partOf);
     if (query && !narrowed) return `No tasks match "${query}".`;
     if (
         state.partOf
@@ -156,7 +117,6 @@ export function planFilterEmptyCopy(state: PlanFilterUrlState): string {
         && !state.status
         && !state.priority
         && !state.assignee
-        && !state.stage
     ) {
         return PLAN_PART_OF_EMPTY;
     }
@@ -168,7 +128,6 @@ export function readPlanFilters(search: string): { filters: PlanBoardFilters; qu
     const status = params.get('planStatus') ?? '';
     const priority = params.get('planPriority') ?? '';
     const assignee = params.get('planAssignee') ?? '';
-    const stage = params.get('planStage') ?? '';
     const partOf = params.get('planPart') ?? '';
     return {
         query: (params.get('planQ') ?? '').trim().slice(0, QUERY_MAX),
@@ -176,7 +135,6 @@ export function readPlanFilters(search: string): { filters: PlanBoardFilters; qu
             status: STATUS_SET.has(status) ? status as PlanFilterStatus : '',
             priority: PRIORITY_SET.has(priority) ? priority as PlanFilterPriority : '',
             assignee: assignee === 'none' || UUID.test(assignee) ? assignee : '',
-            stage: STAGE_SET.has(stage) ? stage as PlanFilterStage : '',
             partOf: UUID.test(partOf) ? partOf : '',
         },
     };
@@ -194,7 +152,7 @@ export function hrefWithPlanFilters(href: string, state: PlanFilterUrlState): st
     set('planStatus', state.status);
     set('planPriority', state.priority);
     set('planAssignee', state.assignee);
-    set('planStage', state.stage);
+    url.searchParams.delete('planStage');
     set('planPart', state.partOf);
     return `${url.pathname}${url.search}${url.hash}`;
 }
@@ -218,7 +176,7 @@ export function matchingPlanPreset(
     state: PlanFilterUrlState,
     viewerId: string | null | undefined,
 ): PlanQuickView | '' {
-    if (state.query.trim() || state.priority || state.stage || state.partOf) return '';
+    if (state.query.trim() || state.priority || state.partOf) return '';
     if (state.status === 'todo' && !state.assignee) return 'not-started';
     if (state.status === 'in_progress' && !state.assignee) return 'in-progress';
     if (state.status === 'done' && !state.assignee) return 'done';
@@ -229,13 +187,6 @@ export function matchingPlanPreset(
 function storedStatus(status: string): PlanFilterStatus {
     if (status === 'in_progress' || status === 'done') return status;
     return 'todo';
-}
-
-function phaseStageOf(task: { stage: string | null }): 'foundation' | 'growth' | 'scale' | 'backlog' {
-    if (task.stage === 'foundation' || task.stage === 'growth' || task.stage === 'scale' || task.stage === 'backlog') {
-        return task.stage;
-    }
-    return 'foundation';
 }
 
 function rowMatches(task: PlanFilterTask, filters: PlanBoardFilters): boolean {
@@ -284,61 +235,6 @@ export function filterPlanTasks<T extends PlanFilterTask>(
         if (!keep.has(task.id)) return false;
         if (!task.parentTaskId) return true;
         return direct.has(task.id);
-    });
-}
-
-/**
- * Stage keeps the matching column's tasks and leaves the other columns on screen
- * so a task can still be dragged there. A task dropped into another stage
- * no longer matches, so the next pass hides it.
- * On Foundation, Growth, and Scale, Later means a task stored as backlog.
- * Those tasks stay in the Foundation column, which is where the board already shows them.
- */
-function rowIsLate(task: { status?: string; dueDate?: string | null }, today: string): boolean {
-    if (!task.status || task.status === 'done') return false;
-    const due = task.dueDate?.slice(0, 10) ?? '';
-    const now = today.slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(due) || !/^\d{4}-\d{2}-\d{2}$/.test(now)) return false;
-    return due < now;
-}
-
-export function hideSectionsOutsideStage<T extends {
-    id: string;
-    groups: readonly {
-        task: { stage: string | null; status?: string; dueDate?: string | null };
-        children?: readonly { status?: string; dueDate?: string | null }[];
-    }[];
-    count: number;
-    open: number;
-    late: number;
-    done: number;
-    meta: string;
-}>(sections: readonly T[], stage: string, board: PlanFilterBoard, today?: string): T[] {
-    if (!stage || !knownStage(stage, board)) return [...sections];
-    if (board === 'months') {
-        return sections.map(section => {
-            if (section.id === stage) return section;
-            return { ...section, groups: [], count: 0, open: 0, late: 0, done: 0 } as T;
-        });
-    }
-    return sections.map(section => {
-        const groups = section.groups.filter(group => phaseStageOf(group.task) === stage);
-        if (groups.length === section.groups.length) return section;
-        const rows = groups.flatMap(group => [group.task, ...(group.children ?? [])]);
-        const counted = rows.length > 0 && rows.every(row => typeof row.status === 'string');
-        const done = rows.filter(row => row.status === 'done').length;
-        const open = rows.length - done;
-        const late = counted && today ? rows.filter(row => rowIsLate(row, today)).length : section.late;
-        const lateNote = late > 0 ? ` · ${late} late` : '';
-        return {
-            ...section,
-            groups,
-            count: counted ? rows.length : groups.length,
-            open: counted ? open : section.open,
-            late,
-            done: counted ? done : section.done,
-            meta: counted ? `${open} open${lateNote} · ${done} done` : section.meta,
-        } as T;
     });
 }
 
