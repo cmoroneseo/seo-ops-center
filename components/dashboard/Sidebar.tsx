@@ -32,6 +32,9 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
+import { useMyOverdueCount } from '@/lib/hooks/use-my-overdue-count';
+import { MyTasksBadge } from '@/components/dashboard/MyTasksBadge';
 import { useClients } from '@/lib/hooks/use-clients';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
@@ -117,6 +120,8 @@ function NavLink({ link, active, nested = false }: { link: StaffLink; active: bo
 
 export function Sidebar() {
     const { organization } = useOrganization();
+    const { userId } = useCurrentMember();
+    const overdueCount = useMyOverdueCount(organization?.id, userId);
     const { clients } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
     const selected = useSelectedClient();
     const agencyDashboard = useAgencyDashboardEnabled();
@@ -139,6 +144,7 @@ export function Sidebar() {
         : [];
     const agency = agencyLinks({ agencyDashboard });
     const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace };
+    const myTasksActive = isAgencyLinkActive(selected.pathname, '/tasks');
     const agencyActive = agency.some(link => isAgencyLinkActive(selected.pathname, link.href));
 
     function hrefFor(clientId: string) {
@@ -205,6 +211,29 @@ export function Sidebar() {
                     onOpenChange={open => setMenu(open ? 'clients' : null)}
                 />
 
+                <div className="space-y-0.5">
+                    <NavLink
+                        link={{ id: 'home', label: 'Home', href: '/dashboard' }}
+                        active={isAgencyLinkActive(selected.pathname, '/dashboard')}
+                    />
+                    <Link
+                        href="/tasks"
+                        title={overdueCount > 0 ? `My Tasks (${overdueCount} overdue)` : 'My Tasks'}
+                        aria-current={myTasksActive ? 'page' : undefined}
+                        className={navClass(myTasksActive)}
+                    >
+                        {myTasksActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />}
+                        <RowIcon id="tasks" />
+                        <span className="sr-only xl:not-sr-only xl:truncate">My Tasks</span>
+                        <MyTasksBadge count={overdueCount} className="max-xl:absolute max-xl:right-0 max-xl:top-0" />
+                    </Link>
+                    <Link href="/approvals" title="Approvals" className={navClass(selected.pathname.startsWith('/approvals'))}>
+                        <FileCheck2 className="h-4 w-4 shrink-0" aria-hidden />
+                        <span className="hidden xl:inline">Approvals</span>
+                        <ApprovalBadge />
+                    </Link>
+                </div>
+
                 <div ref={agencyRef} className="relative">
                     <button
                         type="button"
@@ -221,11 +250,6 @@ export function Sidebar() {
                         <span className="hidden flex-1 truncate text-left xl:inline">Agency</span>
                         <ChevronDown className={cn('hidden h-3.5 w-3.5 shrink-0 xl:block', menu === 'agency' && 'rotate-180')} />
                     </button>
-                    <Link href="/approvals" title="Approvals" className={navClass(selected.pathname.startsWith('/approvals'))}>
-                        <FileCheck2 className="h-4 w-4 shrink-0" aria-hidden />
-                        <span className="hidden xl:inline">Approvals</span>
-                        <ApprovalBadge />
-                    </Link>
                     {menu === 'agency' && (
                         <div role="menu" className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg xl:right-0 xl:w-auto">
                             {agency.map(link => (

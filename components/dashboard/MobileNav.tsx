@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Fragment, Suspense, useEffect, useState } from 'react';
 import {
-    Menu, X, Search, LogOut, Check, FileCheck2,
+    Menu, X, Search, LogOut, Check, FileCheck2, Home,
     LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,9 @@ import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { ApprovalBadge } from '@/components/approvals-v2/Badge';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
+import { useMyOverdueCount } from '@/lib/hooks/use-my-overdue-count';
+import { MyTasksBadge } from '@/components/dashboard/MyTasksBadge';
 import { useClients } from '@/lib/hooks/use-clients';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
@@ -56,6 +59,8 @@ export function MobileNav() {
     const campaignWorkspace = campaignWorkspaceEnabled();
     const pipelineNav = pipelineNavEnabled();
     const [menuOpen, setMenuOpen] = useState(false);
+    const { userId } = useCurrentMember();
+    const overdueCount = useMyOverdueCount(menuOpen ? organization?.id : null, userId);
     const [selectorOpen, setSelectorOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
 
@@ -211,6 +216,31 @@ export function MobileNav() {
                             })}
                         </div>
                     )}
+
+                    <div className="mb-2">
+                        {[
+                            { label: 'Home', href: '/dashboard', icon: Home },
+                            { label: 'My Tasks', href: '/tasks', icon: CheckSquare },
+                        ].map(({ label, href, icon: Icon }) => {
+                            const active = isAgencyLinkActive(pathname, href);
+                            return (
+                                <Link
+                                    key={href}
+                                    href={href}
+                                    onClick={() => setMenuOpen(false)}
+                                    aria-current={active ? 'page' : undefined}
+                                    className={cn(
+                                        'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
+                                        active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                    )}
+                                >
+                                    <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                                    {label}
+                                    {href === '/tasks' && <MyTasksBadge count={overdueCount} />}
+                                </Link>
+                            );
+                        })}
+                    </div>
 
                     {sections.map(section => (
                         <Fragment key={section.id}>
