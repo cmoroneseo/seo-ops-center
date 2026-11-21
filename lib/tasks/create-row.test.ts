@@ -43,3 +43,8 @@ test('stage and position are written only when the caller sets them', () => {
     assert.equal(Object.hasOwn(taskCreateRow({ position: Number.NaN }), 'position'), false);
     assert.equal(Object.hasOwn(taskCreateRow({ stage: 'month_1' as 'backlog' }), 'stage'), false);
 });
+
+test('a task added inside a project is linked to that project, and other tasks stay unlinked', () => {
+    assert.equal(taskCreateRow({ clientId: 'c1', title: 'Fix titles', initiativeId: 'p1' }).initiative_id, 'p1');
+    assert.equal('initiative_id' in taskCreateRow({ clientId: 'c1', title: 'Fix titles' }), false);
+});

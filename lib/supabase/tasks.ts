@@ -124,6 +124,7 @@ function rowToComment(row: any): TaskComment {
 }
 
 export type TaskInsert = {
+    initiativeId?: string;
     sourceMarketingPlanItemId?: string;
     organizationId: string;
     projectId?: string;
@@ -576,7 +577,7 @@ export async function updateTask(
     taskId: string,
     // startDate/scheduledMinutes are omitted from the base so they can widen to
     // null — an intersection would collapse `string | null` back to `string`.
-    patch: Omit<Partial<TaskInsert>, 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours' | 'parentTaskId' | 'category' | 'stage'> & {
+    patch: Omit<Partial<TaskInsert>, 'initiativeId' | 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours' | 'parentTaskId' | 'category' | 'stage'> & {
         status?: TaskStatus;
         completedAt?: string | null;
         assigneeIds?: string[];
