@@ -49,6 +49,8 @@ export function PlanAddLine({
     month,
     timeZone = STAGE_LIST_TIME_ZONE,
     now,
+    fixedDestination = false,
+    label = 'Add task',
     onAdd,
 }: {
     /** YYYY-MM. Omitted until the month control exists; then the current month in `timeZone`. */
@@ -56,6 +58,8 @@ export function PlanAddLine({
     timeZone?: string;
     /** Test seam. Defaults to the current time. */
     now?: Date;
+    fixedDestination?: boolean;
+    label?: string;
     onAdd: (input: PlanAddSubmission) => Promise<void>;
 }) {
     const [value, setValue] = useState('');
@@ -149,7 +153,7 @@ export function PlanAddLine({
                     value={value}
                     disabled={busy}
                     placeholder="Add task. Paste a list to add several."
-                    aria-label="Add task"
+                    aria-label={label}
                     aria-invalid={error ? true : undefined}
                     aria-describedby={error ? errorId : undefined}
                     autoComplete="off"
@@ -159,7 +163,7 @@ export function PlanAddLine({
                     }}
                     onKeyDown={event => {
                         if (event.nativeEvent.isComposing) return;
-                        if (event.key === 'Tab' && !event.shiftKey) {
+                        if (!fixedDestination && event.key === 'Tab' && !event.shiftKey) {
                             event.preventDefault();
                             setChip(current => cyclePlanAddChip(current));
                             setMenuOpen(false);
@@ -187,21 +191,27 @@ export function PlanAddLine({
                     }}
                     className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
                 />
-                <button
-                    type="button"
-                    data-plan-add-chip={chip}
-                    data-plan-add-due={destination.dueDate ?? ''}
-                    data-plan-add-label={destination.label}
-                    aria-haspopup="listbox"
-                    aria-expanded={menuOpen}
-                    aria-controls={menuId}
-                    title="Tab cycles: due end of month, Backlog, Onboarding"
-                    onClick={() => setMenuOpen(open => !open)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                >
-                    <ChipLabel chip={chip} label={destination.label} />
-                    <span aria-hidden="true">▾</span>
-                </button>
+                {fixedDestination ? (
+                    <span data-plan-add-due={destination.dueDate} data-plan-add-label={destination.label} className="text-[11px] text-muted-foreground">
+                        {destination.label}
+                    </span>
+                ) : (
+                    <button
+                        type="button"
+                        data-plan-add-chip={chip}
+                        data-plan-add-due={destination.dueDate ?? ''}
+                        data-plan-add-label={destination.label}
+                        aria-haspopup="listbox"
+                        aria-expanded={menuOpen}
+                        aria-controls={menuId}
+                        title="Tab cycles: due end of month, Backlog, Onboarding"
+                        onClick={() => setMenuOpen(open => !open)}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                        <ChipLabel chip={chip} label={destination.label} />
+                        <span aria-hidden="true">▾</span>
+                    </button>
+                )}
                 <kbd className="hidden text-[11px] text-muted-foreground sm:inline" aria-hidden="true">↵</kbd>
             </div>
             {menuOpen && (
@@ -276,7 +286,7 @@ export function PlanAddLine({
                                     />
                                     <span className="min-w-0 flex-1 truncate">{line.title}</span>
                                     {role === 'pillar' && (
-                                        <span className="rounded border border-border px-1.5 text-[10px] text-muted-foreground">pillar</span>
+                                        <span className="rounded border border-border px-1.5 text-[10px] text-muted-foreground">Main task</span>
                                     )}
                                     <button
                                         type="button"

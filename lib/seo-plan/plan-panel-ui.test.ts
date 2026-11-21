@@ -62,21 +62,21 @@ const people = [
 
 const plan: StageListTask[] = [
     task({ id: 'kickoff', title: 'Kickoff call recap', stage: 'onboarding', position: 1 }),
-    task({ id: 'done', title: 'Finished onboarding', stage: 'onboarding', position: 2, status: 'done' }),
-    task({ id: 'pillar', title: 'Citations cleanup', stage: 'onboarding', position: 3 }),
+    task({ id: 'done', title: 'Finished onboarding', stage: 'onboarding', position: 6, status: 'done' }),
+    task({ id: 'pillar', title: 'Citations cleanup', stage: 'onboarding', position: 2 }),
     task({ id: 'child', title: 'Fix NAP', stage: 'onboarding', position: 1, parentTaskId: 'pillar' }),
     task({ id: 'sibling', title: 'Other citation', stage: 'onboarding', position: 2, parentTaskId: 'pillar' }),
     task({
         id: 'kitchen',
         title: 'Service page refresh: Kitchen remodeling',
         stage: 'backlog',
-        position: 1,
+        position: 3,
         dueDate: '2026-10-17',
         assigneeIds: ['miguel'],
         category: 'content',
         status: 'in_progress',
     }),
-    task({ id: 'later', title: 'Later backlog', stage: 'backlog', position: 2 }),
+    task({ id: 'later', title: 'Later backlog', stage: 'backlog', position: 5 }),
 ];
 
 function key(target: EventTarget, keyName: string) {
@@ -246,7 +246,7 @@ test('title, due, assignee, and enter open the panel, and the list stays usable'
         await act(async () => { key(window, 'j'); });
         assert.equal(opens.at(-1)?.id, 'child');
         assert.equal(opens.some(open => open.id === 'later' || open.id === 'done'), false);
-        assert.equal(document.querySelector('[data-plan-row="later"]')?.closest('[hidden]') instanceof dom.window.HTMLElement, true);
+        assert.equal(document.querySelector('[data-plan-row="later"]')?.closest('[hidden]'), null);
 
         const panelTitle = document.querySelector('[data-plan-field="title"]');
         assert.ok(panelTitle instanceof dom.window.HTMLInputElement);
@@ -451,7 +451,7 @@ test('the parent picker stays one level deep', async () => {
     }));
     try {
         assert.equal(document.querySelector('[data-plan-pillar]')?.getAttribute('data-plan-pillar'), '2');
-        assert.match(document.querySelector('[data-plan-pillar]')?.textContent ?? '', /This is a pillar · 0\/2/);
+        assert.match(document.querySelector('[data-plan-pillar]')?.textContent ?? '', /Subtasks done · 0\/2/);
         assert.equal(document.querySelector('[data-subtask-progress]')?.getAttribute('data-subtask-progress'), '0/2');
         assert.equal(document.querySelector('[data-plan-field="parent"]'), null);
     } finally {
@@ -592,7 +592,7 @@ test('Blocked asks for a one-line reason, the chip shows it, and Done clears it'
     }
 });
 
-test('marking an onboarding subtask done names the checkbox and offers Undo before it hides', async () => {
+test('marking a subtask done names the checkbox and offers Undo', async () => {
     function CheckHarness() {
         const [tasks, setTasks] = useState(plan);
         return createElement(StagePlanListView, {

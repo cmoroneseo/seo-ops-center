@@ -6,43 +6,32 @@ import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
 import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
 import {
     EMPTY_PLAN_FILTERS,
-    describeFilteredSections,
     filterPlanTasks,
-    hideSectionsOutsideStage,
     hrefWithPlanFilters,
-    knownStage,
     planFilterEmptyCopy,
     readPlanFilters,
     type PlanBoardFilters,
 } from '@/lib/seo-plan/plan-filters';
 import { isChecklistTaskId } from '@/lib/seo-plan/plan-work';
-import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
+import { groupTasksByProject, NO_PROJECT_GROUP, projectGroupId } from '@/lib/seo-plan/project-groups';
 import {
-    groupTasksByPhase,
-    PHASE_ADD_PLACEHOLDER,
-    PHASE_BOARD_EMPTY,
-    phaseAddLabel,
+    isBoardStage,
     type BoardStage,
     type PlanBoard,
-    type PlanPhase,
 } from '@/lib/seo-plan/plan-phases';
 import {
     formatPlanDue,
     formatPlanHours,
-    groupTasksByPlanMonth,
     isPlanDone,
     isPlanMonth,
     monthKeyFromDay,
     planHourRollup,
-    PLAN_LOOKBACK_NOTE,
     shiftPlanMonth,
     type PlanGroup,
-    type PlanSectionId,
-    type PlanSectionModel,
 } from '@/lib/seo-plan/plan-sections';
 import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { type PlanPanelField } from '@/lib/seo-plan/plan-panel';
-import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
+import { compareStageListTasks, stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
 import type { PartOfChoice } from '@/lib/tasks/part-of';
 import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
 import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
@@ -55,7 +44,6 @@ import { planRowTimeText, planRowTimerLabel, planTimerTask, type PlanRowTimerVie
 import { DoneThisMonthFooter } from './DoneThisMonthFooter';
 import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { StageAddBar } from './StageAddBar';
-import { EMPTY_PLAN_ADD_TASKS, EMPTY_PLAN_BODY, EMPTY_PLAN_TITLE } from '@/lib/seo-plan/empty-plan';
 import { PLAYBOOK_COPY, playbookStageButtonLabel, type PlaybookExisting, type PlaybookOrgTask, type PlaybookScope } from '@/lib/seo-plan/playbook';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
@@ -69,9 +57,10 @@ const NO_PLAN_ROWS: readonly PlaybookExisting[] = [];
 
 export interface StageAddRequest {
     stage: BoardStage;
+    initiativeId?: string | null;
     titles: string[];
     parentTaskId?: string;
-    /** Set by the plan add line. Null is Backlog or Onboarding. */
+    /** Set by the plan add line. Null leaves the task undated. */
     dueDate?: string | null;
     /** Mixed parents. Depth 1 belongs to the nearest depth-0 line above it. */
     items?: PlanAddSubmission['items'];
@@ -217,7 +206,7 @@ function pointerFraction(event: DragEvent<HTMLElement>): number {
 }
 
 interface DropHint {
-    section: PlanSectionId | PlanPhase;
+    section: string;
     beforeTaskId: string | null;
     parentTaskId: string | null;
 }
@@ -235,13 +224,6 @@ function hintKey(hint: DropHint | null): string {
     return `${hint.section}:${hint.parentTaskId ?? ''}:${hint.beforeTaskId ?? ''}`;
 }
 
-/**
- * One plan list.
- * A phase plan uses Foundation, Growth, and Scale.
- * An older plan keeps Onboarding, This month, and Backlog.
- * Rows stay in manual position order and can be dragged.
- * Dropping a row into another section changes the field that places it there.
- */
 export function StagePlanListView({
     tasks,
     query,
@@ -336,12 +318,9 @@ export function StagePlanListView({
     basecamp?: PlanBasecampBanner | null;
     integrationsHref?: string;
     onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
-    /** How long a just-completed onboarding row stays visible, with Undo, before Show done hides it. */
+    /** How long Undo is available after completing a task. */
     doneHoldMs?: number;
-    /**
-     * `phases` shows Foundation, Growth, and Scale.
-     * `months` keeps the existing month board. Defaults to months.
-     */
+    /** The stored board kind controls add defaults and monthly reporting. */
     board?: PlanBoard;
     /** Tasks the organization already saved. Loaded by the plan, not by this view. */
     orgTasks?: readonly PlaybookOrgTask[];
@@ -350,9 +329,9 @@ export function StagePlanListView({
     planRows?: readonly PlaybookExisting[];
     /** Google Business Profile and directory listings follow the client's saved scope. */
     checklistScope?: PlaybookScope;
-    /** Roadmap rows this client can filter by. Empty hides the control. */
+    /** Projects in the order returned for this client. */
     partOfChoices?: readonly PartOfChoice[];
-    /** True once the Part of list has loaded. A link to a missing row is then dropped. */
+    /** True once the projects have loaded. A filter for a missing project is then dropped. */
     partOfReady?: boolean;
     /** Signed-in person. My tasks uses this id. */
     viewerId?: string | null;
@@ -372,25 +351,11 @@ export function StagePlanListView({
     const urlMonth = useRef<string | null | undefined>(undefined);
     const phaseBoard = board === 'phases';
     const partOfActive = partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
-    const boardKind = phaseBoard ? 'phases' : 'months';
-    const stageActive = filters.stage && knownStage(filters.stage, boardKind) ? filters.stage : '';
-    const appliedFilters: PlanBoardFilters = {
-        ...filters,
-        partOf: partOfActive,
-        stage: stageActive,
-    };
+    const appliedFilters: PlanBoardFilters = { ...filters, partOf: partOfActive, stage: '' };
     const listed = filterPlanTasks(tasks, appliedFilters);
-    const attributeCount = [appliedFilters.status, appliedFilters.priority, appliedFilters.assignee, appliedFilters.stage, appliedFilters.partOf]
+    const attributeCount = [appliedFilters.status, appliedFilters.priority, appliedFilters.assignee, appliedFilters.partOf]
         .filter(Boolean).length;
-    const sections = phaseBoard
-        ? describeFilteredSections(
-            hideSectionsOutsideStage(groupTasksByPhase(listed, query, day), appliedFilters.stage, 'phases', day),
-            attributeCount > 0,
-        )
-        : describeFilteredSections(
-            hideSectionsOutsideStage(groupTasksByPlanMonth(listed, { month, today: day, query }), appliedFilters.stage, 'months', day),
-            attributeCount > 0,
-        );
+    const sections = groupTasksByProject(listed, partOfChoices, query);
     const searching = query.trim().length > 0;
     const filterState = { ...appliedFilters, query };
     const nothingMatches = (searching || attributeCount > 0) && sections.every(section => section.groups.length === 0);
@@ -412,26 +377,26 @@ export function StagePlanListView({
         setMonth(currentMonth => shiftPlanMonth(currentMonth, delta));
     }, []);
     const [playbook, setPlaybook] = useState<{ from: string | null } | null>(null);
-    const [finishPrompt, setFinishPrompt] = useState<{ taskId: string; foldDone: boolean } | null>(null);
+    const [finishPrompt, setFinishPrompt] = useState<string | null>(null);
     const [holdSeed, setHoldSeed] = useState<{ taskId: string; token: number } | null>(null);
-    const beginFinish = useCallback((taskId: string, foldDone: boolean) => {
+    const beginFinish = useCallback((taskId: string) => {
         const task = tasks.find(item => item.id === taskId);
         if (!task || !onToggleCheck) return;
         if (isPlanDone(task.status)) {
             void onToggleCheck(taskId);
             return;
         }
-        setFinishPrompt({ taskId, foldDone });
+        setFinishPrompt(taskId);
     }, [onToggleCheck, tasks]);
     const confirmFinish = useCallback((completedAt: string) => {
         const current = finishPrompt;
         if (!current || !onToggleCheck) return;
         setFinishPrompt(null);
-        if (current.foldDone) setHoldSeed({ taskId: current.taskId, token: Date.now() });
-        void onToggleCheck(current.taskId, completedAt);
+        setHoldSeed({ taskId: current, token: Date.now() });
+        void onToggleCheck(current, completedAt);
     }, [finishPrompt, onToggleCheck]);
     const checkFromKeyboard = useCallback((taskId: string) => {
-        beginFinish(taskId, false);
+        beginFinish(taskId);
     }, [beginFinish]);
     const { helpOpen, closeHelp } = usePlanKeymap({
         rootRef: listRef,
@@ -471,6 +436,7 @@ export function StagePlanListView({
 
     useEffect(() => {
         const read = readPlanFilters(window.location.search);
+        read.filters.stage = '';
         urlFilters.current = read;
         setFilters(read.filters);
         if (read.query !== queryRef.current) onQueryChangeRef.current(read.query);
@@ -550,18 +516,6 @@ export function StagePlanListView({
                 onFiltersChange={setFilters}
             />
 
-            {phaseBoard ? null : (
-            <PlanAddLine
-                month={month}
-                onAdd={submission => onAddTasks({
-                    stage: submission.stage,
-                    titles: submission.items.map(item => item.title),
-                    dueDate: submission.dueDate,
-                    items: submission.items,
-                })}
-            />
-            )}
-
             {clientFailure && <PlanSyncBanner href={integrationsHref} />}
 
             {finishPrompt && (
@@ -587,29 +541,14 @@ export function StagePlanListView({
                 </p>
             )}
 
-            {phaseBoard && tasks.length === 0 && !searching && attributeCount === 0 && (
-                <div data-plan-phase-empty className="text-[13px] leading-relaxed text-[#3f3f46]">
-                    <p>{PHASE_BOARD_EMPTY}</p>
-                    <p className="mt-1">{PLAYBOOK_COPY.emptyHint}</p>
-                </div>
-            )}
-
-            {!phaseBoard && tasks.length === 0 && !searching && attributeCount === 0 ? (
-                <div data-plan-empty className="rounded-[10px] border border-[#e4e4e7] bg-[#ffffff] px-4 py-6">
-                    <h3 className="text-[13px] font-semibold text-[#18181b]">{EMPTY_PLAN_TITLE}</h3>
-                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_BODY}</p>
-                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_ADD_TASKS}</p>
-                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{PLAYBOOK_COPY.emptyHint}</p>
-                </div>
-            ) : (
-                <PlanSections
-                key={`${query}:${appliedFilters.status}:${appliedFilters.priority}:${appliedFilters.assignee}:${appliedFilters.stage}:${appliedFilters.partOf}`}
+            <PlanSections
+                key={`${query}:${appliedFilters.status}:${appliedFilters.priority}:${appliedFilters.assignee}:${appliedFilters.partOf}`}
                 tasks={tasks}
                 sections={sections}
                 query={query}
-                searching={searching}
                 nothingMatches={nothingMatches}
-                month={month}
+                month={phaseBoard ? undefined : month}
+                projects={partOfChoices}
                 today={day}
                 people={people}
                 loggedHours={loggedHours}
@@ -630,12 +569,9 @@ export function StagePlanListView({
                 holdSeed={holdSeed}
                 resultsByTaskId={resultsByTaskId}
                 doneHoldMs={doneHoldMs}
-                onAddInSection={phaseBoard
-                    ? (stage, titles) => onAddTasks({ stage: stage as PlanPhase, titles })
-                    : undefined}
-                onOpenPlaybook={stage => setPlaybook({ from: stage })}
+                onAddInSection={onAddTasks}
+                onOpenPlaybook={id => setPlaybook({ from: id === NO_PROJECT_GROUP ? null : id })}
             />
-            )}
             {phaseBoard ? null : (
             <DoneThisMonthFooter
                 tasks={tasks}
@@ -665,6 +601,7 @@ export function StagePlanListView({
                     month={month}
                     today={day}
                     openedFrom={playbook.from}
+                    projects={partOfChoices}
                     tasks={tasks}
                     planRows={planRows}
                     orgTasks={orgTasks}
@@ -691,9 +628,9 @@ function PlanSections({
     tasks,
     sections,
     query,
-    searching,
     nothingMatches,
     month,
+    projects,
     today,
     people,
     loggedHours,
@@ -718,11 +655,11 @@ function PlanSections({
     onOpenPlaybook,
 }: {
     tasks: readonly StageListTask[];
-    sections: Array<Omit<PlanSectionModel, 'id'> & { id: string; description?: string }>;
+    sections: ReturnType<typeof groupTasksByProject>;
+    projects: readonly PartOfChoice[];
     query: string;
-    searching: boolean;
     nothingMatches: boolean;
-    month: string;
+    month?: string;
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
@@ -740,16 +677,15 @@ function PlanSections({
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     onToggleCheck?: (taskId: string, completedAt?: string) => void | Promise<void>;
     /** Marking a row done asks for the day before the status changes. */
-    onBeginDone?: (taskId: string, foldDone: boolean) => void;
+    onBeginDone?: (taskId: string) => void;
     /** After the day is confirmed, hold a folded row so Undo can show. */
     holdSeed?: { taskId: string; token: number } | null;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     doneHoldMs: number;
-    onAddInSection?: (stage: string, titles: string[]) => Promise<void>;
+    onAddInSection: (input: StageAddRequest) => Promise<void>;
     onOpenPlaybook: (stage: string) => void;
 }) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-    const [showDone, setShowDone] = useState(false);
     const [heldDone, setHeldDone] = useState<Record<string, true>>({});
     const heldTimers = useRef<Record<string, number>>({});
     const seenHold = useRef(0);
@@ -792,14 +728,14 @@ function PlanSections({
         seenHold.current = holdSeed.token;
         holdDoneRef.current(holdSeed.taskId);
     }, [holdSeed]);
-    const markTask = (task: StageListTask, foldDone: boolean) => {
+    const markTask = (task: StageListTask) => {
         if (!onToggleCheck && !onBeginDone) return;
         if (!isPlanDone(task.status)) {
             if (onBeginDone) {
-                onBeginDone(task.id, foldDone);
+                onBeginDone(task.id);
                 return;
             }
-            if (foldDone) holdDone(task.id);
+            holdDone(task.id);
             void onToggleCheck?.(task.id);
             return;
         }
@@ -816,6 +752,7 @@ function PlanSections({
         setDragId(id);
     };
     const showHint = (next: DropHint | null) => {
+        if (next && !canDrop(next.section, next.parentTaskId)) next = null;
         const key = hintKey(next);
         if (key === seenHint.current) return;
         seenHint.current = key;
@@ -825,35 +762,32 @@ function PlanSections({
         rememberDrag(null);
         showHint(null);
     };
-    const isCollapsed = (section: { id: string; defaultCollapsed: boolean }) => (
-        section.id in collapsed ? collapsed[section.id] : section.defaultCollapsed
-    );
+    const canDrop = (section: string, parentTaskId: string | null) => {
+        const dragged = tasksById.get(dragIdRef.current ?? '');
+        if (!dragged || (dragged.parentTaskId ?? null) !== parentTaskId) return false;
+        const top = parentTaskId ? tasksById.get(parentTaskId) : dragged;
+        return Boolean(top && projectGroupId(top, projects) === section);
+    };
 
-    const commit = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
-        const activeId = dragIdRef.current;
-        if (!activeId) {
-            clearDrag();
-            return;
-        }
-        const effect = effectOfPlanDrop({
-            tasks,
-            dragId: activeId,
-            section,
-            beforeTaskId,
-            parentTaskId,
-            month,
-            today,
-        });
+    const commit = (section: string, beforeTaskId: string | null, parentTaskId: string | null) => {
+        const dragged = tasksById.get(dragIdRef.current ?? '');
+        const allowed = canDrop(section, parentTaskId);
         clearDrag();
-        if (!effect) return;
+        if (!dragged || !allowed || beforeTaskId === dragged.id) return;
+        const siblings = tasks.filter(task => (task.parentTaskId ?? null) === parentTaskId
+            && !task.excluded && !isPendingStageTaskId(task.id) && !isChecklistTaskId(task.id) && task.id !== dragged.id
+            && (parentTaskId != null || projectGroupId(task, projects) === section))
+            .sort(compareStageListTasks);
+        const index = beforeTaskId ? siblings.findIndex(task => task.id === beforeTaskId) : siblings.length;
+        if (index < 0 || !isBoardStage(dragged.stage)) return;
         setMoveError(null);
-        const requested: StageReorderMove = effect.dueDate === undefined
-            ? effect.move
-            : { ...effect.move, dueDate: effect.dueDate };
+        const requested: StageReorderMove = {
+            taskId: dragged.id, stage: dragged.stage, parentTaskId, index, projectGroup: section, projects,
+        };
         void onReorder(requested).catch(() => setMoveError('Could not move that task.'));
     };
 
-    const dropLine = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
+    const dropLine = (section: string, beforeTaskId: string | null, parentTaskId: string | null) => {
         if (!hint || hint.section !== section || hint.beforeTaskId !== beforeTaskId || hint.parentTaskId !== parentTaskId) return null;
         return <div data-stage-drop-line className="mx-3 h-0.5 bg-[#ec4899]" />;
     };
@@ -863,9 +797,8 @@ function PlanSections({
             {moveError && <p role="alert" className="text-sm text-red-400">{moveError}</p>}
             {sections.map(section => {
                 const headingId = `${baseId}-${section.id}`;
-                const closed = isCollapsed(section);
-                const lookback = section.id === 'this_month' && month < monthKeyFromDay(today);
-                const foldDone = section.id === 'onboarding' && !showDone && !searching && !section.collapsedComplete;
+                const closed = Boolean(collapsed[section.id]);
+                const initiativeId = section.id === NO_PROJECT_GROUP ? null : section.id;
                 return (
                     <section
                         key={section.id}
@@ -876,14 +809,14 @@ function PlanSections({
                         aria-labelledby={headingId}
                         className="overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-[#ffffff]"
                         onDragOver={event => {
-                            if (!dragIdRef.current) return;
+                            if (!canDrop(section.id, null)) return;
                             event.preventDefault();
-                            showHint({ section: section.id as PlanSectionId | PlanPhase, beforeTaskId: null, parentTaskId: null });
+                            showHint({ section: section.id, beforeTaskId: null, parentTaskId: null });
                         }}
                         onDrop={event => {
-                            if (!dragIdRef.current) return;
+                            if (!canDrop(section.id, null)) return;
                             event.preventDefault();
-                            commit(section.id as PlanSectionId | PlanPhase, null, null);
+                            commit(section.id, null, null);
                         }}
                     >
                         <div className="flex min-h-9 items-center gap-2 px-3 py-1.5">
@@ -896,13 +829,10 @@ function PlanSections({
                                 >
                                     <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-[#71717a] transition-transform', !closed && 'rotate-90')} />
                                     <span className="min-w-0">
-                                        <span className={cn('block text-[13px] font-semibold', section.collapsedComplete && 'text-[#71717a]')}>{section.title}</span>
-                                        {section.description && (
-                                            <span data-phase-description={section.id} className="mt-0.5 block text-[12px] font-normal leading-5 text-[#52525b]">{section.description}</span>
-                                        )}
+                                        <span className="block text-[13px] font-semibold">{section.title}</span>
                                     </span>
                                     <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>
-                                        <Meta meta={section.meta} late={section.late} />
+                                        {section.meta}
                                     </span>
                                 </button>
                             </h3>
@@ -915,22 +845,20 @@ function PlanSections({
                             >
                                 {PLAYBOOK_COPY.button}
                             </button>
-                            {lookback && <span className="shrink-0 text-[11px] text-[#71717a]">{PLAN_LOOKBACK_NOTE}</span>}
                         </div>
                         <div hidden={closed || undefined}>
                             {section.groups.length === 0 && !nothingMatches ? (
-                                <p className="border-t border-[#e4e4e7] px-3 py-3 text-[13px] text-[#71717a]">{section.empty}</p>
+                                <p className="border-t border-[#e4e4e7] px-3 py-3 text-[13px] text-[#71717a]">No tasks yet.</p>
                             ) : section.groups.map((group, index) => {
                                 const nextTop = section.groups[index + 1]?.task.id ?? null;
-                                const hideGroup = foldDone && isPlanDone(group.task.status) && !heldDone[group.task.id];
                                 return (
-                                    <div key={group.task.id} hidden={hideGroup || undefined}>
-                                        {dropLine(section.id as PlanSectionId | PlanPhase, group.task.id, null)}
+                                    <div key={group.task.id}>
+                                        {dropLine(section.id, group.task.id, null)}
                                         <PlanRow
                                             group={group}
-                                            section={section.id as PlanSectionId | PlanPhase}
+                                            section={section.id}
                                             query={query}
-                                            searching={searching}
+                                            searching={query.trim().length > 0}
                                             today={today}
                                             people={people}
                                             loggedHours={loggedHours}
@@ -940,8 +868,7 @@ function PlanSections({
                                             onRowTimer={onRowTimer}
                                             onCheckRunning={onCheckRunning}
                                             urlPromptTaskId={urlPromptTaskId}
-                                            dragId={dragId}
-                                            foldDone={foldDone}
+                                            dragId={canDrop(section.id, null) || canDrop(section.id, group.task.id) ? dragId : null}
                                             heldDone={heldDone}
                                             onUndoDone={onToggleCheck ? undoDone : undefined}
                                             baseId={baseId}
@@ -952,56 +879,44 @@ function PlanSections({
                                             onOpenTask={onOpenTask}
                                             onSetLiveUrl={onSetLiveUrl}
                                             onToggleCheck={onToggleCheck}
-                                            onMark={onToggleCheck ? task => markTask(task, foldDone) : undefined}
+                                            onMark={onToggleCheck ? markTask : undefined}
                                             resultsByTaskId={resultsByTaskId}
                                             onDragStart={rememberDrag}
                                             onDragEnd={clearDrag}
                                             onHint={showHint}
-                                            onDropRow={(beforeTaskId, parentTaskId) => commit(section.id as PlanSectionId | PlanPhase, beforeTaskId, parentTaskId)}
+                                            onDropRow={(beforeTaskId, parentTaskId) => commit(section.id, beforeTaskId, parentTaskId)}
                                             nextTopId={nextTop}
                                         />
                                     </div>
                                 );
                             })}
-                            {dropLine(section.id as PlanSectionId | PlanPhase, null, null)}
-                            {onAddInSection && (
-                                <div className="border-t border-[#e4e4e7] px-3 py-2">
-                                    <StageAddBar
-                                        label={phaseAddLabel(section.id as PlanPhase)}
-                                        placeholder={PHASE_ADD_PLACEHOLDER}
-                                        stage={section.id}
-                                        onAdd={titles => onAddInSection(section.id, titles)}
+                            {dropLine(section.id, null, null)}
+                            <div className="border-t border-[#e4e4e7] px-3 py-2">
+                                {month ? (
+                                    <PlanAddLine
+                                        month={month}
+                                        fixedDestination
+                                        label={`Add a task to ${section.title}`}
+                                        onAdd={submission => onAddInSection({
+                                            ...submission,
+                                            initiativeId,
+                                            titles: submission.items.map(item => item.title),
+                                        })}
                                     />
-                                </div>
-                            )}
-                            {section.id === 'onboarding' && section.done > 0 && section.open > 0 && !searching && (
-                                <button
-                                    type="button"
-                                    onClick={() => setShowDone(value => !value)}
-                                    className="border-t border-[#e4e4e7] px-3 py-2 text-left text-[12px] text-[#71717a] hover:text-[#18181b]"
-                                >
-                                    {showDone ? `Hide ${section.done} done` : `Show ${section.done} done`}
-                                </button>
-                            )}
+                                ) : (
+                                    <StageAddBar
+                                        label={`Add a task to ${section.title}`}
+                                        placeholder="Add a task"
+                                        stage={section.id}
+                                        onAdd={titles => onAddInSection({ stage: 'foundation', initiativeId, titles })}
+                                    />
+                                )}
+                            </div>
                         </div>
                     </section>
                 );
             })}
         </div>
-    );
-}
-
-function Meta({ meta, late }: { meta: string; late: number }) {
-    if (late <= 0) return <>{meta}</>;
-    const needle = `${late} late`;
-    const at = meta.indexOf(needle);
-    if (at < 0) return <>{meta}</>;
-    return (
-        <>
-            {meta.slice(0, at)}
-            <span className="text-[#dc2626]">{needle}</span>
-            {meta.slice(at + needle.length)}
-        </>
     );
 }
 
@@ -1020,7 +935,6 @@ function PlanRow({
     onCheckRunning,
     urlPromptTaskId,
     dragId,
-    foldDone,
     heldDone,
     onUndoDone,
     onMark,
@@ -1040,9 +954,9 @@ function PlanRow({
     nextTopId,
 }: {
     group: PlanGroup;
-    section: PlanSectionId | PlanPhase;
-    query: string;
     searching: boolean;
+    section: string;
+    query: string;
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
@@ -1053,7 +967,6 @@ function PlanRow({
     onCheckRunning?: (taskId: string) => void;
     urlPromptTaskId?: string | null;
     dragId: string | null;
-    foldDone: boolean;
     heldDone?: Readonly<Record<string, true>>;
     onUndoDone?: (taskId: string) => void;
     onMark?: (task: StageListTask) => void;
@@ -1076,7 +989,7 @@ function PlanRow({
     const open = openOverride ?? (searching ? group.expandChildren : group.childCount > 0);
     const panelId = `${baseId}-children-${group.task.id}`;
     const pillar = group.childCount > 0;
-    const visibleChildren = group.children.filter(child => !(foldDone && isPlanDone(child.status) && !heldDone?.[child.id]));
+    const visibleChildren = group.children;
     const childIds = group.children.map(child => child.id);
 
     const renderTask = (task: StageListTask, options: {
@@ -1161,7 +1074,7 @@ function PlanRow({
                     });
                 }}
                 onDrop={event => {
-                    if (locked) return;
+                    if (!dragId || locked) return;
                     event.preventDefault();
                     event.stopPropagation();
                     const before = pointerFraction(event) < 0.5;
@@ -1407,6 +1320,7 @@ function PlanRow({
                         onHint({ section, beforeTaskId: null, parentTaskId: group.task.id });
                     }}
                     onDrop={event => {
+                        if (!dragId) return;
                         event.preventDefault();
                         event.stopPropagation();
                         onDropRow(null, group.task.id);

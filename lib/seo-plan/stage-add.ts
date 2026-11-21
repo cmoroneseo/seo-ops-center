@@ -31,11 +31,12 @@ export function endPosition(
     tasks: readonly Pick<StageListTask, 'stage' | 'position' | 'parentTaskId'>[],
     stage: string,
     parentTaskId: string | null,
+    acrossStages = false,
 ): number | null {
     let max: number | null = null;
     for (const task of tasks) {
         if ((task.parentTaskId ?? null) !== parentTaskId) continue;
-        if (parentTaskId == null && task.stage !== stage) continue;
+        if (parentTaskId == null && !acrossStages && task.stage !== stage) continue;
         if (typeof task.position !== 'number' || !Number.isFinite(task.position)) continue;
         max = max == null ? task.position : Math.max(max, task.position);
     }
@@ -49,6 +50,7 @@ export function pendingStageTasks(input: {
     ids: readonly string[];
     createdAt: string;
     positions: readonly number[];
+    initiativeId?: string | null;
     publishedUrls?: readonly (string | null)[];
 }): StageListTask[] {
     return input.titles.map((title, index) => ({
@@ -58,6 +60,7 @@ export function pendingStageTasks(input: {
         stage: input.stage,
         position: input.positions[index] ?? null,
         parentTaskId: input.parentTaskId,
+        ...(input.initiativeId !== undefined ? { initiativeId: input.parentTaskId ? null : input.initiativeId } : {}),
         createdAt: input.createdAt,
         category: null,
         basecamp: false,

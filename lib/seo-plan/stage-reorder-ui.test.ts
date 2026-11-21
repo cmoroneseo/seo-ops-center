@@ -69,17 +69,14 @@ test('a pillar row drags from the card and a subtask drags from its grip', () =>
     assert.doesNotMatch(html, /Move Add keywords/);
 
     assert.doesNotMatch(html, /data-stage-drop="month_|Move SEO Setup to Month/);
-    assert.match(html, /data-stage-drop="onboarding"/);
-    assert.match(html, /data-stage-drop="this_month"/);
-    assert.match(html, /data-stage-drop="backlog"/);
+    assert.match(html, /data-stage-drop="no-project"/);
 });
 
 test('a search still lets the remaining rows move, and a pending row does not', () => {
     const searching = render('keywords');
     assert.match(searching, /data-stage-drag="task"/);
     assert.match(searching, /data-stage-grip="keywords"/);
-    assert.match(searching, /data-stage-drop="onboarding"/);
-    assert.match(searching, /data-stage-drop="backlog"/);
+    assert.match(searching, /data-stage-drop="no-project"/);
     assert.match(searching, /<mark[^>]*>keywords<\/mark>/);
 
     const html = render();

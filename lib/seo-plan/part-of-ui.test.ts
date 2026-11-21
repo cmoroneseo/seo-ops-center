@@ -79,11 +79,11 @@ function panel(taskId: string, saves: PlanPanelSave[]) {
     });
 }
 
-test('a main task can be part of a roadmap row, and a nested task cannot', async () => {
+test('a main task can be assigned to a project, and a nested task cannot', async () => {
     const saves: PlanPanelSave[] = [];
     const root = await mount(panel('page', saves));
     try {
-        assert.equal(document.querySelector('[data-plan-part-of]')?.textContent, 'Part of: None');
+        assert.equal(document.querySelector('[data-plan-part-of]')?.textContent, 'Project: None');
         const change = document.querySelector('[data-plan-field="part-of"]');
         assert.ok(change instanceof dom.window.HTMLButtonElement);
         await act(async () => { change.click(); });
@@ -113,7 +113,7 @@ test('a main task can be part of a roadmap row, and a nested task cannot', async
     }
 });
 
-test('the plan board can show only tasks that are part of one row', async () => {
+test('the plan board can filter tasks by project', async () => {
     const tasks = [
         task({ id: 'page', title: 'Rewrite the service page', initiativeId: rank }),
         task({ id: 'child', title: 'Check one heading', parentTaskId: 'page', position: 1 }),
@@ -133,7 +133,7 @@ test('the plan board can show only tasks that are part of one row', async () => 
     try {
         const select = document.querySelector('[data-plan-part-of]');
         assert.ok(select instanceof dom.window.HTMLSelectElement);
-        assert.equal(select.getAttribute('aria-label'), 'Part of');
+        assert.equal(select.getAttribute('aria-label'), 'Project');
         const ids = () => [...document.querySelectorAll('[data-plan-row]')].map(node => node.getAttribute('data-plan-row'));
         assert.deepEqual(ids().sort(), ['child', 'footer', 'page']);
         const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value')?.set;

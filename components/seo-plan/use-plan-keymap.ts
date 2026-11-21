@@ -132,8 +132,11 @@ function applyPlanKey(
     event.preventDefault();
     switch (action.type) {
         case 'focus-add': {
-            const add = handlers.root?.querySelector('[data-plan-add]');
-            if (add instanceof HTMLElement) add.focus();
+            const fields = handlers.root?.querySelectorAll<HTMLInputElement>(
+                '[data-plan-add], input[data-add]:not([data-add-parent])',
+            );
+            const add = Array.from(fields ?? []).find(field => !field.disabled && !field.closest('[hidden]'));
+            add?.focus();
             return;
         }
         case 'focus-search':

@@ -17,12 +17,12 @@ import { STAGE_ADD_MAX_TITLE_LENGTH, STAGE_ADD_MAX_TITLES } from './stage-add-li
 export const PLAYBOOK_COPY = {
     button: 'Add from a playbook',
     title: 'Add from a playbook',
-    intro: 'Choose saved tasks, pick the stage they belong in, and add them to this plan.',
+    intro: 'Choose saved tasks, choose a project, and add them to this plan.',
     search: 'Search saved tasks',
     noMatch: 'No saved tasks match that search.',
     already: 'Already in the plan',
     same: 'Same as a task you picked',
-    stage: 'Add these tasks to',
+    project: 'Project',
     addNone: 'Add tasks',
     adding: 'Adding…',
     close: 'Close',
@@ -126,6 +126,7 @@ export interface PlaybookChoice {
 }
 
 export interface PlaybookAddCall {
+    initiativeId?: string | null;
     stage: BoardStage;
     titles: string[];
     dueDate?: string | null;
@@ -372,18 +373,19 @@ export function playbookChoice(board: PlanBoard, month: string, today: string, i
 }
 
 /** One create call per batch the existing add path will accept. */
-export function playbookAddCalls(titles: readonly string[], choice: PlaybookChoice): PlaybookAddCall[] {
+export function playbookAddCalls(titles: readonly string[], choice: PlaybookChoice, initiativeId?: string | null): PlaybookAddCall[] {
     const calls: PlaybookAddCall[] = [];
     for (let index = 0; index < titles.length; index += STAGE_ADD_MAX_TITLES) {
         const chunk = titles.slice(index, index + STAGE_ADD_MAX_TITLES);
         calls.push(choice.dueDate
             ? {
+                ...(initiativeId !== undefined ? { initiativeId } : {}),
                 stage: choice.stage,
                 titles: chunk,
                 dueDate: choice.dueDate,
                 items: chunk.map(title => ({ title, depth: 0 })),
             }
-            : { stage: choice.stage, titles: chunk });
+            : { ...(initiativeId !== undefined ? { initiativeId } : {}), stage: choice.stage, titles: chunk });
     }
     return calls;
 }
