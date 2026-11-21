@@ -13,12 +13,20 @@ export async function rewriteStageTasks(
     clientId: string,
     writes: readonly StageReorderWrite[],
 ): Promise<StageListTask[]> {
+    // Migration 123 still writes stage. Preserve the stored value until 138
+    // is applied, then remove this lookup and omit stage from the RPC patch.
+    const stored = await db.from('tasks').select('id, stage')
+        .eq('organization_id', organizationId).eq('client_id', clientId)
+        .in('id', writes.map(write => write.id));
+    if (stored.error || stored.data?.length !== writes.length) throw new Error('Unable to move tasks');
+    const stages = new Map(stored.data.map(row => [row.id, row.stage]));
+
     const result = await db.rpc('reorder_stage_tasks', {
         p_organization_id: organizationId,
         p_client_id: clientId,
         p_patches: writes.map(write => ({
             id: write.id,
-            stage: write.stage,
+            stage: stages.get(write.id),
             position: write.position,
             parent_task_id: write.parentTaskId,
         })),
@@ -31,25 +39,4 @@ export async function rewriteStageTasks(
     });
     if (tasks.length !== writes.length) throw new Error('Unable to move tasks');
     return tasks;
-}
-
-/**
- * Write one task's due date. Null clears it.
- * The stage reorder does not push to Basecamp, and neither does this.
- * Due-date edits made in the task modal still use their existing push.
- */
-export async function setStageTaskDueDate(
-    db: SupabaseClient,
-    organizationId: string,
-    clientId: string,
-    taskId: string,
-    dueDate: string | null,
-): Promise<void> {
-    const result = await db
-        .from('tasks')
-        .update({ due_date: dueDate })
-        .eq('id', taskId)
-        .eq('organization_id', organizationId)
-        .eq('client_id', clientId);
-    if (result.error) throw new Error('Unable to set due date');
 }
