@@ -54,10 +54,17 @@ export function projectProgress(
     return { done, total, nextDue };
 }
 
-export function buildProjectDraft(name: string, categoryValue: string): InitiativeDraft {
+export const PROJECT_TITLE_MAX_LENGTH = 160;
+
+export function normalizeProjectTitle(name: string): string {
     const title = name.trim();
     if (!title) throw new Error('Project name is required.');
-    if (title.length > 160) throw new Error('Project name is too long.');
+    if (title.length > PROJECT_TITLE_MAX_LENGTH) throw new Error('Project name is too long.');
+    return title;
+}
+
+export function buildProjectDraft(name: string, categoryValue: string): InitiativeDraft {
+    const title = normalizeProjectTitle(name);
     const category = readInitiativeCategory(categoryValue);
     if (!category) throw new Error('Choose a project category.');
     return {

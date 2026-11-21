@@ -7,6 +7,7 @@
  * when that id does not match the client.
  */
 
+import { normalizeProjectTitle } from '../projects/project-cards';
 import { createClient } from './client';
 import {
     initiativeItemRow,
@@ -287,4 +288,25 @@ export async function updateCampaignInitiativeStatus(input: {
         .select('id')
         .maybeSingle();
     if (error || !data) throw new Error('Could not update the project status.');
+}
+
+export async function updateCampaignInitiativeTitle(input: {
+    clientId: string;
+    assertedOrganizationId: string;
+    initiativeId: string;
+    title: string;
+}, supabase: ReturnType<typeof createClient> | null = createClient()): Promise<void> {
+    if (!supabase) throw new Error('Could not rename the project.');
+    const title = normalizeProjectTitle(input.title);
+    const scope = await resolveScope(supabase, input.clientId, input.assertedOrganizationId);
+    if (!scope.ok) throw new Error(scope.error);
+    const { data, error } = await supabase
+        .from('campaign_initiatives')
+        .update({ title })
+        .eq('id', input.initiativeId)
+        .eq('client_id', scope.clientId)
+        .eq('organization_id', scope.organizationId)
+        .select('id')
+        .maybeSingle();
+    if (error || !data) throw new Error('Could not rename the project.');
 }
