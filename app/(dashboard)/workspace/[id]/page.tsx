@@ -774,7 +774,6 @@ export default function ClientDetailPage() {
                     });
                 }}
                 onOpenPlan={() => setActiveTab('campaign', { phase: null })}
-                onOpenPhase={(phase) => setActiveTab('campaign', { phase })}
                 onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
                 onReview={() => { window.location.href = '/approvals'; }}
                 onConnections={() => setActiveTab('integrations')}
