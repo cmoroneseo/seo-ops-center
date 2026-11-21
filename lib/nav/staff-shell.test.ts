@@ -45,12 +45,10 @@ test('client sections follow the approved groups and omit concept rows', () => {
 test('agency menu is the readable cross-client list, with the portfolio only when that flag is on', () => {
     const plain = agencyLinks({ agencyDashboard: false });
     assert.deepEqual(plain.map(link => link.label), [
-        'Agency home', 'All clients', 'Tasks', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports',
+        'All clients', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports',
     ]);
     assert.equal(plain.find(link => link.id === 'clients')?.dividerAfter, true);
-    assert.equal(plain.find(link => link.id === 'home')?.href, '/dashboard');
     assert.equal(plain.find(link => link.id === 'clients')?.href, '/workspace');
-    assert.equal(plain.find(link => link.id === 'tasks')?.href, '/tasks');
     assert.equal(plain.find(link => link.id === 'deliverables')?.href, '/deliverables');
     assert.equal(plain.find(link => link.id === 'time')?.href, '/timesheets');
     assert.equal(plain.find(link => link.id === 'planner')?.href, '/planner');
@@ -59,9 +57,10 @@ test('agency menu is the readable cross-client list, with the portfolio only whe
 
     const flagged = agencyLinks({ agencyDashboard: true });
     assert.deepEqual(flagged.map(link => link.label), [
-        'Agency home', 'Dashboard', 'All clients', 'Tasks', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports',
+        'Dashboard', 'All clients', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports',
     ]);
     assert.equal(flagged.find(link => link.id === 'dashboard')?.href, '/agency');
+    assert.equal([...plain, ...flagged].some(link => ['/dashboard', '/tasks'].includes(link.href)), false);
 });
 
 test('switching clients keeps the module, and a closed rankings flag opens Overview', () => {
@@ -383,7 +382,7 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
 
     assert.deepEqual(
         agencyLinks({ agencyDashboard: true }).map(link => link.label),
-        ['Agency home', 'Dashboard', 'All clients', 'Tasks', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports'],
+        ['Dashboard', 'All clients', 'Approvals', 'Deliverables', 'Time', 'Planner', 'Reports'],
     );
 });
 
