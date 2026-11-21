@@ -1,3 +1,5 @@
+import { NO_PROJECT_GROUP, projectGroupId } from './project-groups';
+import type { PartOfChoice } from '../tasks/part-of';
 import type { SessionOrganization } from '../reports/session-org';
 import { isBoardStage } from './plan-phases';
 import {
@@ -19,6 +21,7 @@ export interface StageReorderDependencies {
     enabled: (organizationId: string) => boolean;
     /** Null when the client is not in the session organization. */
     load: (organizationId: string, clientId: string) => Promise<StageListTask[] | null>;
+    loadProjects?: (organizationId: string, clientId: string) => Promise<Pick<PartOfChoice, 'id'>[]>;
     /** One atomic rewrite of the affected rows. */
     rewrite: (
         organizationId: string,
@@ -93,6 +96,9 @@ function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: 
         if (typeof record.parentTaskId !== 'string' || !ID.test(record.parentTaskId.trim())) return { ok: false };
         parentTaskId = record.parentTaskId.trim();
     }
+    const projectGroup = record.projectGroup;
+    if (projectGroup !== undefined && (typeof projectGroup !== 'string'
+        || (projectGroup !== NO_PROJECT_GROUP && !ID.test(projectGroup)))) return { ok: false };
     const due = readDueDate(record);
     if (!due.ok) return { ok: false };
     return {
@@ -102,6 +108,7 @@ function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: 
             stage: record.stage,
             parentTaskId,
             index: record.index,
+            ...(projectGroup ? { projectGroup } : {}),
             ...(due.dueDate !== undefined ? { dueDate: due.dueDate } : {}),
         },
     };
@@ -133,6 +140,14 @@ export async function reorderStageTasks(
         const tasks = await dependencies.load(session.organizationId, clientId);
         if (!tasks) return { status: 404, body: { error: 'Not found' } };
 
+        if (parsed.value.projectGroup) {
+            const projects = await dependencies.loadProjects?.(session.organizationId, clientId) ?? [];
+            const top = tasks.find(task => task.id === (parsed.value.parentTaskId ?? parsed.value.taskId));
+            if (!top || projectGroupId(top, projects) !== parsed.value.projectGroup) {
+                return { status: 400, body: { error: 'Choose a task in this project.' } };
+            }
+            parsed.value.projects = projects;
+        }
         const plan = applyStageReorder(tasks, parsed.value);
         if (!plan.ok) {
             const status = plan.error === STAGE_REORDER_NOT_FOUND ? 404 : 400;

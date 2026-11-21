@@ -86,9 +86,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
             return outcome.status === 'skipped' ? null : outcome.sync;
         },
         loadClient: (organizationId, id) => clientBelongsToOrganization(db, organizationId, id),
+        loadProject: async (organizationId, id, initiativeId) => {
+            const project = await db.from('campaign_initiatives').select('id')
+                .eq('organization_id', organizationId).eq('client_id', id).eq('id', initiativeId).maybeSingle();
+            if (project.error) throw project.error;
+            return Boolean(project.data);
+        },
         loadParent: (organizationId, id, parentTaskId) => loadStageAddParent(db, organizationId, id, parentTaskId),
-        maxPosition: (organizationId, id, stage, parentTaskId) => (
-            maxStageAddPosition(db, organizationId, id, stage, parentTaskId)
+        maxPosition: (organizationId, id, stage, parentTaskId, acrossStages) => (
+            maxStageAddPosition(db, organizationId, id, stage, parentTaskId, acrossStages)
         ),
         insertTasks: rows => insertStageTasks(db, rows),
         deleteTasks: ids => deleteStageTasks(db, ids),
@@ -135,6 +141,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ cl
         session: resolveSessionOrganization,
         enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
         load: (organizationId, id) => loadClientStageTasks(db, organizationId, id),
+        loadProjects: async (organizationId, id) => {
+            const projects = await db.from('campaign_initiatives').select('id')
+                .eq('organization_id', organizationId).eq('client_id', id);
+            if (projects.error) throw projects.error;
+            return projects.data ?? [];
+        },
         rewrite: (organizationId, id, writes) => rewriteStageTasks(db, organizationId, id, writes),
         setDue: (organizationId, id, taskId, dueDate) => setStageTaskDueDate(db, organizationId, id, taskId, dueDate),
         pushPlanTask: async taskId => {

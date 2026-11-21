@@ -1,5 +1,7 @@
+import { projectGroupId, NO_PROJECT_GROUP } from './project-groups';
+import type { PartOfChoice } from '../tasks/part-of';
 import { isPendingStageTaskId } from './stage-add';
-import { groupTasksByStage, type StageListTask } from './stage-list';
+import { compareStageListTasks, groupTasksByStage, type StageListTask } from './stage-list';
 import { isTaskStage } from '../tasks/stage';
 import { TASK_STAGES } from '../types';
 import { isBoardStage, isPlanPhase, PLAN_PHASES, type BoardStage } from './plan-phases';
@@ -14,6 +16,10 @@ export interface StageReorderMove {
     stage: BoardStage;
     parentTaskId: string | null;
     index: number;
+    /** Reorder by position across stored stages, keeping each task’s stage and parent. */
+    projectGroup?: string;
+    /** Loaded by the server for No project, and supplied by the board for its optimistic preview. */
+    projects?: readonly Pick<PartOfChoice, 'id'>[];
     /**
      * Set when a cross-section drag should write tasks.due_date.
      * Null clears it. Omitted leaves the due date alone.
@@ -173,6 +179,26 @@ function changed(task: StageListTask, next: { stage: BoardStage; position: numbe
  * cannot become a parent.
  */
 export function applyStageReorder(tasks: readonly StageListTask[], move: StageReorderMove): StageReorderPlan {
+    if (move.projectGroup) {
+        const siblings = persistedTasks(tasks).filter(task => !task.excluded
+            && (task.parentTaskId ?? null) === move.parentTaskId
+            && (move.parentTaskId != null || (move.projectGroup === NO_PROJECT_GROUP
+                ? projectGroupId(task, move.projects ?? []) === NO_PROJECT_GROUP
+                : task.initiativeId === move.projectGroup))).sort(compareStageListTasks);
+        const from = siblings.findIndex(task => task.id === move.taskId);
+        if (from < 0) return { ok: false, error: STAGE_REORDER_NOT_FOUND };
+        const to = clampIndex(move.index, siblings.length - 1);
+        if (from === to) return { ok: true, tasks: [...tasks], writes: [] };
+        const [dragged] = siblings.splice(from, 1);
+        siblings.splice(to, 0, dragged);
+        const writes = siblings.flatMap((task, index) => task.position === index + 1 ? [] : [{
+            id: task.id, stage: stageOf(task), position: index + 1, parentTaskId: move.parentTaskId,
+        }]);
+        const positions = new Map(writes.map(write => [write.id, write.position]));
+        return { ok: true, writes, tasks: tasks.map(task => positions.has(task.id)
+            ? { ...task, position: positions.get(task.id)! } : task) };
+    }
+
     const model = readModel(tasks);
     const dragged = model.byId.get(move.taskId);
     const source = model.place(move.taskId);
@@ -249,7 +275,10 @@ export function applyStageReorder(tasks: readonly StageListTask[], move: StageRe
         tasks: tasks.map(task => {
             const write = byWrite.get(task.id);
             if (!write) return task;
-            return { ...task, stage: write.stage, position: write.position, parentTaskId: write.parentTaskId };
+            return {
+                ...task, stage: write.stage, position: write.position, parentTaskId: write.parentTaskId,
+                ...(write.parentTaskId && task.initiativeId ? { initiativeId: null } : {}),
+            };
         }),
     };
 }
@@ -275,6 +304,9 @@ export function mergeStageTasks(current: readonly StageListTask[], updated: read
         if (next.dueDate === undefined && task.dueDate !== undefined) next = { ...next, dueDate: task.dueDate };
         if (next.completedAt === undefined && task.completedAt !== undefined) next = { ...next, completedAt: task.completedAt };
         if (next.assigneeIds === undefined && task.assigneeIds !== undefined) next = { ...next, assigneeIds: task.assigneeIds };
+        if (next.initiativeId === undefined && task.initiativeId !== undefined) {
+            next = { ...next, initiativeId: next.parentTaskId ? null : task.initiativeId };
+        }
         if (next.priority === undefined && task.priority !== undefined) next = { ...next, priority: task.priority };
         return next;
     });

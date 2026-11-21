@@ -7,7 +7,8 @@ import { updateTask } from '@/lib/supabase/tasks';
 import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { dueDateMoveError } from '@/lib/workspace-canvas/calendar';
 import { monthKey } from '@/lib/marketing-plan-execution';
-import type { RoadmapPhase } from '@/lib/marketing-plan-roadmap';
+import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
+import type { PartOfChoice, PartOfTask } from '@/lib/tasks/part-of';
 import type { ClientProject } from '@/lib/types';
 import { actionForegroundChoice, oklchContrast, type ActionForeground } from '@/lib/workspace-canvas/palette';
 import { loadWorkspaceCanvas } from '@/lib/workspace-canvas/load';
@@ -67,7 +68,6 @@ export function ClientWorkspaceCanvas({
     onAddWork,
     onOpenTask,
     onOpenPlan,
-    onOpenPhase,
     onViewAllTasks,
     onReview,
     onConnections,
@@ -80,7 +80,6 @@ export function ClientWorkspaceCanvas({
     refreshKey: number;
     onAddWork: (date?: string) => void;
     onOpenTask: (taskId: string) => void;
-    onOpenPhase: (phase: RoadmapPhase) => void;
     onOpenPlan: () => void;
     onViewAllTasks: () => void;
     onReview: (batchId: string) => void;
@@ -103,6 +102,17 @@ export function ClientWorkspaceCanvas({
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [model, setModel] = useState<WorkspaceCanvasModel | null>(null);
     const [loading, setLoading] = useState(true);
+    const [projects, setProjects] = useState<readonly PartOfChoice[] | null>(null);
+    const [projectTasks, setProjectTasks] = useState<readonly PartOfTask[] | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        setProjects(null);
+        void listCampaignInitiatives(client.id).then(result => {
+            if (active && !result.unavailable) setProjects(result.initiatives);
+        });
+        return () => { active = false; };
+    }, [client.id, organizationId, refreshKey]);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -139,6 +149,13 @@ export function ClientWorkspaceCanvas({
                 inputRef.current = loaded.input;
                 const next = projectWorkspaceCanvas(loaded.input);
                 setModel(next);
+                setProjectTasks(loaded.input.tasks.ok ? loaded.tasks.map(task => ({
+                    id: task.id,
+                    title: task.title,
+                    status: task.status,
+                    parentTaskId: task.parentTaskId ?? null,
+                    initiativeId: task.initiativeId ?? null,
+                })) : null);
                 const search = loaded.input.search;
                 if (search.ok && search.coverage === 'ready' && polls < 6 &&
                     (search.refreshPending || search.current.some(point => point.clicks == null) || search.previous?.some(point => point.clicks == null))) {
@@ -235,7 +252,7 @@ export function ClientWorkspaceCanvas({
                                     <button type="button" aria-label="Next month" disabled={loading} onClick={() => changeMonth(1)} className="rounded-r-lg p-2 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><ChevronRight className="h-4 w-4" /></button>
                                 </div>
                             } />
-                            <WorkspacePhaseRail model={model.phases} onOpenPhase={onOpenPhase} onCreatePlan={onOpenPlan} />
+                            {projects && projectTasks && <WorkspacePhaseRail projects={projects} tasks={projectTasks} onOpenPlan={onOpenPlan} />}
                         </div>
                         <div className="space-y-4">
                             <WorkspaceHoursGauge model={model.hours} />
