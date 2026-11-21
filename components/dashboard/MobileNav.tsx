@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Fragment, Suspense, useEffect, useState } from 'react';
 import {
     Menu, X, Search, LogOut, Check, FileCheck2,
     LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
@@ -31,6 +31,7 @@ import {
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcherPanel } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
+import { SidebarProjects } from '@/components/dashboard/SidebarProjects';
 
 const primaryTabs = [
     { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
@@ -212,69 +213,82 @@ export function MobileNav() {
                     )}
 
                     {sections.map(section => (
-                        <div key={section.id} className="mb-2">
-                            <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                {section.label}
-                            </span>
-                            {section.links.map(link => {
-                                const active = isClientLinkActive(pathname, selected.search, link, flags);
-                                const children = link.children ?? [];
-                                const item = (
-                                    <Link
-                                        key={link.id}
-                                        href={link.href}
-                                        onClick={() => setMenuOpen(false)}
-                                        aria-current={active ? 'page' : undefined}
-                                        className={cn(
-                                            'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
-                                            active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
-                                        )}
-                                    >
-                                        {link.label}
-                                    </Link>
-                                );
-                                if (children.length === 0) return item;
-                                return (
-                                    <div key={link.id}>
-                                        {item}
-                                        {children.map(child => {
-                                            const childActive = isClientLinkActive(pathname, selected.search, child, flags);
-                                            return (
-                                                <Link
-                                                    key={child.id}
-                                                    href={child.href}
-                                                    onClick={() => setMenuOpen(false)}
-                                                    aria-current={childActive ? 'page' : undefined}
-                                                    className={cn(
-                                                        'flex items-center gap-3 rounded-xl px-6 py-3 text-sm font-medium transition-colors',
-                                                        childActive ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
-                                                    )}
-                                                >
-                                                    {child.label}
-                                                </Link>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })}
-                            {section.overflow?.map(link => {
-                                const active = isClientLinkActive(pathname, selected.search, link, flags);
-                                return (
-                                    <Link
-                                        key={link.id}
-                                        href={link.href}
-                                        onClick={() => setMenuOpen(false)}
-                                        aria-current={active ? 'page' : undefined}
-                                        className={cn(
-                                            'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
-                                            active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
-                                        )}
-                                    >
-                                        {link.label}
-                                    </Link>
-                                );
-                            })}
-                        </div>
+                        <Fragment key={section.id}>
+                            <div className="mb-2">
+                                <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                    {section.label}
+                                </span>
+                                {section.links.map(link => {
+                                    const active = isClientLinkActive(pathname, selected.search, link, flags);
+                                    const children = link.children ?? [];
+                                    const item = (
+                                        <Link
+                                            key={link.id}
+                                            href={link.href}
+                                            onClick={() => setMenuOpen(false)}
+                                            aria-current={active ? 'page' : undefined}
+                                            className={cn(
+                                                'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
+                                                active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                            )}
+                                        >
+                                            {link.label}
+                                        </Link>
+                                    );
+                                    if (children.length === 0) return item;
+                                    return (
+                                        <div key={link.id}>
+                                            {item}
+                                            {children.map(child => {
+                                                const childActive = isClientLinkActive(pathname, selected.search, child, flags);
+                                                return (
+                                                    <Link
+                                                        key={child.id}
+                                                        href={child.href}
+                                                        onClick={() => setMenuOpen(false)}
+                                                        aria-current={childActive ? 'page' : undefined}
+                                                        className={cn(
+                                                            'flex items-center gap-3 rounded-xl px-6 py-3 text-sm font-medium transition-colors',
+                                                            childActive ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                                        )}
+                                                    >
+                                                        {child.label}
+                                                    </Link>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+                                {section.overflow?.map(link => {
+                                    const active = isClientLinkActive(pathname, selected.search, link, flags);
+                                    return (
+                                        <Link
+                                            key={link.id}
+                                            href={link.href}
+                                            onClick={() => setMenuOpen(false)}
+                                            aria-current={active ? 'page' : undefined}
+                                            className={cn(
+                                                'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
+                                                active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                            )}
+                                        >
+                                            {link.label}
+                                        </Link>
+                                    );
+                                })}
+                            </div>
+                            {section.id === (pipelineNav ? 'delivery' : 'workspace') && selected.clientId && menuOpen && (
+                                <div className="mb-2">
+                                    <SidebarProjects
+                                        clientId={selected.clientId}
+                                        organizationId={organization?.id}
+                                        pathname={selected.pathname}
+                                        search={selected.search}
+                                        onNavigate={() => setMenuOpen(false)}
+                                    />
+                                </div>
+                            )}
+                        </Fragment>
                     ))}
 
                     <div className="mb-2">
