@@ -11,6 +11,7 @@ export interface TaskCreateFields {
     organizationId?: string;
     projectId?: string;
     clientId?: string;
+    initiativeId?: string;
     title?: string;
     description?: string;
     assigneeIds?: string[];
@@ -41,6 +42,7 @@ export function taskCreateRow(task: TaskCreateFields): Record<string, unknown> {
         organization_id: task.organizationId,
         project_id: task.projectId,
         client_id: task.clientId,
+        ...(task.initiativeId ? { initiative_id: task.initiativeId } : {}),
         title: task.title,
         description: task.description,
         assignee_ids: task.assigneeIds ?? [],

@@ -8,6 +8,7 @@ import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { dueDateMoveError } from '@/lib/workspace-canvas/calendar';
 import { monthKey } from '@/lib/marketing-plan-execution';
 import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
+import { orderedInitiatives } from '@/lib/campaign-workspace/initiatives';
 import type { PartOfChoice, PartOfTask } from '@/lib/tasks/part-of';
 import type { ClientProject } from '@/lib/types';
 import { actionForegroundChoice, oklchContrast, type ActionForeground } from '@/lib/workspace-canvas/palette';
@@ -109,7 +110,7 @@ export function ClientWorkspaceCanvas({
         let active = true;
         setProjects(null);
         void listCampaignInitiatives(client.id).then(result => {
-            if (active && !result.unavailable) setProjects(result.initiatives);
+            if (active && !result.unavailable) setProjects(orderedInitiatives(result.initiatives));
         });
         return () => { active = false; };
     }, [client.id, organizationId, refreshKey]);
@@ -252,7 +253,7 @@ export function ClientWorkspaceCanvas({
                                     <button type="button" aria-label="Next month" disabled={loading} onClick={() => changeMonth(1)} className="rounded-r-lg p-2 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><ChevronRight className="h-4 w-4" /></button>
                                 </div>
                             } />
-                            {projects && projectTasks && <WorkspacePhaseRail projects={projects} tasks={projectTasks} onOpenPlan={onOpenPlan} />}
+                            {projects && projectTasks && <WorkspacePhaseRail clientId={client.id} projects={projects} tasks={projectTasks} />}
                         </div>
                         <div className="space-y-4">
                             <WorkspaceHoursGauge model={model.hours} />

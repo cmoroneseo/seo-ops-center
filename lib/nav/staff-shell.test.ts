@@ -22,7 +22,7 @@ test('client sections follow the approved groups and omit concept rows', () => {
     const on = clientSections('summit', { keywordTracking: true, vault: false, campaignWorkspace: false });
     assert.deepEqual(on.map(section => section.label), ['Client workspace', 'Search performance', 'More']);
     assert.deepEqual(on[0].links.map(link => link.label), [
-        'Overview', 'SEO Plan', 'Tasks', 'Deliverables', 'Time', 'Reports',
+        'Overview', 'SEO Plan', 'Tasks', 'Projects', 'Deliverables', 'Time', 'Reports',
     ]);
     assert.deepEqual(on[1].links.map(link => link.label), ['Search', 'Changes', 'Rankings']);
     assert.equal(on[1].links[0].href, '/workspace/summit?tab=insights');
@@ -148,7 +148,7 @@ test('active rows follow the workspace tab, and the client list is not every wor
 test('campaign sits after Overview only while its flag is on, and a closed flag opens Overview', () => {
     const on = clientSections('summit', { keywordTracking: false, vault: false, campaignWorkspace: true });
     assert.deepEqual(on[0].links.map(link => link.label), [
-        'Overview', 'Campaign', 'Tasks', 'Deliverables', 'Time', 'Reports',
+        'Overview', 'Campaign', 'Tasks', 'Projects', 'Deliverables', 'Time', 'Reports',
     ]);
     assert.equal(on[0].links.some(link => link.label === 'SEO Plan' || link.tab === 'campaign'), false);
     assert.equal(on[0].links[1].href, '/workspace/summit?tab=campaign-workspace');
@@ -224,6 +224,7 @@ function legacySections(options: { keywordTracking: boolean; vault: boolean; cam
     else workspace.push(workspaceLink('plan', 'SEO Plan', 'campaign'));
     workspace.push(
         workspaceLink('tasks', 'Tasks', 'tasks'),
+        workspaceLink('projects', 'Projects', 'projects'),
         workspaceLink('deliverables', 'Deliverables', 'deliverables'),
         { id: 'time', label: 'Time', href: '/timesheets' },
         { id: 'reports', label: 'Reports', href: reportsNavHref() },
@@ -295,6 +296,7 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
     assert.deepEqual(on[2].links.map(link => ({ label: link.label, tab: link.tab, href: link.href })), [
         { label: 'Campaign', tab: 'campaign-workspace', href: '/workspace/summit?tab=campaign-workspace' },
         { label: 'Tasks', tab: 'tasks', href: '/workspace/summit?tab=tasks' },
+        { label: 'Projects', tab: 'projects', href: '/workspace/summit?tab=projects' },
         { label: 'Reports', tab: undefined, href: reportsNavHref() },
     ]);
 
@@ -334,7 +336,7 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
     });
     assert.deepEqual(noRankings[1].links[3].children?.map(link => link.label), ['Site pages']);
     assert.equal(flatLinks(noRankings).some(link => link.label === 'Rankings' || link.id === 'vault'), false);
-    assert.deepEqual(noRankings[2].links.map(link => link.label), ['SEO Plan', 'Tasks', 'Reports']);
+    assert.deepEqual(noRankings[2].links.map(link => link.label), ['SEO Plan', 'Tasks', 'Projects', 'Reports']);
     assert.equal(noRankings[2].links[0].href, '/workspace/summit?tab=campaign');
     assert.deepEqual(noRankings[3].links.map(link => link.label), [
         'Integrations', 'Portal', 'Deliverables', 'Time',
@@ -356,6 +358,7 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
     const kept = [
         ['tab=insights', '/workspace/maya?tab=insights'],
         ['tab=inventory', '/workspace/maya?tab=inventory'],
+        ['tab=projects&projectId=old', '/workspace/maya?tab=projects'],
         ['tab=topical-map', '/workspace/maya?tab=topical-map'],
         ['tab=content', '/workspace/maya?tab=content'],
         ['tab=approvals&approvalBatch=batch-1', '/workspace/maya?tab=overview&navNotice=unavailable'],

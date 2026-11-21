@@ -258,3 +258,33 @@ export async function saveCampaignInitiative(input: {
     }
     return { id };
 }
+
+/** Update status through the same client scope without rewriting project fields or checklist items. */
+export async function updateCampaignInitiativeStatus(input: {
+    clientId: string;
+    assertedOrganizationId: string;
+    initiativeId: string;
+    state: InitiativeState;
+    verification?: { evidenceUrl: string; verifiedOn: string };
+}): Promise<void> {
+    const supabase = createClient();
+    if (!supabase || !STATES.has(input.state)) throw new Error('Could not update the project status.');
+    const scope = await resolveScope(supabase, input.clientId, input.assertedOrganizationId);
+    if (!scope.ok) throw new Error(scope.error);
+    const evidenceUrl = input.verification && safeHttpUrl(input.verification.evidenceUrl.trim());
+    if (input.verification && (!evidenceUrl || evidenceUrl.length > 500 || !day(input.verification.verifiedOn))) {
+        throw new Error('Enter a valid evidence URL and verification date.');
+    }
+    const { data, error } = await supabase
+        .from('campaign_initiatives')
+        .update({
+            state: input.state,
+            ...(input.verification ? { evidence_url: evidenceUrl, verified_on: input.verification.verifiedOn } : {}),
+        })
+        .eq('id', input.initiativeId)
+        .eq('client_id', scope.clientId)
+        .eq('organization_id', scope.organizationId)
+        .select('id')
+        .maybeSingle();
+    if (error || !data) throw new Error('Could not update the project status.');
+}

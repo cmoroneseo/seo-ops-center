@@ -60,6 +60,7 @@ import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPan
 import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
 import { VaultPage } from '@/components/vault/VaultPage';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
+import { WorkspaceProjects } from '@/components/projects/WorkspaceProjects';
 import { StagePlanList } from '@/components/seo-plan/StagePlanList';
 import { useSeoPlanStageList } from '@/components/seo-plan/use-seo-plan-stage-list';
 import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
@@ -85,7 +86,7 @@ import { ChangeLogTab } from '@/components/change-log/ChangeLogTab';
 import { ContentBoard } from '@/components/content/ContentBoard';
 import { canEditContent } from '@/lib/content/access';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'changes' | 'rankings' | 'inventory' | 'topical-map' | 'content' | 'approvals' | 'portal' | 'vault' | 'campaign-workspace';
+type Tab = 'overview' | 'projects' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'changes' | 'rankings' | 'inventory' | 'topical-map' | 'content' | 'approvals' | 'portal' | 'vault' | 'campaign-workspace';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -177,7 +178,7 @@ export default function ClientDetailPage() {
             }
             return;
         }
-        const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'changes', 'inventory', 'topical-map', 'content', 'portal'];
+        const knownTabs = ['overview', 'projects', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'changes', 'inventory', 'topical-map', 'content', 'portal'];
         if (keywordTrackingEnabled()) knownTabs.push('rankings');
         if (campaignWorkspaceEnabled()) knownTabs.push(CAMPAIGN_WORKSPACE_TAB);
         const opportunity = readOpportunityRoute(searchKey, { keywordTracking: keywordTrackingEnabled() });
@@ -595,6 +596,20 @@ export default function ClientDetailPage() {
                     clientId={client.id}
                     clientName={client.clientName}
                     clientDomain={client.domain ?? null}
+                />
+            )}
+
+            {activeTab === 'projects' && organization?.id === client.organizationId && (
+                <WorkspaceProjects
+                    key={JSON.stringify([client.id, searchParams.get('projectId')])}
+                    clientId={client.id}
+                    clientName={client.clientName}
+                    organizationId={client.organizationId}
+                    projectId={searchParams.get('projectId')}
+                    create={searchParams.get('newProject') === '1'}
+                    stageListOn={stageListOn}
+                    userId={userId ?? undefined}
+                    onCreated={() => setActiveTab('projects', { newProject: null })}
                 />
             )}
 

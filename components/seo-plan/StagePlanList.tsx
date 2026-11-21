@@ -52,7 +52,9 @@ import { useStageListMoves } from '@/lib/seo-plan/stage-list-moves';
 import { calendarDay } from '@/lib/seo-plan/this-month';
 import { RESUMED_OPEN_TIMER_MESSAGE, openTimerRows } from '@/lib/timer/attempt-state';
 import { listCampaignInitiatives } from '@/lib/supabase/campaign-initiatives';
+import { orderedInitiatives } from '@/lib/campaign-workspace/initiatives';
 import { createTask, deleteTask, getTask, getTaskTemplates, updateTask } from '@/lib/supabase/tasks';
+import { filterProjectTasks, projectProgress } from '@/lib/projects/project-cards';
 import type { PartOfChoice } from '@/lib/tasks/part-of';
 import type { UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { parseLiveUrlInput, subtaskLineDrafts } from '@/lib/tasks/live-url';
@@ -87,12 +89,17 @@ export function StagePlanList({
     clientName,
     onOpenResults,
     checklistScope,
+    project,
+    onProjectProgress,
 }: {
     clientId: string;
     clientName: string;
     onOpenResults?: (month: string) => void;
     checklistScope?: PlaybookScope;
+    project?: PartOfChoice;
+    onProjectProgress?: (progress: ReturnType<typeof projectProgress>) => void;
 }) {
+    const projectId = project?.id;
     const { userId } = useCurrentMember();
     const { organization } = useOrganization();
     const [query, setQuery] = useState('');
@@ -198,7 +205,7 @@ export function StagePlanList({
         setPartOfChoices(null);
         void listCampaignInitiatives(clientId).then(result => {
             if (cancelled) return;
-            setPartOfChoices(result.unavailable ? null : result.initiatives.map(item => ({ id: item.id, title: item.title })));
+            setPartOfChoices(result.unavailable ? null : orderedInitiatives(result.initiatives).map(item => ({ id: item.id, title: item.title })));
         });
         return () => { cancelled = true; };
     }, [clientId, reloadKey]);
@@ -274,6 +281,7 @@ export function StagePlanList({
         let cancelled = false;
         setPlanItems([]);
         setPlanRows([]);
+        if (projectId) return;
         loadMarketingPlan(clientId).then(plan => {
             if (cancelled) return;
             setPlanItems((plan?.items ?? []).map(item => ({
@@ -294,9 +302,10 @@ export function StagePlanList({
             }
         });
         return () => { cancelled = true; };
-    }, [clientId, reloadKey]);
+    }, [clientId, reloadKey, projectId]);
 
     useEffect(() => {
+        if (projectId) return;
         const organizationId = organization?.id;
         if (!organizationId) {
             setOrgTasks([]);
@@ -319,7 +328,7 @@ export function StagePlanList({
             setOrgTasksReady(true);
         });
         return () => { cancelled = true; };
-    }, [organization?.id]);
+    }, [organization?.id, projectId]);
 
     const reload = () => setReloadKey(key => key + 1);
 
@@ -732,27 +741,32 @@ export function StagePlanList({
     };
 
     const shownTasks = useMemo(
-        () => (tasks ? withChecklistTasks(tasks, planItems) : null),
-        [tasks, planItems],
+        () => tasks ? (projectId ? filterProjectTasks(projectId, tasks) : withChecklistTasks(tasks, planItems)) : null,
+        [tasks, planItems, projectId],
     );
+
+    useEffect(() => {
+        if (projectId && shownTasks) onProjectProgress?.(projectProgress(projectId, shownTasks));
+    }, [projectId, shownTasks, onProjectProgress]);
 
     if (error) {
         return (
             <p className="text-sm text-[#71717a]">
-                Couldn&apos;t load this plan.{' '}
+                {project ? "Couldn't load project tasks." : "Couldn't load this plan."}{' '}
                 <button type="button" onClick={reload} className="text-[#ec4899] hover:underline">Try again</button>
             </p>
         );
     }
-    if (!tasks || board == null) return <PanelSkeleton label="Loading SEO plan" />;
+    if (!tasks || board == null) return <PanelSkeleton label={project ? 'Loading project tasks' : 'Loading SEO plan'} />;
 
     const visibleTasks = shownTasks ?? tasks;
+    const panelTasks = project ? visibleTasks : tasks;
     const partOf = partOfChoices;
-    const open = panel && tasks.some(task => task.id === panel.id) ? panel : null;
-    const selected = open ? tasks.find(task => task.id === open.id) : undefined;
+    const selected = panel ? panelTasks.find(task => task.id === panel.id) : undefined;
+    const open = selected ? panel : null;
     const model = open && selected ? planPanelTask({
         task: selected,
-        tasks,
+        tasks: panelTasks,
         detail: detail?.id === selected.id ? detail : null,
         people,
         accountId,
@@ -783,6 +797,7 @@ export function StagePlanList({
             {timerError && <p role="alert" className="mb-2 text-sm text-[#dc2626]">{timerError}</p>}
             <StagePlanListView
                 board={board}
+                project={project}
                 tasks={visibleTasks}
                 query={query}
                 onQueryChange={setQuery}
@@ -822,7 +837,7 @@ export function StagePlanList({
                     <PlanSidePanel
                         key={model.id}
                         task={model}
-                        tasks={tasks}
+                        tasks={panelTasks}
                         people={people}
                         clientName={clientName}
                         today={calendarDay(new Date())}

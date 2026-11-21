@@ -56,6 +56,7 @@ function render(query = '', extraTasks: StageListTask[] = []) {
         onAddTasks: async () => undefined,
         onReorder: async () => undefined,
         clientName: 'Floor Co Design USA',
+        clientId: 'floor-co',
         today: '2026-10-19',
         initialMonth: '2026-10',
     }));
@@ -92,6 +93,8 @@ test('the list renders projects in order, including empty ones', () => {
     assert.doesNotMatch(html, /Floor Co Design USA/);
     assert.match(html, /data-plan-section="setup-project"[\s\S]*?data-count="1"/);
     assert.match(html, /data-plan-section="empty-project"[\s\S]*?data-count="0"/);
+    assert.match(html, /href="\/workspace\/floor-co\?tab=projects&amp;projectId=setup-project">Get started<\/a>/);
+    assert.doesNotMatch(html, /<a[^>]*>No project<\/a>/);
     assert.match(html, /data-plan-section="no-project"[^>]*data-plan-collapsed="false"/);
     assert.match(html, /placeholder="Search tasks"/);
     assert.match(html, />Search tasks</);
