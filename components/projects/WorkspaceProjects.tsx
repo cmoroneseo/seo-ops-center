@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ProjectBreadcrumb } from './ProjectBreadcrumb';
 import { ProjectTitle } from './ProjectTitle';
 import { StagePlanList } from '@/components/seo-plan/StagePlanList';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
@@ -197,7 +198,7 @@ function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload
 
     return (
         <section className="space-y-5">
-            <Link href={projectsHref(project.clientId)} className="text-sm font-medium text-primary hover:underline">← Back to Projects</Link>
+            <ProjectBreadcrumb clientId={project.clientId} title={project.title} />
             <header className="space-y-3">
                 <ProjectTitle title={project.title} onRename={async title => {
                     await updateCampaignInitiativeTitle({
