@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import type { StageListTask } from '../seo-plan/stage-list.ts';
 import { buildGtmEventsReport, type BuildGtmEventsInput } from './gtm-events.ts';
 import { decidePublicShare, newPublicToken, type PublicShareRow } from './gtm-share.ts';
+import { CLIENT_ROADMAP_GROUP_KEYS, CLIENT_ROADMAP_KEYS } from './roadmap.ts';
 import { readPublicRoadmap, type RoadmapShareSources } from './roadmap-public.ts';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -13,10 +14,11 @@ const CLIENT = '33333333-3333-4333-8333-333333333333';
 const REPORT = '66666666-6666-4666-8666-666666666666';
 const OTHER = '99999999-9999-4999-8999-999999999999';
 const ASSIGNEE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const TODAY = '2026-11-10';
 const NOW = new Date('2026-11-10T00:00:00.000Z');
 const DESCRIPTION = 'Rewrite the service page so people can find it.';
-const HIDDEN_TITLE = 'Write the city page';
+const PROJECT_ID = 'project-private-id';
+const PROJECT_TITLE = 'Website updates';
+const CITY_TITLE = 'Write the city page';
 const SUBTASK = 'Check the image tags on the homepage';
 const ORPHAN = 'Orphan subtask that stays internal';
 const PARENT = 'Fix the sitemap';
@@ -83,6 +85,7 @@ function liveTasks(): StageListTask[] {
     return [
         task({
             id: 'parent',
+            initiativeId: PROJECT_ID,
             title: PARENT,
             status: 'done',
             completedAt: '2026-11-02T20:00:00.000Z',
@@ -108,7 +111,7 @@ function liveTasks(): StageListTask[] {
         }),
         task({
             id: 'city',
-            title: HIDDEN_TITLE,
+            title: CITY_TITLE,
             stage: 'growth',
             description: DESCRIPTION,
             estimatedHours: 17.5,
@@ -194,13 +197,13 @@ test('a roadmap link is refused when it is revoked, expired, or the wrong token'
     assert.deepEqual(noIds, { ok: false, denial: 'not_found' });
 });
 
-test('the public plan drops descriptions, hidden stages, subtasks, hours, and assignees', async () => {
+test('the public plan ignores legacy settings and returns only client-safe project and task fields', async () => {
     const { token, tokenHash } = newPublicToken();
     const seen: string[] = [];
     const result = await readPublicRoadmap(token, deps(openRow(tokenHash), {
         sources: {
             share: { sections: { blocks: [{ type: 'roadmap', props: { hiddenStages: [], showTaskDescriptions: true } }] } },
-            frozen: { snapshot: roadmapSections(['growth']), versionId: 'version-1' },
+            frozen: { snapshot: roadmapSections(['foundation', 'growth', 'scale', 'onboarding', 'this_month', 'backlog']), versionId: 'version-1' },
         },
         onTasks: (organizationId, clientId) => {
             seen.push(`${organizationId}:${clientId}`);
@@ -216,11 +219,12 @@ test('the public plan drops descriptions, hidden stages, subtasks, hours, and as
 
     const serialized = JSON.stringify(result.roadmap);
     assert.equal(serialized.includes(PARENT), true);
-    assert.equal(result.roadmap.stages.find(stage => stage.id === 'foundation')?.tasks[0]?.doneOn, 'Nov 2');
-    assert.equal(result.roadmap.stages.some(stage => stage.id === 'foundation'), true);
-    assert.equal(result.roadmap.stages.some(stage => stage.id === 'growth'), false);
+    assert.deepEqual(result.roadmap.groups.map(({ title }) => title), [PROJECT_TITLE, 'Other work']);
+    assert.equal(result.roadmap.groups[0]?.tasks[0]?.doneOn, 'Nov 2');
+    assert.equal(result.roadmap.groups[0]?.status, 'Done');
+    assert.equal(serialized.includes(PROJECT_ID), false);
     assert.equal(serialized.includes(DESCRIPTION), false);
-    assert.equal(serialized.includes(HIDDEN_TITLE), false);
+    assert.equal(serialized.includes(CITY_TITLE), true);
     assert.equal(serialized.includes(SUBTASK), false);
     assert.equal(serialized.includes(ORPHAN), false);
     assert.equal(serialized.includes('17.5'), false);
@@ -232,8 +236,10 @@ test('the public plan drops descriptions, hidden stages, subtasks, hours, and as
     assert.equal(serialized.includes(OTHER), false);
     assert.equal(serialized.includes('Other client secret plan'), false);
     assert.equal(serialized.includes('Kentina'), false);
-    for (const stage of result.roadmap.stages) {
-        for (const item of stage.tasks) {
+    assert.deepEqual(Object.keys(result.roadmap), [...CLIENT_ROADMAP_KEYS]);
+    for (const group of result.roadmap.groups) {
+        assert.ok(Object.keys(group).every(key => (CLIENT_ROADMAP_GROUP_KEYS as readonly string[]).includes(key)));
+        for (const item of group.tasks) {
             const keys = Object.keys(item).sort();
             assert.deepEqual(keys, item.doneOn ? ['doneOn', 'status', 'title'] : ['status', 'title']);
             assert.equal('description' in item, false);
@@ -294,8 +300,8 @@ test('a shared report with no approved version uses the shared options, not the 
     assert.equal(result.ok, true);
     if (!result.ok) return;
     const serialized = JSON.stringify(result.roadmap);
-    assert.equal(serialized.includes(PARENT), false);
-    assert.equal(serialized.includes(HIDDEN_TITLE), true);
+    assert.equal(serialized.includes(PARENT), true);
+    assert.equal(serialized.includes(CITY_TITLE), true);
     assert.equal(serialized.includes(DESCRIPTION), false);
     assert.equal(JSON.stringify(draft).includes(DESCRIPTION), true);
 });
@@ -312,7 +318,6 @@ function deps(row: PublicShareRow | null, options: {
     const calls = options.calls;
     return {
         now: () => NOW,
-        today: TODAY,
         findByHash: async (hash: string) => {
             assert.match(hash, /^[a-f0-9]{64}$/);
             if (!row || hash !== row.tokenHash) return null;
@@ -330,6 +335,9 @@ function deps(row: PublicShareRow | null, options: {
             if (organizationId !== ORG || clientId !== CLIENT) return null;
             return liveTasks();
         },
-        loadBoard: async () => 'phases' as const,
+        loadProjects: async (organizationId: string, clientId: string) => {
+            assert.deepEqual([organizationId, clientId], [ORG, CLIENT]);
+            return [{ id: PROJECT_ID, title: PROJECT_TITLE, state: 'completed_verified' as const, purpose: STAFF_NOTE }];
+        },
     };
 }

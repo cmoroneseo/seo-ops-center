@@ -10,7 +10,6 @@ const ORG = '11111111-1111-4111-8111-111111111111';
 const CLIENT = '33333333-3333-4333-8333-333333333333';
 const OTHER = '44444444-4444-4444-8444-444444444444';
 const REPORT = '66666666-6666-4666-8666-666666666666';
-const TODAY = '2026-11-10';
 const LIVE = 'Fix the sitemap';
 
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
@@ -31,12 +30,19 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 
 const sharedSections = {
     version: 2,
-    blocks: [{ id: 'plan', type: 'marketing_plan', props: { planView: 'step', showTaskDescriptions: true } }],
+    blocks: [{
+        id: 'plan',
+        type: 'marketing_plan',
+        props: {
+            planView: 'step',
+            showTaskDescriptions: true,
+            tasks: [{ title: 'Frozen checklist item', email: 'abel@marketingempiregroup.com' }],
+        },
+    }],
 };
 
-test('a shared report shows the live plan and ignores a frozen checklist', async () => {
+test('a shared report shows the live plan and falls back when projects cannot be loaded', async () => {
     const calls: string[] = [];
-    const frozen = { plan: { items: [{ title: 'Frozen checklist item', email: 'abel@marketingempiregroup.com' }] } };
     const roadmap = await readSharedReportRoadmap({
         organizationId: ORG,
         clientId: CLIENT,
@@ -44,18 +50,20 @@ test('a shared report shows the live plan and ignores a frozen checklist', async
         sections: sharedSections,
         share: 'ok',
     }, {
-        today: TODAY,
         loadTasks: async (organizationId, clientId) => {
             calls.push(`${organizationId}:${clientId}`);
             return [task({ id: 'live', title: LIVE })];
         },
-        loadBoard: async () => 'phases',
+        loadProjects: async (organizationId, clientId) => {
+            assert.deepEqual([organizationId, clientId], [ORG, CLIENT]);
+            throw new Error('projects unavailable');
+        },
     });
     assert.deepEqual(calls, [`${ORG}:${CLIENT}`]);
     const serialized = JSON.stringify(roadmap);
     assert.equal(serialized.includes(LIVE), true);
     assert.equal(serialized.includes('Frozen checklist item'), false);
+    assert.deepEqual(roadmap?.groups.map(group => group.title), ['Other work']);
     assert.equal(serialized.includes(OTHER), false);
     assert.equal(serialized.includes('abel@'), false);
-    void frozen;
 });

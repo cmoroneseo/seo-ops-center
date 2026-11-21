@@ -9,8 +9,7 @@ import {
     presentRoadmap,
     readRoadmapBlockOptions,
     roadmapHasClientDescriptions,
-    type ClientRoadmap,
-    type RoadmapStageId,
+    type ClientRoadmapInput,
 } from '@/lib/reports/roadmap';
 
 interface RoadmapBlockContext {
@@ -19,7 +18,7 @@ interface RoadmapBlockContext {
     reportId?: string;
     reportStatus?: 'draft' | 'published';
     onEditText?: (blockId: string, patch: Record<string, unknown>) => void;
-    roadmap?: ClientRoadmap | null;
+    roadmap?: ClientRoadmapInput | null;
     roadmapFromServer?: boolean;
 }
 
@@ -31,7 +30,7 @@ interface ShareLinkRow {
 type Load =
     | { status: 'loading' }
     | { status: 'error' }
-    | { status: 'ready'; roadmap: ClientRoadmap };
+    | { status: 'ready'; roadmap: ClientRoadmapInput };
 
 export function RoadmapReportBlock({ block, ctx }: { block: Block; ctx: RoadmapBlockContext }) {
     const server = ctx.roadmapFromServer === true;
@@ -54,7 +53,7 @@ export function RoadmapReportBlock({ block, ctx }: { block: Block; ctx: RoadmapB
             const response = await fetch(`/api/reports/roadmap/${encodeURIComponent(clientId)}`, {
                 cache: 'no-store',
             });
-            const body = await response.json().catch(() => null) as { roadmap?: ClientRoadmap } | null;
+            const body = await response.json().catch(() => null) as { roadmap?: ClientRoadmapInput } | null;
             if (!response.ok || !body?.roadmap) throw new Error('unavailable');
             if (!cancelled) setLoad({ status: 'ready', roadmap: body.roadmap });
         })().catch(() => {
@@ -144,13 +143,6 @@ export function RoadmapReportBlock({ block, ctx }: { block: Block; ctx: RoadmapB
     const shown = presentRoadmap(load.roadmap, options);
     const canDescribe = roadmapHasClientDescriptions(load.roadmap);
 
-    function toggleStage(id: RoadmapStageId) {
-        const hidden = new Set(options.hiddenStages);
-        if (hidden.has(id)) hidden.delete(id);
-        else hidden.add(id);
-        ctx.onEditText?.(block.id, { hiddenStages: [...hidden] });
-    }
-
     return (
         <div>
             {staff ? (
@@ -193,31 +185,18 @@ export function RoadmapReportBlock({ block, ctx }: { block: Block; ctx: RoadmapB
                     {shareError ? <p className="mt-2 text-red-600">{shareError}</p> : null}
                 </div>
             ) : null}
-            {editable && block.props.settingsOpen ? (
-                <fieldset data-roadmap-editor className="print-hidden mb-4 space-y-3 rounded-lg border border-border p-3 text-sm">
-                    <legend className="px-1 text-xs font-medium">{ROADMAP_COPY.stagesToShow}</legend>
-                    {load.roadmap.stages.map(stage => (
-                        <label key={stage.id} className="flex items-center gap-2 text-xs">
-                            <input
-                                type="checkbox"
-                                checked={!options.hiddenStages.includes(stage.id)}
-                                onChange={() => toggleStage(stage.id)}
-                            />
-                            {stage.title}
-                        </label>
-                    ))}
-                    {canDescribe ? (
-                        <label className="flex items-center gap-2 text-xs">
-                            <input
-                                type="checkbox"
-                                checked={options.showTaskDescriptions}
-                                onChange={() => ctx.onEditText?.(block.id, { showTaskDescriptions: !options.showTaskDescriptions })}
-                            />
-                            {ROADMAP_COPY.showDescriptions}
-                        </label>
-                    ) : null}
+            {editable && block.props.settingsOpen && canDescribe ? (
+                <div data-roadmap-editor className="print-hidden mb-4 space-y-3 rounded-lg border border-border p-3 text-sm">
+                    <label className="flex items-center gap-2 text-xs">
+                        <input
+                            type="checkbox"
+                            checked={options.showTaskDescriptions}
+                            onChange={() => ctx.onEditText?.(block.id, { showTaskDescriptions: !options.showTaskDescriptions })}
+                        />
+                        {ROADMAP_COPY.showDescriptions}
+                    </label>
                     <p className="text-xs text-muted-foreground">{ROADMAP_COPY.descriptionsHelp}</p>
-                </fieldset>
+                </div>
             ) : null}
             <RoadmapReportView roadmap={shown} />
         </div>
