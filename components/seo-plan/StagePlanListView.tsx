@@ -846,7 +846,7 @@ function PlanSections({
                                 <h3 id={headingId} className="min-w-0 break-words text-[13px] font-semibold">
                                     {initiativeId && clientId ? (
                                         <Link className="hover:underline" href={projectsHref(clientId, { projectId: initiativeId })}>{section.title}</Link>
-                                    ) : projectPage ? 'Tasks' : section.title}
+                                    ) : section.title}
                                 </h3>
                                 <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>{section.meta}</span>
                             </div>
