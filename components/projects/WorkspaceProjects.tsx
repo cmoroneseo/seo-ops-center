@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ProjectTitle } from './ProjectTitle';
 import { StagePlanList } from '@/components/seo-plan/StagePlanList';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { TaskListView } from '@/components/tasks/TaskListView';
@@ -14,7 +15,7 @@ import {
 import { buildProjectDraft, filterProjectTasks, PROJECT_STATUS, projectProgress } from '@/lib/projects/project-cards';
 import { projectsHref } from '@/lib/projects/project-links';
 import {
-    listCampaignInitiatives, saveCampaignInitiative, updateCampaignInitiativeStatus,
+    listCampaignInitiatives, saveCampaignInitiative, updateCampaignInitiativeStatus, updateCampaignInitiativeTitle,
 } from '@/lib/supabase/campaign-initiatives';
 import { createTask, getTasksByClient } from '@/lib/supabase/tasks';
 import type { Task } from '@/lib/types';
@@ -152,13 +153,14 @@ function ProjectStatus({ project }: { project: CampaignInitiative }) {
     );
 }
 
-function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload }: {
+function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload, onRenamed }: {
     project: CampaignInitiative;
     clientName: string;
     tasks: Task[];
     stageListOn: boolean;
     userId?: string;
     reload: () => void;
+    onRenamed: (title: string) => void;
 }) {
     const [boardProgress, setBoardProgress] = useState<{ done: number; total: number } | null>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -194,7 +196,13 @@ function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload
         <section className="space-y-5">
             <Link href={projectsHref(project.clientId)} className="text-sm font-medium text-primary hover:underline">← Back to Projects</Link>
             <header className="space-y-3">
-                <h2 className="text-xl font-semibold">{project.title}</h2>
+                <ProjectTitle title={project.title} onRename={async title => {
+                    await updateCampaignInitiativeTitle({
+                        clientId: project.clientId, assertedOrganizationId: project.organizationId,
+                        initiativeId: project.id, title,
+                    });
+                    onRenamed(title);
+                }} />
                 <p className="text-sm text-muted-foreground">{project.category ? CATEGORY_LABEL[project.category] : 'No category'}</p>
                 <ProjectStatus project={project} />
                 <div className="max-w-xs">
@@ -261,7 +269,12 @@ export function WorkspaceProjects({ clientId, clientName, organizationId, projec
     if (projectId !== null) {
         const project = projects.find(project => project.id === projectId);
         return project ? (
-            <ProjectDetail key={project.id} project={project} clientName={clientName} tasks={tasks} stageListOn={stageListOn} userId={userId} reload={reload} />
+            <ProjectDetail key={project.id} project={project} clientName={clientName} tasks={tasks} stageListOn={stageListOn} userId={userId} reload={reload}
+                onRenamed={title => {
+                    setProjects(previous => previous && orderedInitiatives(previous.map(row => row.id === project.id ? { ...row, title } : row)));
+                    reload();
+                }}
+            />
         ) : (
             <div className="space-y-2">
                 <p>This project couldn&apos;t be found</p>
