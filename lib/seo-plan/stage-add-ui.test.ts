@@ -50,19 +50,19 @@ function render(query = '', initialMonth = '2026-10') {
     }));
 }
 
-test('one add line sits under the plan header and follows the selected month', () => {
+test('the No project add row sits in its group and follows the selected month', () => {
     const html = render();
     assert.equal(html.match(/data-plan-add="true"/g)?.length, 1);
     assert.match(html, /data-plan-month="2026-10"/);
     assert.match(html, /placeholder="Add task. Paste a list to add several."/);
-    assert.match(html, /data-plan-add-chip="month"/);
+    assert.doesNotMatch(html, /data-plan-add-chip/);
     assert.match(html, /data-plan-add-label="Due Oct 31"/);
     assert.match(html, /data-plan-add-due="2026-10-31"/);
     assert.doesNotMatch(html, /data-stage-add|data-add-parent|Add a subtask|Add task to Onboarding|Add task to Backlog/);
     assert.doesNotMatch(html, /Month 1|Month 2|Month 3|data-stage="month_|Template library|data-lib/);
     const headerEnd = html.indexOf('data-plan-add="true"');
-    const sections = html.indexOf('data-plan-section="onboarding"');
-    assert.ok(headerEnd > 0 && sections > headerEnd);
+    const sections = html.indexOf('data-plan-section="no-project"');
+    assert.ok(headerEnd > 0 && sections < headerEnd);
 
     const november = render('', '2026-11');
     assert.match(november, /data-plan-month="2026-11"/);

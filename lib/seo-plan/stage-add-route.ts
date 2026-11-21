@@ -23,6 +23,7 @@ export interface StageAddDependencies {
     now?: () => string;
     /** False when the client is not in the session organization. */
     loadClient: (organizationId: string, clientId: string) => Promise<boolean>;
+    loadProject?: (organizationId: string, clientId: string, initiativeId: string) => Promise<boolean>;
     loadParent: (
         organizationId: string,
         clientId: string,
@@ -33,6 +34,7 @@ export interface StageAddDependencies {
         clientId: string,
         stage: BoardStage,
         parentTaskId: string | null,
+        acrossStages?: boolean,
     ) => Promise<number | null>;
     insertTasks: (rows: Record<string, unknown>[]) => Promise<StageListTask[]>;
     /** Best-effort undo when a later insert in the same add fails. */
@@ -61,6 +63,7 @@ interface StageAddItem {
 }
 
 interface StageAddInput {
+    initiativeId?: string | null;
     stage: BoardStage;
     titles: string[];
     publishedUrls: Array<string | null>;
@@ -110,6 +113,10 @@ function readStageAddBody(body: unknown): { ok: true; value: StageAddInput } | {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false, error: 'Enter a title.' };
     const record = body as Record<string, unknown>;
     if (!isBoardStage(record.stage)) return { ok: false, error: 'Choose a stage.' };
+    const { initiativeId } = record;
+    if (initiativeId != null && (typeof initiativeId !== 'string' || !ID.test(initiativeId))) {
+        return { ok: false, error: 'Choose a project.' };
+    }
     if (Array.isArray(record.items)) {
         const due = readDueDate(record.dueDate);
         if (!due.ok) return due;
@@ -119,6 +126,7 @@ function readStageAddBody(body: unknown): { ok: true; value: StageAddInput } | {
             ok: true,
             value: {
                 stage: record.stage,
+                initiativeId,
                 titles: items.items.map(item => item.title),
                 publishedUrls: items.items.map(() => null),
                 parentTaskId: null,
@@ -161,7 +169,7 @@ function readStageAddBody(body: unknown): { ok: true; value: StageAddInput } | {
     if (titlesError) return { ok: false, error: titlesError };
     return {
         ok: true,
-        value: { stage: record.stage, titles, publishedUrls: titles.map(() => null), parentTaskId: null, items: null },
+        value: { stage: record.stage, initiativeId, titles, publishedUrls: titles.map(() => null), parentTaskId: null, items: null },
     };
 }
 
@@ -213,6 +221,7 @@ function planRow(input: {
     stage: BoardStage;
     position: number;
     parentTaskId?: string;
+    initiativeId?: string | null;
     dueDate: string | null;
     createdBy: string;
     sortOrder: number;
@@ -231,6 +240,7 @@ function planRow(input: {
             priority: 'medium',
             sortOrder: input.sortOrder,
         }),
+        ...(input.initiativeId !== undefined ? { initiative_id: input.initiativeId } : {}),
         due_date: input.dueDate,
         assignee_ids: [],
         status_history: [{ status: 'todo', at: input.at, by: input.createdBy }],
@@ -256,12 +266,13 @@ async function insertPlanItems(input: {
     stage: BoardStage;
     dueDate: string | null;
     items: StageAddItem[];
+    initiativeId?: string | null;
     organizationId: string;
     userId: string;
     dependencies: StageAddDependencies;
 }): Promise<StageAddResult> {
     const blocks = planBlocks(input.items);
-    const max = await input.dependencies.maxPosition(input.organizationId, input.clientId, input.stage, null);
+    const max = await input.dependencies.maxPosition(input.organizationId, input.clientId, input.stage, null, input.initiativeId !== undefined);
     const positions = nextStagePositions(max, blocks.length);
     const now = input.dependencies.now?.() ?? new Date().toISOString();
     let sort = 0;
@@ -269,6 +280,7 @@ async function insertPlanItems(input: {
         organizationId: input.organizationId,
         clientId: input.clientId,
         title: block.title,
+        initiativeId: input.initiativeId,
         stage: input.stage,
         position: positions[index] ?? index + 1,
         dueDate: input.dueDate,
@@ -437,12 +449,18 @@ export async function createStageTasks(
         const allowed = await dependencies.loadClient(session.organizationId, clientId);
         if (!allowed) return { status: 404, body: { error: 'Not found' } };
 
+        const { initiativeId } = parsed.value;
+        if (initiativeId && !await dependencies.loadProject?.(session.organizationId, clientId, initiativeId)) {
+            return { status: 404, body: { error: 'Project not found.' } };
+        }
+
         if (parsed.value.items) {
             return await insertPlanItems({
                 clientId,
                 stage: parsed.value.stage,
                 dueDate: parsed.value.dueDate ?? null,
                 items: parsed.value.items,
+                initiativeId,
                 organizationId: session.organizationId,
                 userId: session.userId,
                 dependencies,
@@ -465,6 +483,7 @@ export async function createStageTasks(
             clientId,
             stage,
             parsed.value.parentTaskId,
+            initiativeId !== undefined,
         );
         const positions = nextStagePositions(max, parsed.value.titles.length);
         const now = dependencies.now?.() ?? new Date().toISOString();
@@ -482,6 +501,7 @@ export async function createStageTasks(
                 priority: 'medium',
                 sortOrder: index,
             }),
+            ...(initiativeId !== undefined ? { initiative_id: initiativeId } : {}),
             status_history: [{ status: 'todo', at: now, by: session.userId }],
         }));
 

@@ -66,17 +66,19 @@ export async function maxStageAddPosition(
     clientId: string,
     stage: BoardStage,
     parentTaskId: string | null,
+    acrossStages = false,
 ): Promise<number | null> {
     let query = db
         .from('tasks')
         .select('position')
         .eq('organization_id', organizationId)
         .eq('client_id', clientId)
-        .order('position', { ascending: false })
+        .order('position', { ascending: false, nullsFirst: false })
         .limit(1);
     query = parentTaskId
         ? query.eq('parent_task_id', parentTaskId)
-        : query.is('parent_task_id', null).eq('stage', stage);
+        : query.is('parent_task_id', null);
+    if (!parentTaskId && !acrossStages) query = query.eq('stage', stage);
     const result = await query.maybeSingle();
     if (result.error) throw new Error('Unable to place tasks');
     const position = result.data?.position;
@@ -95,7 +97,9 @@ export async function insertStageTasks(
     db: SupabaseClient,
     rows: readonly Record<string, unknown>[],
 ): Promise<StageListTask[]> {
-    const inserted = await db.from('tasks').insert([...rows]).select(STAGE_LIST_TASK_COLUMNS);
+    const columns = rows.some(row => 'initiative_id' in row)
+        ? `${STAGE_LIST_TASK_COLUMNS}, initiative_id` : STAGE_LIST_TASK_COLUMNS;
+    const inserted = await db.from('tasks').insert([...rows]).select(columns);
     if (inserted.error) throw new Error('Unable to create tasks');
     const list = Array.isArray(inserted.data) ? inserted.data : [];
     return list.flatMap(row => {
