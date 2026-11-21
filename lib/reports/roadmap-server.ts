@@ -7,8 +7,9 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { findPublicShareByHash } from './gtm-share-store';
-import { loadClientPlanBoard, loadClientStageTasks } from '@/lib/seo-plan/stage-list-load';
-import { todayForRoadmap, type ClientRoadmap } from './roadmap';
+import { loadClientStageTasks } from '@/lib/seo-plan/stage-list-load';
+import type { ClientRoadmap } from './roadmap';
+import { loadRoadmapProjects } from './roadmap-projects';
 import { readSharedReportRoadmap, type ShareRead } from './roadmap-live';
 import {
     readPublicRoadmap,
@@ -22,7 +23,7 @@ import {
  * Sections are the frozen share the page is rendering, not the editable draft.
  * The active share for this organization, client, and report is the permission.
  * A failed lookup, a missing share, a missing block, or a failed task read
- * returns null. Hidden stages and descriptions are removed before return.
+ * returns null. Task descriptions follow the shared block settings.
  */
 export async function loadScopedRoadmap(
     organizationId: string,
@@ -47,9 +48,8 @@ export async function loadScopedRoadmap(
             sections,
             share: access,
         }, {
-            today: todayForRoadmap(),
             loadTasks: (org, scopedClient) => loadClientStageTasks(admin, org, scopedClient),
-            loadBoard: (org, scopedClient) => loadClientPlanBoard(admin, org, scopedClient),
+            loadProjects: (org, scopedClient) => loadRoadmapProjects(admin, org, scopedClient),
         });
     } catch {
         return null;
@@ -112,11 +112,10 @@ export async function openScopedPublicRoadmap(token: string): Promise<PublicRoad
     try {
         const admin = createAdminClient();
         return await readPublicRoadmap(token, {
-            today: todayForRoadmap(),
             findByHash: findPublicShareByHash,
             loadSources: scope => loadRoadmapShareSources(admin, scope),
             loadTasks: (organizationId, clientId) => loadClientStageTasks(admin, organizationId, clientId),
-            loadBoard: (organizationId, clientId) => loadClientPlanBoard(admin, organizationId, clientId),
+            loadProjects: (organizationId, clientId) => loadRoadmapProjects(admin, organizationId, clientId),
         });
     } catch {
         return { ok: false, denial: 'not_found' };

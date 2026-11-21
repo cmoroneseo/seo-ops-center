@@ -73,8 +73,7 @@ test('progress counts top-level tasks and says nothing when none are linked', ()
 
 test('the client roadmap does not gain a public link field', () => {
     const roadmap = projectClientRoadmap({
-        board: 'phases',
-        today: '2026-11-07',
+        projects: [{ id: rank, title: 'Rank the service page', state: 'in_progress' }],
         tasks: [{
             id: 'page',
             title: 'Rewrite the service page',
@@ -91,6 +90,7 @@ test('the client roadmap does not gain a public link field', () => {
     });
     const json = JSON.stringify(roadmap);
     assert.match(json, /Rewrite the service page/);
+    assert.match(json, /Rank the service page/);
     assert.equal(json.includes(rank), false);
     assert.equal(json.includes('initiative'), false);
     assert.equal(json.includes('Project:'), false);

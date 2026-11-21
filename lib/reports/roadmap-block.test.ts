@@ -29,11 +29,11 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 }
 
 const roadmap = projectClientRoadmap({
-    board: 'phases',
-    today: '2026-11-10',
+    projects: [{ id: 'site', title: 'Site improvements', state: 'in_progress' }],
     tasks: [
         task({
             id: 'fix',
+            initiativeId: 'site',
             title: 'Fix the sitemap',
             status: 'done',
             completedAt: '2026-11-02T20:00:00.000Z',
@@ -45,11 +45,11 @@ const roadmap = projectClientRoadmap({
 
 const client = { id: '33333333-3333-4333-8333-333333333333', clientName: 'Northwind', accountManager: '' } as ClientProject;
 
-test('the editor shows stage choices and the description toggle, and hides a stage', () => {
+test('the editor keeps the description toggle and ignores saved stage settings', () => {
     const block: Block = {
         id: 'plan',
         type: 'roadmap',
-        props: { settingsOpen: true, hiddenStages: ['growth'], showTaskDescriptions: true },
+        props: { settingsOpen: true, hiddenStages: ['foundation', 'growth', 'scale', 'onboarding', 'this_month', 'backlog'], showTaskDescriptions: true },
     };
     const html = renderToStaticMarkup(createElement(RoadmapReportBlock, {
         block,
@@ -61,14 +61,14 @@ test('the editor shows stage choices and the description toggle, and hides a sta
         },
     }));
     assert.match(html, /data-roadmap-editor/);
-    assert.match(html, new RegExp(ROADMAP_COPY.stagesToShow));
+    assert.doesNotMatch(html, /Stages to show/);
     assert.match(html, new RegExp(ROADMAP_COPY.showDescriptions));
-    assert.match(html, /Foundation/);
+    assert.match(html, /Site improvements/);
     assert.match(html, /Fix the sitemap/);
     assert.match(html, /Done on Nov 2/);
     assert.match(html, /Make the sitemap so Google can read every page/);
-    assert.equal(html.includes('Write the service page'), false);
-    assert.equal(html.includes('Growth'), true);
+    assert.match(html, /Write the service page/);
+    assert.match(html, /Other work/);
     assert.match(html, /aria-hidden="true"|type="checkbox"/);
 });
 
@@ -141,11 +141,29 @@ test('a draft report and a client view do not offer that link', () => {
 });
 
 test('an empty plan says no work has been planned yet', () => {
-    const empty = projectClientRoadmap({ board: 'phases', tasks: [], today: '2026-11-10' });
+    const empty = projectClientRoadmap({ projects: [{ id: 'site', title: 'Site improvements', state: 'planned' }], tasks: [] });
     const html = renderToStaticMarkup(createElement(RoadmapReportView, { roadmap: empty }));
     assert.match(html, new RegExp(ROADMAP_COPY.empty));
-    assert.match(html, /Foundation/);
-    assert.match(html, /Growth/);
-    assert.match(html, /Scale/);
+    assert.match(html, /Site improvements/);
+    assert.match(html, /Planned/);
+    assert.doesNotMatch(html, /Other work/);
     assert.equal(html.includes('data-roadmap-task'), false);
+});
+
+test('the roadmap view renders a legacy snapshot', () => {
+    const html = renderToStaticMarkup(createElement(RoadmapReportView, {
+        roadmap: { stages: [{
+            id: 'foundation',
+            title: 'Foundation',
+            description: 'Old group description',
+            done: 1,
+            total: 1,
+            progress: '1 of 1 done',
+            tasks: [{ title: 'Fix the sitemap', status: 'Done', doneOn: 'Nov 2' }],
+        }] },
+    }));
+    assert.match(html, /Foundation/);
+    assert.match(html, /Fix the sitemap/);
+    assert.match(html, /1 of 1 done/);
+    assert.doesNotMatch(html, /Old group description|data-roadmap-stage/);
 });

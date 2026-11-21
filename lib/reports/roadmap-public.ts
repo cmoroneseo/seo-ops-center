@@ -6,15 +6,10 @@
  * even when the report asked to show them.
  */
 
-import type { PlanBoard } from '../seo-plan/plan-phases';
 import type { StageListTask } from '../seo-plan/stage-list';
 import type { ShareLinkDenial } from '../approvals/token';
 import { resolvePublicShare, type PublicShareRow } from './gtm-share';
-import {
-    readRoadmapBlockOptions,
-    type ClientRoadmap,
-    type ClientRoadmapTask,
-} from './roadmap';
+import type { ClientRoadmap, RoadmapProject } from './roadmap';
 import { readSharedReportRoadmap } from './roadmap-live';
 
 export interface PublicRoadmapScope {
@@ -68,11 +63,10 @@ export function latestRoadmapSections(sources: RoadmapShareSources): { sections:
  */
 export async function readPublicRoadmap(token: string, deps: {
     now?: () => Date;
-    today: string;
     findByHash: (hash: string) => Promise<PublicShareRow | null>;
     loadSources: (scope: PublicRoadmapScope) => Promise<RoadmapShareSources | null>;
     loadTasks: (organizationId: string, clientId: string) => Promise<StageListTask[] | null>;
-    loadBoard: (organizationId: string, clientId: string) => Promise<PlanBoard>;
+    loadProjects: (organizationId: string, clientId: string) => Promise<RoadmapProject[]>;
 }): Promise<PublicRoadmapResult> {
     try {
         const gate = await resolvePublicShare(token, {
@@ -98,12 +92,11 @@ export async function readPublicRoadmap(token: string, deps: {
             sections: picked.sections,
             share: 'ok',
         }, {
-            today: deps.today,
             loadTasks: deps.loadTasks,
-            loadBoard: deps.loadBoard,
+            loadProjects: deps.loadProjects,
         });
         if (!roadmap) return { ok: false, denial: 'not_found' };
-        return { ok: true, roadmap: stripTaskDescriptions(roadmap) };
+        return { ok: true, roadmap };
     } catch {
         return { ok: false, denial: 'not_found' };
     }
@@ -124,7 +117,6 @@ function sectionsFromSnapshot(value: unknown): unknown | null {
 
 /**
  * The first roadmap block, with task descriptions forced off.
- * Hidden stages stay as the report saved them.
  */
 export function publicRoadmapSections(sections: unknown): unknown | null {
     if (!sections || typeof sections !== 'object' || !('blocks' in sections)) return null;
@@ -136,31 +128,11 @@ export function publicRoadmapSections(sections: unknown): unknown | null {
         const type = (block as { type?: unknown }).type;
         if (type !== 'roadmap' && type !== 'marketing_plan') return block;
         found = true;
-        const props = (block as { props?: unknown }).props;
-        const options = readRoadmapBlockOptions(props);
-        const base = props && typeof props === 'object' ? props as Record<string, unknown> : {};
         return {
             ...(block as Record<string, unknown>),
-            props: {
-                ...base,
-                hiddenStages: options.hiddenStages,
-                showTaskDescriptions: false,
-            },
+            props: { showTaskDescriptions: false },
         };
     });
     if (!found) return null;
     return { ...(sections as Record<string, unknown>), blocks: next };
-}
-
-function stripTaskDescriptions(roadmap: ClientRoadmap): ClientRoadmap {
-    return {
-        stages: roadmap.stages.map(stage => ({
-            ...stage,
-            tasks: stage.tasks.map(task => {
-                const next: ClientRoadmapTask = { title: task.title, status: task.status };
-                if (task.doneOn) next.doneOn = task.doneOn;
-                return next;
-            }),
-        })),
-    };
 }
