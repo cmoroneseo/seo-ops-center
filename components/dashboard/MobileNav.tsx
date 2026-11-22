@@ -13,7 +13,6 @@ import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { ApprovalBadge } from '@/components/approvals-v2/Badge';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useOrganization } from '@/components/providers/organization-provider';
-import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useMyOverdueCount } from '@/lib/hooks/use-my-overdue-count';
 import { MyTasksBadge } from '@/components/dashboard/MyTasksBadge';
 import { useClients } from '@/lib/hooks/use-clients';
@@ -59,7 +58,7 @@ export function MobileNav() {
     const campaignWorkspace = campaignWorkspaceEnabled();
     const pipelineNav = pipelineNavEnabled();
     const [menuOpen, setMenuOpen] = useState(false);
-    const { userId } = useCurrentMember();
+    const userId = memberships.find(member => member.organizationId === organization?.id)?.userId;
     const overdueCount = useMyOverdueCount(menuOpen ? organization?.id : null, userId);
     const [selectorOpen, setSelectorOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -228,6 +227,11 @@ export function MobileNav() {
                                     key={href}
                                     href={href}
                                     onClick={() => setMenuOpen(false)}
+                                    aria-label={href === '/tasks' && overdueCount
+                                        ? `My Tasks (${overdueCount} of your tasks overdue)`
+                                        : href === '/tasks' && overdueCount === null
+                                            ? 'My Tasks (checking overdue tasks)'
+                                            : undefined}
                                     aria-current={active ? 'page' : undefined}
                                     className={cn(
                                         'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',

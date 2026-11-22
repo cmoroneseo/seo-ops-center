@@ -1,24 +1,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getTasks } from '@/lib/supabase/tasks';
-import { countMyOverdueTasks, localDateKey, TASK_DATA_CHANGED_EVENT } from '@/lib/tasks/my-tasks';
+import { getMyOverdueTaskCount } from '@/lib/supabase/my-overdue-count';
+import { localDateKey, TASK_DATA_CHANGED_EVENT } from '@/lib/tasks/my-tasks';
 
-export function useMyOverdueCount(organizationId?: string | null, userId?: string | null): number {
+export function useMyOverdueCount(organizationId?: string | null, userId?: string | null): number | null {
     const [result, setResult] = useState<{ organizationId: string; userId: string; count: number } | null>(null);
 
     useEffect(() => {
-        if (!organizationId || !userId) {
-            setResult(null);
-            return;
-        }
+        if (!organizationId || !userId) return;
 
         let latestRequest = 0;
         const load = async () => {
             const request = ++latestRequest;
-            const tasks = await getTasks(organizationId, { assigneeId: userId });
-            if (request === latestRequest) {
-                setResult({ organizationId, userId, count: countMyOverdueTasks(tasks, localDateKey(), userId) });
+            try {
+                const count = await getMyOverdueTaskCount(organizationId, userId, localDateKey());
+                if (request === latestRequest) setResult({ organizationId, userId, count });
+            } catch (error) {
+                if (request !== latestRequest) return;
+                console.error('Error fetching overdue task count:', error);
+                setResult(previous => previous?.organizationId === organizationId && previous.userId === userId
+                    ? previous
+                    : { organizationId, userId, count: 0 });
             }
         };
 
@@ -32,5 +35,5 @@ export function useMyOverdueCount(organizationId?: string | null, userId?: strin
         };
     }, [organizationId, userId]);
 
-    return result && result.organizationId === organizationId && result.userId === userId ? result.count : 0;
+    return result && result.organizationId === organizationId && result.userId === userId ? result.count : null;
 }

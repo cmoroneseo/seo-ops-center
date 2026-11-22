@@ -91,6 +91,16 @@ export function SidebarProjectsList({
                 </Link>
                 <NewProjectLink href={createHref} onNavigate={onNavigate} />
             </div>
+            {loading && (
+                <div role="status" aria-label="Checking projects" aria-busy="true">
+                    {['w-28', 'w-20'].map(width => (
+                        <div key={width} aria-hidden className={cn(rowClass(false), 'motion-safe:animate-pulse')}>
+                            <span className="size-2 rounded-full bg-muted-foreground/20" />
+                            <span className={cn('h-2.5 rounded bg-muted-foreground/20', width)} />
+                        </div>
+                    ))}
+                </div>
+            )}
             {visible.map(project => {
                 const active = project.id === activeId;
                 const status = PROJECT_STATUS[project.state].label;

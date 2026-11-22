@@ -51,6 +51,8 @@ test('the overdue count includes only open past-due tasks assigned to the curren
         { ...overdue, assigneeIds: [] },
     ];
 
+    assert.equal(filterTasks(tasks, 'overdue', today).length, 4);
+    assert.equal(countMyOverdueTasks(tasks, today, 'someone-else'), 2);
     assert.equal(countMyOverdueTasks(tasks, today, 'me'), 2);
     assert.equal(countMyOverdueTasks(tasks, today), 0);
     assert.equal(countMyOverdueTasks(tasks, today, null), 0);
