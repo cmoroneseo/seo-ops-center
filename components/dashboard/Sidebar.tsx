@@ -32,7 +32,6 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCurrentMember } from '@/lib/hooks/useCurrentMember';
 import { useMyOverdueCount } from '@/lib/hooks/use-my-overdue-count';
 import { MyTasksBadge } from '@/components/dashboard/MyTasksBadge';
 import { useClients } from '@/lib/hooks/use-clients';
@@ -119,9 +118,13 @@ function NavLink({ link, active, nested = false }: { link: StaffLink; active: bo
 }
 
 export function Sidebar() {
-    const { organization } = useOrganization();
-    const { userId } = useCurrentMember();
-    const overdueCount = useMyOverdueCount(organization?.id, userId);
+    const { organization, memberships, isLoading } = useOrganization();
+    const userId = memberships.find(member => member.organizationId === organization?.id)?.userId;
+    const count = useMyOverdueCount(organization?.id, userId);
+    const overdueCount = userId || isLoading ? count : 0;
+    const myTasksLabel = overdueCount
+        ? `My Tasks (${overdueCount} of your tasks overdue)`
+        : 'My Tasks';
     const { clients } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
     const selected = useSelectedClient();
     const agencyDashboard = useAgencyDashboardEnabled();
@@ -218,7 +221,8 @@ export function Sidebar() {
                     />
                     <Link
                         href="/tasks"
-                        title={overdueCount > 0 ? `My Tasks (${overdueCount} overdue)` : 'My Tasks'}
+                        title={myTasksLabel}
+                        aria-label={overdueCount === null ? 'My Tasks (checking overdue tasks)' : myTasksLabel}
                         aria-current={myTasksActive ? 'page' : undefined}
                         className={navClass(myTasksActive)}
                     >

@@ -115,7 +115,7 @@ export function GlobalTaskProgress({ tasks }: AgencyWidgetProps) {
                         { label: 'To Do', count: todo, color: 'bg-muted', filter: 'todo' },
                         { label: 'In Progress', count: inProgress, color: 'bg-orange-500', filter: 'in_progress' },
                         { label: 'Completed', count: completed, color: 'bg-red-600', filter: 'done' },
-                        { label: 'Overdue', count: overdue, color: 'bg-red-500', filter: 'overdue' },
+                        { label: 'Team overdue', count: overdue, color: 'bg-red-500', filter: 'overdue' },
                     ].map((item) => (
                         <Link key={item.label} href={`/tasks?filter=${item.filter}`} className="flex items-center justify-between text-xs hover:underline">
                             <div className="flex items-center gap-2">
@@ -175,7 +175,7 @@ export function AgencyQuickStats({ tasks, teamMemberCount = 0 }: AgencyWidgetPro
                 <Link href="/tasks?filter=overdue" className="flex items-center justify-between py-3 border-b border-border/50 group cursor-pointer hover:px-2 transition-all">
                     <div className="flex items-center gap-3">
                         <div className="h-2 w-2 rounded-full bg-red-500" />
-                        <span className="text-sm font-medium text-muted-foreground group-hover:text-red-500">Overdue Tasks</span>
+                        <span className="text-sm font-medium text-muted-foreground group-hover:text-red-500">Team overdue tasks</span>
                     </div>
                     <span className="text-lg font-bold text-red-500">{overdue}</span>
                 </Link>
