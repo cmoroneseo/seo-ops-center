@@ -160,12 +160,12 @@ export function clientSections(
 
     const workspace: StaffLink[] = [link('overview', 'Overview', 'overview')];
     if (options.campaignWorkspace) {
-        workspace.push(link('campaign-workspace', 'Campaign', 'campaign-workspace'));
+        workspace.push(link('campaign-workspace', 'Roadmap', 'campaign-workspace'));
     } else {
         workspace.push(link('plan', 'SEO Plan', 'plan'));
     }
     workspace.push(
-        link('tasks', 'Tasks', 'tasks'),
+        link('tasks', 'All tasks', 'tasks'),
         link('deliverables', 'Deliverables', 'deliverables'),
         { id: 'time', label: 'Time', href: '/timesheets' },
         { id: 'reports', label: 'Reports', href: reportsNavHref() },
@@ -210,12 +210,12 @@ function pipelineClientSections(
 
     const delivery: StaffLink[] = [];
     if (options.campaignWorkspace) {
-        delivery.push(link('campaign-workspace', 'Campaign', 'campaign-workspace'));
+        delivery.push(link('campaign-workspace', 'Roadmap', 'campaign-workspace'));
     } else {
         delivery.push(link('plan', 'SEO Plan', 'plan'));
     }
     delivery.push(
-        link('tasks', 'Tasks', 'tasks'),
+        link('tasks', 'All tasks', 'tasks'),
         { id: 'reports', label: 'Reports', href: reportsNavHref() },
     );
 
