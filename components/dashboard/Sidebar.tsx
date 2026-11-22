@@ -288,9 +288,11 @@ export function Sidebar() {
                     return (
                         <Fragment key={section.id}>
                             <div className="space-y-0.5">
-                                <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
-                                    {section.label}
-                                </div>
+                                {section.label && (
+                                    <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
+                                        {section.label}
+                                    </div>
+                                )}
                                 {section.links.map(link => {
                                     const active = isClientLinkActive(selected.pathname, selected.search, link, flags);
                                     const children = link.children ?? [];
@@ -336,7 +338,7 @@ export function Sidebar() {
                                     </div>
                                 )}
                             </div>
-                            {section.id === (pipelineNav ? 'delivery' : 'workspace') && selected.clientId && (
+                            {section.id === (pipelineNav ? 'client' : 'workspace') && selected.clientId && (
                                 <>
                                     <div className="xl:hidden">
                                         <NavLink

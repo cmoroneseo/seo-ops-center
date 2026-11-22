@@ -228,7 +228,7 @@ function pipelineClientSections(
     more.push({ id: 'time', label: 'Time', href: '/timesheets' });
 
     return [
-        { id: 'client', label: 'Client', links: [link('overview', 'Overview', 'overview')] },
+        { id: 'client', label: '', links: [link('overview', 'Overview', 'overview')] },
         {
             id: 'pipeline',
             label: 'Planning',

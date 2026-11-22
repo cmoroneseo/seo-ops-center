@@ -273,7 +273,7 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
         campaignWorkspace: true,
         pipelineNav: true,
     });
-    assert.deepEqual(on.map(section => section.label), ['Client', 'Planning', 'Delivery', 'More']);
+    assert.deepEqual(on.map(section => section.label), ['', 'Planning', 'Delivery', 'More']);
     assert.deepEqual(on.map(section => section.id), ['client', 'pipeline', 'delivery', 'more']);
 
     assert.deepEqual(on[0].links.map(link => link.label), ['Overview']);

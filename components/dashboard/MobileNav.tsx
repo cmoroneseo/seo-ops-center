@@ -249,9 +249,11 @@ export function MobileNav() {
                     {sections.map(section => (
                         <Fragment key={section.id}>
                             <div className="mb-2">
-                                <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                    {section.label}
-                                </span>
+                                {section.label && (
+                                    <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                        {section.label}
+                                    </span>
+                                )}
                                 {section.links.map(link => {
                                     const active = isClientLinkActive(pathname, selected.search, link, flags);
                                     const children = link.children ?? [];
@@ -311,7 +313,7 @@ export function MobileNav() {
                                     );
                                 })}
                             </div>
-                            {section.id === (pipelineNav ? 'delivery' : 'workspace') && selected.clientId && menuOpen && (
+                            {section.id === (pipelineNav ? 'client' : 'workspace') && selected.clientId && menuOpen && (
                                 <div className="mb-2">
                                     <SidebarProjects
                                         clientId={selected.clientId}

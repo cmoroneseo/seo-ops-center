@@ -86,7 +86,8 @@ test('both menus mount the project section and expose project, grid, and create 
     assert.match(section, /<Plus /);
     for (const menu of ['Sidebar', 'MobileNav']) {
         const source = readFileSync(`components/dashboard/${menu}.tsx`, 'utf8');
-        assert.match(source, /section\.id === \(pipelineNav \? 'delivery' : 'workspace'\)/);
+        assert.match(source, /section\.label && \(/);
+        assert.match(source, /section\.id === \(pipelineNav \? 'client' : 'workspace'\)/);
         assert.match(source, /<SidebarProjects/);
     }
 });
