@@ -214,12 +214,12 @@ function pipelineClientSections(
     }
     delivery.push(link('tasks', 'All tasks', 'tasks'));
 
-    const more: StaffLink[] = [
+    const overflow: StaffLink[] = [
         link('integrations', 'Integrations', 'integrations'),
         link('portal', 'Portal', 'portal'),
         link('deliverables', 'Deliverables', 'deliverables'),
     ];
-    if (options.vault) more.push(link('vault', 'Vault', 'vault'));
+    if (options.vault) overflow.push(link('vault', 'Vault', 'vault'));
 
     return [
         { id: 'client', label: '', links: [link('overview', 'Overview', 'overview')] },
@@ -234,7 +234,7 @@ function pipelineClientSections(
             ],
         },
         { id: 'delivery', label: 'Delivery', links: delivery },
-        { id: 'more', label: 'More', links: more },
+        { id: 'more', label: 'More', links: [], overflow },
     ];
 }
 
@@ -298,6 +298,14 @@ export function isClientLinkActive(
         return options.campaignWorkspace && (tab === 'campaign-workspace' || isSeoPlanWorkspaceTab(tab));
     }
     return tab === link.tab;
+}
+
+export function visibleStaffChildren(
+    link: StaffLink,
+    isActive: (link: StaffLink) => boolean,
+): StaffLink[] {
+    const children = link.children ?? [];
+    return children.length > 0 && (isActive(link) || children.some(isActive)) ? children : [];
 }
 
 export interface SwitchClientInput {

@@ -30,6 +30,8 @@ import {
     isAgencyLinkActive,
     isClientLinkActive,
     switchClientHref,
+    visibleStaffChildren,
+    type StaffLink,
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcherPanel } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
@@ -255,8 +257,9 @@ export function MobileNav() {
                                     </span>
                                 )}
                                 {section.links.map(link => {
-                                    const active = isClientLinkActive(pathname, selected.search, link, flags);
-                                    const children = link.children ?? [];
+                                    const isActive = (item: StaffLink) => isClientLinkActive(pathname, selected.search, item, flags);
+                                    const active = isActive(link);
+                                    const children = visibleStaffChildren(link, isActive);
                                     const item = (
                                         <Link
                                             key={link.id}
@@ -276,7 +279,7 @@ export function MobileNav() {
                                         <div key={link.id}>
                                             {item}
                                             {children.map(child => {
-                                                const childActive = isClientLinkActive(pathname, selected.search, child, flags);
+                                                const childActive = isActive(child);
                                                 return (
                                                     <Link
                                                         key={child.id}

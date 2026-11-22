@@ -49,6 +49,7 @@ import {
     isAgencyLinkActive,
     isClientLinkActive,
     switchClientHref,
+    visibleStaffChildren,
     type StaffLink,
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcher, type SwitcherClient } from '@/components/dashboard/ClientSwitcher';
@@ -287,14 +288,15 @@ export function Sidebar() {
                     return (
                         <Fragment key={section.id}>
                             <div className="space-y-0.5">
-                                {section.label && (
+                                {section.label && section.links.length > 0 && (
                                     <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
                                         {section.label}
                                     </div>
                                 )}
                                 {section.links.map(link => {
-                                    const active = isClientLinkActive(selected.pathname, selected.search, link, flags);
-                                    const children = link.children ?? [];
+                                    const isActive = (item: StaffLink) => isClientLinkActive(selected.pathname, selected.search, item, flags);
+                                    const active = isActive(link);
+                                    const children = visibleStaffChildren(link, isActive);
                                     if (children.length === 0) {
                                         return <NavLink key={link.id} link={link} active={active} />;
                                     }
@@ -306,7 +308,7 @@ export function Sidebar() {
                                                     key={child.id}
                                                     link={child}
                                                     nested
-                                                    active={isClientLinkActive(selected.pathname, selected.search, child, flags)}
+                                                    active={isActive(child)}
                                                 />
                                             ))}
                                         </div>

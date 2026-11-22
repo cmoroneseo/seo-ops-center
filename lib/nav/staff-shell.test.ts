@@ -12,6 +12,7 @@ import {
     isAgencyLinkActive,
     isClientLinkActive,
     switchClientHref,
+    visibleStaffChildren,
     type StaffLink,
     type StaffSection,
 } from './staff-shell.ts';
@@ -294,15 +295,15 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
         { label: 'All tasks', tab: 'tasks', href: '/workspace/summit?tab=tasks' },
     ]);
 
-    assert.deepEqual(on[3].links.map(link => link.label), [
+    assert.deepEqual(on[3].links, []);
+    assert.deepEqual(on[3].overflow?.map(link => link.label), [
         'Integrations', 'Portal', 'Deliverables', 'Vault',
     ]);
-    assert.equal(on[3].links[0].href, '/workspace/summit?tab=integrations');
-    assert.equal(on[3].links[1].href, '/workspace/summit?tab=portal');
-    assert.equal(on[3].links[1].label, 'Portal');
-    assert.equal(on[3].links[2].href, '/workspace/summit?tab=deliverables');
-    assert.equal(on[3].links[3].href, '/workspace/summit?tab=vault');
-    assert.equal(on[3].overflow, undefined);
+    assert.equal(on[3].overflow?.[0].href, '/workspace/summit?tab=integrations');
+    assert.equal(on[3].overflow?.[1].href, '/workspace/summit?tab=portal');
+    assert.equal(on[3].overflow?.[1].label, 'Portal');
+    assert.equal(on[3].overflow?.[2].href, '/workspace/summit?tab=deliverables');
+    assert.equal(on[3].overflow?.[3].href, '/workspace/summit?tab=vault');
 
     const labels = flatLinks(on).map(link => link.label);
     assert.equal(labels.includes('Content'), true);
@@ -331,7 +332,8 @@ test('pipeline nav on regroups the same routes and lists Content', () => {
     assert.equal(flatLinks(noRankings).some(link => link.label === 'Rankings' || link.id === 'vault'), false);
     assert.deepEqual(noRankings[2].links.map(link => link.label), ['SEO Plan', 'All tasks']);
     assert.equal(noRankings[2].links[0].href, '/workspace/summit?tab=campaign');
-    assert.deepEqual(noRankings[3].links.map(link => link.label), [
+    assert.deepEqual(noRankings[3].links, []);
+    assert.deepEqual(noRankings[3].overflow?.map(link => link.label), [
         'Integrations', 'Portal', 'Deliverables',
     ]);
 
@@ -419,5 +421,21 @@ test('Agency is active only on its destinations', () => {
             assert.equal(active(path), true, path);
         }
         assert.equal(active('/agency'), agencyDashboard);
+    }
+});
+
+test('Opportunities children appear only when the parent or a child is active', () => {
+    for (const keywordTracking of [false, true]) {
+        const options = { ...flags, keywordTracking, pipelineNav: true };
+        const opportunities = clientSections('summit', options)[1].links[3];
+        const visible = (tab: string, pathname = '/workspace/summit') =>
+            visibleStaffChildren(opportunities, link => isClientLinkActive(pathname, `tab=${tab}`, link, options))
+                .map(link => link.label);
+        const labels = keywordTracking ? ['Site pages', 'Rankings'] : ['Site pages'];
+        assert.deepEqual(visible('overview'), []);
+        assert.deepEqual(visible('insights'), labels);
+        assert.deepEqual(visible('inventory'), labels);
+        assert.deepEqual(visible('rankings'), keywordTracking ? labels : []);
+        assert.deepEqual(visible('insights', '/dashboard'), []);
     }
 });

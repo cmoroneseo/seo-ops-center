@@ -7,7 +7,10 @@ test('the sidebar and mobile menu read the pipeline flag and render nested links
     const mobile = readFileSync(new URL('../../components/dashboard/MobileNav.tsx', import.meta.url), 'utf8');
     assert.match(sidebar, /pipelineNavEnabled\(\)/);
     assert.match(sidebar, /pipelineNav/);
-    assert.match(sidebar, /link\.children/);
+    assert.match(sidebar, /const children = visibleStaffChildren\(link, isActive\)/);
+    assert.match(sidebar, /section\.label && section\.links\.length > 0 &&/);
+    assert.match(sidebar, /menu === 'more' && section\.overflow\.map/);
+    assert.match(mobile, /section\.overflow\?\.map/);
     assert.match(mobile, /pipelineNavEnabled\(\)/);
-    assert.match(mobile, /link\.children/);
+    assert.match(mobile, /const children = visibleStaffChildren\(link, isActive\)/);
 });
