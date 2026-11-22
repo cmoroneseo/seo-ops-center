@@ -40,14 +40,10 @@ import { SidebarProjects } from '@/components/dashboard/SidebarProjects';
 const primaryTabs = [
     { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Clients', href: '/workspace', icon: Briefcase },
-    { name: 'Tasks', href: '/tasks', icon: CheckSquare },
+    { name: 'My Tasks', href: '/tasks', icon: CheckSquare },
     { name: 'Approvals', href: '/approvals', icon: FileCheck2 },
-    { name: 'Deliver', href: '/deliverables', icon: PackageCheck },
+    { name: 'Deliverables', href: '/deliverables', icon: PackageCheck },
 ];
-
-function isActiveHref(pathname: string, href: string) {
-    return pathname === href || (href !== '/' && pathname.startsWith(href));
-}
 
 export function MobileNav() {
     const pathname = usePathname();
@@ -151,7 +147,7 @@ export function MobileNav() {
 
             <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 flex items-stretch border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 pb-[env(safe-area-inset-bottom)]">
                 {primaryTabs.map((tab) => {
-                    const active = isActiveHref(pathname, tab.href);
+                    const active = isAgencyLinkActive(pathname, tab.href);
                     return (
                         <Link
                             key={tab.name}
