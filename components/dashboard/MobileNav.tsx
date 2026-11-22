@@ -30,6 +30,8 @@ import {
     isAgencyLinkActive,
     isClientLinkActive,
     switchClientHref,
+    visibleStaffChildren,
+    type StaffLink,
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcherPanel } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
@@ -38,14 +40,10 @@ import { SidebarProjects } from '@/components/dashboard/SidebarProjects';
 const primaryTabs = [
     { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Clients', href: '/workspace', icon: Briefcase },
-    { name: 'Tasks', href: '/tasks', icon: CheckSquare },
+    { name: 'My Tasks', href: '/tasks', icon: CheckSquare },
     { name: 'Approvals', href: '/approvals', icon: FileCheck2 },
-    { name: 'Deliver', href: '/deliverables', icon: PackageCheck },
+    { name: 'Deliverables', href: '/deliverables', icon: PackageCheck },
 ];
-
-function isActiveHref(pathname: string, href: string) {
-    return pathname === href || (href !== '/' && pathname.startsWith(href));
-}
 
 export function MobileNav() {
     const pathname = usePathname();
@@ -149,7 +147,7 @@ export function MobileNav() {
 
             <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 flex items-stretch border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 pb-[env(safe-area-inset-bottom)]">
                 {primaryTabs.map((tab) => {
-                    const active = isActiveHref(pathname, tab.href);
+                    const active = isAgencyLinkActive(pathname, tab.href);
                     return (
                         <Link
                             key={tab.name}
@@ -249,12 +247,15 @@ export function MobileNav() {
                     {sections.map(section => (
                         <Fragment key={section.id}>
                             <div className="mb-2">
-                                <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                    {section.label}
-                                </span>
+                                {section.label && (
+                                    <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                        {section.label}
+                                    </span>
+                                )}
                                 {section.links.map(link => {
-                                    const active = isClientLinkActive(pathname, selected.search, link, flags);
-                                    const children = link.children ?? [];
+                                    const isActive = (item: StaffLink) => isClientLinkActive(pathname, selected.search, item, flags);
+                                    const active = isActive(link);
+                                    const children = visibleStaffChildren(link, isActive);
                                     const item = (
                                         <Link
                                             key={link.id}
@@ -274,7 +275,7 @@ export function MobileNav() {
                                         <div key={link.id}>
                                             {item}
                                             {children.map(child => {
-                                                const childActive = isClientLinkActive(pathname, selected.search, child, flags);
+                                                const childActive = isActive(child);
                                                 return (
                                                     <Link
                                                         key={child.id}
@@ -311,7 +312,7 @@ export function MobileNav() {
                                     );
                                 })}
                             </div>
-                            {section.id === (pipelineNav ? 'delivery' : 'workspace') && selected.clientId && menuOpen && (
+                            {section.id === (pipelineNav ? 'client' : 'workspace') && selected.clientId && menuOpen && (
                                 <div className="mb-2">
                                     <SidebarProjects
                                         clientId={selected.clientId}

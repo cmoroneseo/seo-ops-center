@@ -160,15 +160,13 @@ export function clientSections(
 
     const workspace: StaffLink[] = [link('overview', 'Overview', 'overview')];
     if (options.campaignWorkspace) {
-        workspace.push(link('campaign-workspace', 'Campaign', 'campaign-workspace'));
+        workspace.push(link('campaign-workspace', 'Roadmap', 'campaign-workspace'));
     } else {
         workspace.push(link('plan', 'SEO Plan', 'plan'));
     }
     workspace.push(
-        link('tasks', 'Tasks', 'tasks'),
+        link('tasks', 'All tasks', 'tasks'),
         link('deliverables', 'Deliverables', 'deliverables'),
-        { id: 'time', label: 'Time', href: '/timesheets' },
-        { id: 'reports', label: 'Reports', href: reportsNavHref() },
     );
 
     return [
@@ -210,25 +208,21 @@ function pipelineClientSections(
 
     const delivery: StaffLink[] = [];
     if (options.campaignWorkspace) {
-        delivery.push(link('campaign-workspace', 'Campaign', 'campaign-workspace'));
+        delivery.push(link('campaign-workspace', 'Roadmap', 'campaign-workspace'));
     } else {
         delivery.push(link('plan', 'SEO Plan', 'plan'));
     }
-    delivery.push(
-        link('tasks', 'Tasks', 'tasks'),
-        { id: 'reports', label: 'Reports', href: reportsNavHref() },
-    );
+    delivery.push(link('tasks', 'All tasks', 'tasks'));
 
-    const more: StaffLink[] = [
+    const overflow: StaffLink[] = [
         link('integrations', 'Integrations', 'integrations'),
         link('portal', 'Portal', 'portal'),
         link('deliverables', 'Deliverables', 'deliverables'),
     ];
-    if (options.vault) more.push(link('vault', 'Vault', 'vault'));
-    more.push({ id: 'time', label: 'Time', href: '/timesheets' });
+    if (options.vault) overflow.push(link('vault', 'Vault', 'vault'));
 
     return [
-        { id: 'client', label: 'Client', links: [link('overview', 'Overview', 'overview')] },
+        { id: 'client', label: '', links: [link('overview', 'Overview', 'overview')] },
         {
             id: 'pipeline',
             label: 'Planning',
@@ -240,7 +234,7 @@ function pipelineClientSections(
             ],
         },
         { id: 'delivery', label: 'Delivery', links: delivery },
-        { id: 'more', label: 'More', links: more },
+        { id: 'more', label: 'More', links: [], overflow },
     ];
 }
 
@@ -251,7 +245,6 @@ export function agencyLinks(options: { agencyDashboard: boolean }): AgencyLink[]
     }
     links.push(
         { id: 'clients', label: 'All clients', href: ALL_CLIENTS_HREF, dividerAfter: true },
-        { id: 'approvals', label: 'Approvals', href: '/approvals' },
         { id: 'deliverables', label: 'Deliverables', href: '/deliverables' },
         { id: 'time', label: 'Time', href: '/timesheets' },
         { id: 'planner', label: 'Planner', href: '/planner' },
@@ -290,7 +283,7 @@ export function isClientLinkActive(
     link: Pick<StaffLink, 'href' | 'tab'>,
     options: { keywordTracking: boolean; vault: boolean; campaignWorkspace: boolean },
 ): boolean {
-    if (!link.tab) return false;
+    if (!link.tab) return isAgencyLinkActive(pathname, link.href);
     if (!/^\/workspace\/([^/]+)/.test(pathname)) return false;
     const tab = paramsFrom(search).get('tab');
     if (link.tab === 'overview') {
@@ -305,6 +298,14 @@ export function isClientLinkActive(
         return options.campaignWorkspace && (tab === 'campaign-workspace' || isSeoPlanWorkspaceTab(tab));
     }
     return tab === link.tab;
+}
+
+export function visibleStaffChildren(
+    link: StaffLink,
+    isActive: (link: StaffLink) => boolean,
+): StaffLink[] {
+    const children = link.children ?? [];
+    return children.length > 0 && (isActive(link) || children.some(isActive)) ? children : [];
 }
 
 export interface SwitchClientInput {

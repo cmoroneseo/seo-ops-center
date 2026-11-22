@@ -5,8 +5,7 @@ import { useSuppressPlanToasts } from '@/components/providers/toast-gate';
 import { seoPlanTabHidesToasts } from '@/lib/toasts/plan-tab';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { MissingClient } from '@/components/workspace/MissingClient';
-import { ArrowLeft, Calendar, Clock, Shield, UserCheck } from 'lucide-react';
-import Link from 'next/link';
+import { Calendar, Clock, Shield, UserCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
 import { ActivityFeed } from '@/components/workspace/ActivityFeed';
@@ -431,14 +430,6 @@ export default function ClientDetailPage() {
         <div className="space-y-6">
             {/* Header Section */}
             <div className="flex flex-col space-y-4">
-                <Link
-                    href="/workspace"
-                    className="flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
-                >
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Workspace
-                </Link>
-
                 {atRisk && (
                     <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3 text-red-500">
                         <AlertTriangle className="h-5 w-5" />

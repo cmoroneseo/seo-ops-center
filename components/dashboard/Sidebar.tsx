@@ -49,6 +49,7 @@ import {
     isAgencyLinkActive,
     isClientLinkActive,
     switchClientHref,
+    visibleStaffChildren,
     type StaffLink,
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcher, type SwitcherClient } from '@/components/dashboard/ClientSwitcher';
@@ -245,9 +246,9 @@ export function Sidebar() {
                         aria-expanded={menu === 'agency'}
                         title="Agency"
                         onClick={() => setMenu(menu === 'agency' ? null : 'agency')}
-                        className={navClass(agencyActive || menu === 'agency')}
+                        className={navClass(agencyActive)}
                     >
-                        {(agencyActive || menu === 'agency') && (
+                        {agencyActive && (
                             <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />
                         )}
                         <Building2 className="h-4 w-4 shrink-0" aria-hidden />
@@ -272,7 +273,6 @@ export function Sidebar() {
                                     >
                                         <RowIcon id={link.id} />
                                         {link.label}
-                                        {link.id === 'approvals' && <ApprovalBadge />}
                                     </Link>
                                     {link.dividerAfter && <div className="my-1 h-px bg-border" />}
                                 </span>
@@ -288,12 +288,15 @@ export function Sidebar() {
                     return (
                         <Fragment key={section.id}>
                             <div className="space-y-0.5">
-                                <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
-                                    {section.label}
-                                </div>
+                                {section.label && section.links.length > 0 && (
+                                    <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
+                                        {section.label}
+                                    </div>
+                                )}
                                 {section.links.map(link => {
-                                    const active = isClientLinkActive(selected.pathname, selected.search, link, flags);
-                                    const children = link.children ?? [];
+                                    const isActive = (item: StaffLink) => isClientLinkActive(selected.pathname, selected.search, item, flags);
+                                    const active = isActive(link);
+                                    const children = visibleStaffChildren(link, isActive);
                                     if (children.length === 0) {
                                         return <NavLink key={link.id} link={link} active={active} />;
                                     }
@@ -305,7 +308,7 @@ export function Sidebar() {
                                                     key={child.id}
                                                     link={child}
                                                     nested
-                                                    active={isClientLinkActive(selected.pathname, selected.search, child, flags)}
+                                                    active={isActive(child)}
                                                 />
                                             ))}
                                         </div>
@@ -336,7 +339,7 @@ export function Sidebar() {
                                     </div>
                                 )}
                             </div>
-                            {section.id === (pipelineNav ? 'delivery' : 'workspace') && selected.clientId && (
+                            {section.id === (pipelineNav ? 'client' : 'workspace') && selected.clientId && (
                                 <>
                                     <div className="xl:hidden">
                                         <NavLink

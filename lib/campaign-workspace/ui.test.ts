@@ -174,7 +174,7 @@ test('the campaign shell stays hidden when the flag is off', () => {
     }
 
     const off = clientSections('summit', { keywordTracking: true, vault: false, campaignWorkspace: false });
-    assert.equal(off[0].links.some(link => link.label === 'Campaign'), false);
+    assert.equal(off[0].links.some(link => link.label === 'Roadmap' || link.id === 'campaign-workspace'), false);
 });
 
 test('flag-on empty states keep measurement, delivery, and dates unset', () => {
@@ -617,6 +617,8 @@ test('Work mounts the monthly board and leaves the other Campaign views alone', 
     const work = render('work', true, {
         monthlyBoard: React.createElement('div', { 'data-campaign-monthly-board': 'live' }, 'Monthly execution'),
     });
+    assert.match(work, /<h1[^>]*>Roadmap<\/h1>/);
+    assert.match(work, /<li[^>]*>Roadmap<\/li>/);
     assert.equal(selectedTab(work), 'Work');
     assert.deepEqual(tabLabels(work), ['Overview', 'Roadmap', 'Work', 'Results']);
     assert.match(work, /not the client-facing roadmap/);
@@ -637,6 +639,7 @@ test('Work mounts the monthly board and leaves the other Campaign views alone', 
 
 test('the client page mounts Campaign only behind the flag helper', () => {
     const page = readFileSync(new URL('../../app/(dashboard)/workspace/[id]/page.tsx', import.meta.url), 'utf8');
+    assert.doesNotMatch(page, /Back to Workspace/);
     assert.match(page, /import \{ campaignWorkspaceEnabled \} from '@\/lib\/campaign-workspace\/flag'/);
     assert.match(page, /if \(campaignWorkspaceEnabled\(\)\) knownTabs\.push\(CAMPAIGN_WORKSPACE_TAB\)/);
     assert.match(page, /activeTab === 'campaign-workspace' && campaignWorkspaceEnabled\(\)/);
