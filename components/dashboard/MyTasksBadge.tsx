@@ -10,7 +10,7 @@ export function MyTasksBadge({ count, className }: { count: number | null; class
 
     return (
         <span
-            aria-label={`${count} overdue tasks`}
+            aria-label={`${count} of your tasks overdue`}
             className={cn('ml-auto rounded-full bg-destructive px-1.5 py-0.5 text-xs leading-none text-white tabular-nums', className)}
         >
             {count}

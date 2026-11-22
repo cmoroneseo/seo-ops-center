@@ -252,13 +252,14 @@ export function WorkspaceProjects({ clientId, clientName, organizationId, projec
     onCreated: () => void;
 }) {
     const [projects, setProjects] = useState<CampaignInitiative[] | null>(null);
-    const [tasks, setTasks] = useState<Task[] | null>();
+    const [tasks, setTasks] = useState<Task[] | null | undefined>(undefined);
     const [error, setError] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const reload = () => setReloadKey(key => key + 1);
 
     useEffect(() => {
         let active = true;
+        setTasks(undefined);
         void listCampaignInitiatives(clientId)
             .then(result => {
                 if (!active) return;
