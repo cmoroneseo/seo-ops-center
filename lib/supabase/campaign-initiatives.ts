@@ -115,20 +115,23 @@ function rows(data: unknown): Record<string, unknown>[] {
     return data.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object');
 }
 
-export async function listCampaignInitiatives(clientId: string): Promise<InitiativeRead> {
+export async function listCampaignInitiatives(
+    clientId: string,
+    { includeItems = true }: { includeItems?: boolean } = {},
+): Promise<InitiativeRead> {
     const supabase = createClient();
     if (!supabase || !clientId) return { initiatives: [], unavailable: true };
     try {
         const [initiativeResult, itemResult] = await Promise.all([
             supabase.from('campaign_initiatives').select('*').eq('client_id', clientId),
-            supabase.from('campaign_initiative_items').select('*').eq('client_id', clientId),
+            includeItems ? supabase.from('campaign_initiative_items').select('*').eq('client_id', clientId) : null,
         ]);
-        if (initiativeResult.error || itemResult.error) {
-            console.error('[campaign-initiatives] list', initiativeResult.error ?? itemResult.error);
+        if (initiativeResult.error || itemResult?.error) {
+            console.error('[campaign-initiatives] list', initiativeResult.error ?? itemResult?.error);
             return { initiatives: [], unavailable: true };
         }
         const itemsByParent = new Map<string, InitiativeItem[]>();
-        for (const row of rows(itemResult.data)) {
+        for (const row of rows(itemResult?.data)) {
             const item = mapItem(row);
             const parentId = text(row.initiative_id);
             if (!parentId) continue;

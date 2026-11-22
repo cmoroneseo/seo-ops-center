@@ -27,7 +27,7 @@ export function useClientProjects(clientId: string | null, organizationId?: stri
             let projects = EMPTY_PROJECTS;
             let unavailable = true;
             try {
-                const response = await listCampaignInitiatives(id);
+                const response = await listCampaignInitiatives(id, { includeItems: false });
                 projects = orderedInitiatives(organizationId
                     ? response.initiatives.filter(project => project.organizationId === organizationId)
                     : response.initiatives);

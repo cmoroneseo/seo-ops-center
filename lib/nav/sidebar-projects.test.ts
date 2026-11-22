@@ -126,3 +126,19 @@ test('SidebarProjectsList renders ordered items, cap, active highlight, status d
     assert.match(gridHtml, /No projects yet/);
     assert.match(gridHtml, /<a[^>]*aria-current="page"[^>]*href="\/workspace\/summit\?tab=projects"[^>]*>All projects<\/a>/);
 });
+
+test('SidebarProjectsList keeps navigation visible and shows skeletons until projects load', () => {
+    const html = renderToStaticMarkup(createElement(SidebarProjectsList, {
+        clientId: 'summit',
+        projects: [],
+        loading: true,
+        pathname: '/workspace/summit',
+        search: '',
+    }));
+    assert.match(html, /aria-busy="true"/);
+    assert.equal(html.match(/motion-safe:animate-pulse/g)?.length, 2);
+    assert.match(html, />Projects<\/a>/);
+    assert.match(html, /aria-label="New project"/);
+    assert.match(html, />All projects<\/a>/);
+    assert.doesNotMatch(html, /No projects yet|Loading projects/);
+});
