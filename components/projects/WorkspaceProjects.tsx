@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -157,10 +157,11 @@ function ProjectStatus({ project }: { project: CampaignInitiative }) {
     );
 }
 
-function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload, onRenamed }: {
+function ProjectDetail({ project, clientName, tasks, taskFeedback, stageListOn, userId, reload, onRenamed }: {
     project: CampaignInitiative;
     clientName: string;
-    tasks: Task[];
+    tasks: Task[] | undefined;
+    taskFeedback: ReactNode;
     stageListOn: boolean;
     userId?: string;
     reload: () => void;
@@ -170,8 +171,8 @@ function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
-    const projectTasks = filterProjectTasks(project.id, tasks);
-    const selected = projectTasks.find(task => task.id === selectedId) ?? null;
+    const projectTasks = tasks && filterProjectTasks(project.id, tasks);
+    const selected = projectTasks?.find(task => task.id === selectedId) ?? null;
 
     async function addTask(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -211,7 +212,9 @@ function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload
                 <p className="text-sm text-muted-foreground">{project.category ? CATEGORY_LABEL[project.category] : 'No category'}</p>
                 <ProjectStatus project={project} />
                 <div className="max-w-xs">
-                    <Progress {...(stageListOn && boardProgress ? boardProgress : projectProgress(project.id, tasks))} />
+                    {stageListOn && boardProgress ? <Progress {...boardProgress} /> : tasks
+                        ? <Progress {...projectProgress(project.id, tasks)} />
+                        : taskFeedback}
                 </div>
             </header>
             {stageListOn ? (
@@ -228,7 +231,7 @@ function ProjectDetail({ project, clientName, tasks, stageListOn, userId, reload
                         <Button type="submit" disabled={busy}>Add task</Button>
                     </form>
                     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-                    <TaskListView tasks={projectTasks} onTaskClick={task => setSelectedId(task.id)} onTaskUpdated={reload} />
+                    {projectTasks && <TaskListView tasks={projectTasks} onTaskClick={task => setSelectedId(task.id)} onTaskUpdated={reload} />}
                     {selected && (
                         <TaskDetailModal task={selected} isOpen onClose={() => setSelectedId(null)} onUpdate={reload} onDelete={reload} currentUserId={userId} />
                     )}
@@ -249,32 +252,42 @@ export function WorkspaceProjects({ clientId, clientName, organizationId, projec
     onCreated: () => void;
 }) {
     const [projects, setProjects] = useState<CampaignInitiative[] | null>(null);
-    const [tasks, setTasks] = useState<Task[]>([]);
+    const [tasks, setTasks] = useState<Task[] | null>();
     const [error, setError] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const reload = () => setReloadKey(key => key + 1);
 
     useEffect(() => {
         let active = true;
-        void Promise.all([listCampaignInitiatives(clientId), getTasksByClient(clientId, true)])
-            .then(([result, rows]) => {
+        void listCampaignInitiatives(clientId)
+            .then(result => {
                 if (!active) return;
                 if (result.unavailable) throw new Error('Projects unavailable');
                 setProjects(orderedInitiatives(result.initiatives.filter(project => project.organizationId === organizationId)));
-                setTasks(rows.filter(task => task.organizationId === organizationId));
                 setError(false);
             })
             .catch(() => { if (active) setError(true); });
+        void getTasksByClient(clientId, true)
+            .then(rows => { if (active) setTasks(rows.filter(task => task.organizationId === organizationId)); })
+            .catch(() => { if (active) setTasks(null); });
         return () => { active = false; };
     }, [clientId, organizationId, reloadKey]);
 
     if (error) return <p role="alert" className="text-sm text-destructive">Could not load projects. <button type="button" className="underline" onClick={reload}>Try again</button></p>;
     if (!projects) return <p role="status" className="text-sm text-muted-foreground">Loading projects…</p>;
 
+    const taskFeedback = tasks === null ? (
+        <p role="alert" className="text-sm text-muted-foreground">
+            Could not load tasks. <button type="button" className="underline" onClick={reload}>Try again</button>
+        </p>
+    ) : (
+        <p role="status" className="text-sm text-muted-foreground">Loading tasks…</p>
+    );
+
     if (projectId !== null) {
         const project = projects.find(project => project.id === projectId);
         return project ? (
-            <ProjectDetail key={project.id} project={project} clientName={clientName} tasks={tasks} stageListOn={stageListOn} userId={userId} reload={reload}
+            <ProjectDetail key={project.id} project={project} clientName={clientName} tasks={tasks ?? undefined} taskFeedback={taskFeedback} stageListOn={stageListOn} userId={userId} reload={reload}
                 onRenamed={title => {
                     setProjects(previous => previous && orderedInitiatives(previous.map(row => row.id === project.id ? { ...row, title } : row)));
                     reload();
@@ -303,10 +316,11 @@ export function WorkspaceProjects({ clientId, clientName, organizationId, projec
                     <Button asChild><Link href={projectsHref(clientId, { create: true })}>Create your first project</Link></Button>
                 </div>
             )}
+            {projects.length > 0 && tasks === null && taskFeedback}
             {projects.length > 0 && (
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {projects.map(project => {
-                        const progress = projectProgress(project.id, tasks);
+                        const progress = tasks && projectProgress(project.id, tasks);
                         const status = PROJECT_STATUS[project.state];
                         return (
                             <Link key={project.id} href={projectsHref(clientId, { projectId: project.id })}
@@ -316,8 +330,12 @@ export function WorkspaceProjects({ clientId, clientName, organizationId, projec
                                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${status.tone}`}>{status.label}</span>
                                 </div>
                                 <p className="text-sm text-muted-foreground">{project.category ? CATEGORY_LABEL[project.category] : 'No category'}</p>
-                                <Progress {...progress} />
-                                {progress.nextDue && <p className="text-sm text-muted-foreground">Next due {formatInitiativeDay(progress.nextDue)}</p>}
+                                {progress ? <Progress {...progress} /> : (
+                                    <p className="text-sm text-muted-foreground">
+                                        {tasks === null ? 'Task progress unavailable' : 'Loading task progress…'}
+                                    </p>
+                                )}
+                                {progress?.nextDue && <p className="text-sm text-muted-foreground">Next due {formatInitiativeDay(progress.nextDue)}</p>}
                                 {project.ownerName && <p className="text-sm text-muted-foreground">Owner: {project.ownerName}</p>}
                             </Link>
                         );
