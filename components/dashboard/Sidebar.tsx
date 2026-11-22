@@ -245,9 +245,9 @@ export function Sidebar() {
                         aria-expanded={menu === 'agency'}
                         title="Agency"
                         onClick={() => setMenu(menu === 'agency' ? null : 'agency')}
-                        className={navClass(agencyActive || menu === 'agency')}
+                        className={navClass(agencyActive)}
                     >
-                        {(agencyActive || menu === 'agency') && (
+                        {agencyActive && (
                             <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />
                         )}
                         <Building2 className="h-4 w-4 shrink-0" aria-hidden />
@@ -272,7 +272,6 @@ export function Sidebar() {
                                     >
                                         <RowIcon id={link.id} />
                                         {link.label}
-                                        {link.id === 'approvals' && <ApprovalBadge />}
                                     </Link>
                                     {link.dividerAfter && <div className="my-1 h-px bg-border" />}
                                 </span>

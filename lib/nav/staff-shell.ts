@@ -167,8 +167,6 @@ export function clientSections(
     workspace.push(
         link('tasks', 'All tasks', 'tasks'),
         link('deliverables', 'Deliverables', 'deliverables'),
-        { id: 'time', label: 'Time', href: '/timesheets' },
-        { id: 'reports', label: 'Reports', href: reportsNavHref() },
     );
 
     return [
@@ -214,10 +212,7 @@ function pipelineClientSections(
     } else {
         delivery.push(link('plan', 'SEO Plan', 'plan'));
     }
-    delivery.push(
-        link('tasks', 'All tasks', 'tasks'),
-        { id: 'reports', label: 'Reports', href: reportsNavHref() },
-    );
+    delivery.push(link('tasks', 'All tasks', 'tasks'));
 
     const more: StaffLink[] = [
         link('integrations', 'Integrations', 'integrations'),
@@ -225,7 +220,6 @@ function pipelineClientSections(
         link('deliverables', 'Deliverables', 'deliverables'),
     ];
     if (options.vault) more.push(link('vault', 'Vault', 'vault'));
-    more.push({ id: 'time', label: 'Time', href: '/timesheets' });
 
     return [
         { id: 'client', label: '', links: [link('overview', 'Overview', 'overview')] },
@@ -251,7 +245,6 @@ export function agencyLinks(options: { agencyDashboard: boolean }): AgencyLink[]
     }
     links.push(
         { id: 'clients', label: 'All clients', href: ALL_CLIENTS_HREF, dividerAfter: true },
-        { id: 'approvals', label: 'Approvals', href: '/approvals' },
         { id: 'deliverables', label: 'Deliverables', href: '/deliverables' },
         { id: 'time', label: 'Time', href: '/timesheets' },
         { id: 'planner', label: 'Planner', href: '/planner' },
@@ -290,7 +283,7 @@ export function isClientLinkActive(
     link: Pick<StaffLink, 'href' | 'tab'>,
     options: { keywordTracking: boolean; vault: boolean; campaignWorkspace: boolean },
 ): boolean {
-    if (!link.tab) return false;
+    if (!link.tab) return isAgencyLinkActive(pathname, link.href);
     if (!/^\/workspace\/([^/]+)/.test(pathname)) return false;
     const tab = paramsFrom(search).get('tab');
     if (link.tab === 'overview') {

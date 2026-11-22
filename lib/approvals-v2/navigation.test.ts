@@ -13,14 +13,15 @@ test('both approval notification entities navigate to the full request', () => {
     entityId: 'id-1'
   }), null);
 });
-test('agency/sidebar and mobile expose Approvals; frozen client tab is absent', () => {
-  assert.equal(agencyLinks({
-    agencyDashboard: false
-  }).find(l => l.id === 'approvals')?.href, '/approvals');
+test('Sidebar and mobile bottom bar expose Approvals; frozen client tab is absent', () => {
+  for (const agencyDashboard of [false, true]) {
+    assert.equal(agencyLinks({ agencyDashboard }).some(link => link.href === '/approvals'), false);
+  }
   const mobile = readFileSync(new URL('../../components/dashboard/MobileNav.tsx', import.meta.url), 'utf8');
   const sidebar = readFileSync(new URL('../../components/dashboard/Sidebar.tsx', import.meta.url), 'utf8');
   assert.match(mobile, /name: 'Approvals', href: '\/approvals'/);
-  assert.match(sidebar, /ApprovalBadge/);
+  assert.match(sidebar, /href="\/approvals" title="Approvals"/);
+  assert.match(sidebar, /<ApprovalBadge/);
   for (const pipelineNav of [false, true]) assert.equal(clientSections('client', {
     keywordTracking: true,
     vault: true,
