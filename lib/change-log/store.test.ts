@@ -12,11 +12,12 @@ const baselineDates = Array.from({ length: 28 }, (_, i) => dateOffset('2026-10-1
 
 function database(tables: Record<string, Row[]>, maxRows = 1000, beforeBaselineUpdate?: () => void) {
     const writes: Row[] = [];
-    const ranges: { table: string; start: number; order: string[]; grain?: unknown }[] = [];
+    const ranges: { table: string; start: number; order: string[]; grain?: unknown; inFilters: Record<string, unknown[]> }[] = [];
     const db = {
         from(table: string) {
             const filters: ((row: Row) => boolean)[] = [];
             const order: string[] = [];
+            const inFilters: Record<string, unknown[]> = {};
             let from = 0;
             let to = 999;
             let patch: Row | undefined;
@@ -39,7 +40,11 @@ function database(tables: Record<string, Row[]>, maxRows = 1000, beforeBaselineU
                     if (key === 'grain') grain = value;
                     return query;
                 },
-                in(key: string, values: unknown[]) { filters.push(row => values.includes(row[key])); return query; },
+                in(key: string, values: unknown[]) {
+                    filters.push(row => values.includes(row[key]));
+                    inFilters[key] = values;
+                    return query;
+                },
                 ilike(key: string, pattern: string) {
                     const expression = new RegExp(pattern.split('%').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'), 'i');
                     filters.push(row => expression.test(String(row[key])));
@@ -50,7 +55,7 @@ function database(tables: Record<string, Row[]>, maxRows = 1000, beforeBaselineU
                 order(key: string) { order.push(key); return query; },
                 limit(value: number) { to = Math.min(value, 1000) - 1; return query; },
                 range(start: number, end: number) {
-                    ranges.push({ table, start, order: [...order], grain });
+                    ranges.push({ table, start, order: [...order], grain, inFilters: { ...inFilters } });
                     from = start;
                     to = end;
                     return query;
@@ -181,7 +186,7 @@ test('change-log GSC and GA4 page reads advance by the returned rows until an em
         })),
     }, 300);
     assert.equal((await gsc.read()).impact?.baseline.clicks, 601);
-    assert.deepEqual(gsc.ranges.filter(range => range.grain === 'page').map(range => [range.start, range.order]),
+    assert.deepEqual(gsc.ranges.filter(range => range.grain === 'page' && range.inFilters.page).map(range => [range.start, range.order]),
         [0, 300, 600, 601].map(start => [start, ['day_id', 'row_key']]));
 
     const ga4 = database({
@@ -242,6 +247,58 @@ test('detail uses stored query-page rows for sparse terms, suggestions and compe
         { query: 'hardscape contractors', impressions: 93, position: 10.4 },
         { query: 'landscaping corona', impressions: 28, position: 6 },
     ]);
+});
+
+test('detail flags the Ecoworkz ranking page when the homepage has no rows for either tracked term', async () => {
+    const homepage = 'https://www.ecoworkz.net/';
+    const competing = 'https://www.ecoworkz.net/corona-ca/';
+    const queries = ['corona landscaping', 'landscape contractors corona'];
+    const after = Array.from({ length: 7 }, (_, i) => dateOffset('2026-11-11', i));
+    const days = [...baselineDates, ...after];
+    const db = database({
+        ...seed('gsc'),
+        seo_change_pages: [{ change_id: 'change', url: homepage, url_key: 'ecoworkz.net/' }],
+        seo_change_queries: queries.map(query => ({ change_id: 'change', query, normalized_query: query })),
+        client_integrations: [{ ...scope, service: 'gsc', site_url: 'sc-domain:ecoworkz.net' }],
+        gsc_history_days: days.map(data_date => ({
+            ...scope, id: data_date, data_date, property: 'sc-domain:ecoworkz.net', search_type: 'web',
+        })),
+        gsc_history_facts: [
+            ...days.map(day_id => ({ day_id, grain: 'page', page: homepage, clicks: 1, impressions: 30, position: 12 })),
+            ...queries.flatMap(query => [
+                { day_id: baselineDates[0], page: competing, impressions: 30, position: 2 },
+                { day_id: after[0], page: competing, impressions: 20, position: 2.1 },
+                { day_id: baselineDates[0], page: `${homepage}?utm_campaign=gbp_listing`, impressions: 50, position: 1 },
+                { day_id: baselineDates[0], page: 'https://example.com/corona-ca/', impressions: 50, position: 1 },
+            ].map(row => ({ ...row, row_key: `${row.page}:${query}`, grain: 'query_page', query }))),
+        ],
+    });
+    const { impact } = await db.read();
+    assert.deepEqual(impact?.searchTermContext?.warnings, queries.map(query => ({
+        query, before: 0, after: 0,
+        betterPages: [
+            { period: 'before', url: competing, position: 2, pagePosition: null },
+            { period: 'after', url: competing, position: 2.1, pagePosition: null },
+        ],
+    })));
+});
+
+test('detail reads unfiltered page queries only for baseline days and filters tracked queries after go-live', async () => {
+    const after = Array.from({ length: 7 }, (_, i) => dateOffset('2026-11-11', i));
+    const query = 'landscape contractors corona';
+    const db = database({
+        ...seed('gsc'),
+        seo_change_queries: [{ change_id: 'change', query, normalized_query: query }],
+        gsc_history_days: [...baselineDates, '2026-11-10', ...after].map(data_date => ({
+            ...scope, id: data_date, data_date, property: 'sc-domain:example.com', search_type: 'web',
+        })),
+    });
+    await db.read();
+    const pageQueries = db.ranges.filter(range => range.grain === 'query_page' && range.inFilters.page);
+    assert.deepEqual(pageQueries.filter(range => !range.inFilters.query).flatMap(range => range.inFilters.day_id), baselineDates);
+    const tracked = pageQueries.filter(range => range.inFilters.query);
+    assert.deepEqual(tracked.flatMap(range => range.inFilters.day_id), after);
+    for (const range of tracked) assert.deepEqual(range.inFilters.query, [query]);
 });
 
 test('GBP-tagged page facts are visible separately from the main page, including final zero days', async () => {

@@ -292,7 +292,7 @@ export interface SearchTermContext {
         /** Reported impressions below the warning threshold. Null if there is no warning for this period. */
         before: number | null;
         after: number | null;
-        betterPages: { period: 'before' | 'after'; url: string; position: number; pagePosition: number }[];
+        betterPages: { period: 'before' | 'after'; url: string; position: number; pagePosition: number | null }[];
     }[];
     suggestions: { query: string; impressions: number; position: number | null }[];
 }

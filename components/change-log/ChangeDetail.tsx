@@ -822,9 +822,15 @@ function SearchTerms({
                                 )}
                                 {warning.betterPages.map(page => (
                                     <p key={page.period} className="text-muted-foreground">
-                                        {pagePath(page.url, '')} ranks higher for this term {page.period} the change
-                                        {' '}(position {page.position} compared with {page.pagePosition} for the test).
-                                        {' '}The pages may be competing for the same search.
+                                        {page.pagePosition == null ? (
+                                            <>The test page didn&apos;t show for this search {page.period} the change. {pagePath(page.url, '')} ranks about #{page.position}.</>
+                                        ) : (
+                                            <>
+                                                {pagePath(page.url, '')} ranks higher for this term {page.period} the change
+                                                {' '}(position {page.position} compared with {page.pagePosition} for the test).
+                                                {' '}The pages may be competing for the same search.
+                                            </>
+                                        )}
                                     </p>
                                 ))}
                             </li>

@@ -125,11 +125,13 @@ function competingPages(
         const better: BetterPage[] = [];
         for (const period of ['before', 'after'] as const) {
             const pagePosition = period === 'before' ? query.beforePosition : query.afterPosition;
-            if (pagePosition == null || pagePosition <= 0) continue;
+            if (pagePosition != null && pagePosition <= 0) continue;
+            let bestPosition = pagePosition ?? Infinity;
             let best: BetterPage | undefined;
             for (const rows of periods[period].values()) {
                 const { position } = sumMetrics(rows);
-                if (position == null || position >= (best?.position ?? pagePosition)) continue;
+                if (position == null || position >= bestPosition) continue;
+                bestPosition = position;
                 best = { period, url: rows[0].page, position, pagePosition };
             }
             if (best) better.push(best);

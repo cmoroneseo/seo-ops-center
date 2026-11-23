@@ -302,22 +302,27 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     const dayIds = historyDays.map(day => day.id);
     const candidates = [...new Set(changes.flatMap(change => change.pages.flatMap(page => gscPageCandidates(page.url))))];
     const queryNeedles = [...new Set(changes.flatMap(change => change.queries.map(query => query.normalized)))];
-    const detailSpan = detail ? { start: baselineWindow(detail.liveOn).start, end: afterWindow(detail.liveOn, 56).end } : null;
-    const detailDayIds = detailSpan ? historyDays.filter(day => !day.preliminary
-        && day.date >= detailSpan.start && day.date <= detailSpan.end && day.date !== detail?.liveOn).map(day => day.id) : [];
+    const detailBaseline = detail ? baselineWindow(detail.liveOn) : null;
+    const detailAfter = detail ? afterWindow(detail.liveOn, 56) : null;
+    const baselineDayIds = detailBaseline ? historyDays.filter(day => !day.preliminary
+        && day.date >= detailBaseline.start && day.date <= detailBaseline.end).map(day => day.id) : [];
+    const afterDayIds = detailAfter ? historyDays.filter(day => !day.preliminary
+        && day.date >= detailAfter.start && day.date <= detailAfter.end).map(day => day.id) : [];
+    const detailDayIds = [...baselineDayIds, ...afterDayIds];
     const paths = [...new Set(changes.flatMap(change => change.pages.flatMap(page => {
         const path = ga4PathFor(page.url);
         return path ? [path] : [];
     })))];
-    const [pageFacts, propertyFacts, queryFacts, ga, siteQueryFacts, taggedPageFacts] = await Promise.all([
+    const [pageFacts, propertyFacts, baselineQueryFacts, trackedQueryFacts, ga, siteQueryFacts, taggedPageFacts] = await Promise.all([
         dayIds.length && candidates.length
             ? facts(db, dayIds, 'page', { pages: candidates })
             : Promise.resolve([]),
         dayIds.length ? facts(db, dayIds, 'property') : Promise.resolve([]),
-        dayIds.length && candidates.length && queryNeedles.length
-            ? (detail
-                ? facts(db, detailDayIds, 'query_page', { pages: candidates })
-                : facts(db, dayIds, 'query_page', { pages: candidates, queries: queryNeedles }))
+        baselineDayIds.length && candidates.length && queryNeedles.length
+            ? facts(db, baselineDayIds, 'query_page', { pages: candidates })
+            : Promise.resolve([]),
+        candidates.length && queryNeedles.length
+            ? facts(db, detail ? afterDayIds : dayIds, 'query_page', { pages: candidates, queries: queryNeedles })
             : Promise.resolve([]),
         ga4Property ? ga4Rows(db, organizationId, clientId, ga4Property, span, paths) : Promise.resolve({ pages: [], site: [] }),
         detailDayIds.length && queryNeedles.length
@@ -335,7 +340,7 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
         historyDays,
         pageFacts,
         propertyFacts,
-        queryFacts,
+        queryFacts: [...baselineQueryFacts, ...trackedQueryFacts],
         ga4Pages: ga.pages,
         ga4Site: ga.site,
     });
@@ -343,7 +348,7 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
         change: detail,
         impact: impacts[detail.id],
         days: historyDays,
-        pageQueryFacts: queryFacts,
+        pageQueryFacts: baselineQueryFacts,
         siteQueryFacts,
         taggedPageFacts,
     });
