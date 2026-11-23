@@ -126,7 +126,7 @@ export function Sidebar() {
     const myTasksLabel = overdueCount
         ? `My Tasks (${overdueCount} of your tasks overdue)`
         : 'My Tasks';
-    const { clients } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
+    const { clients, isLoading: clientsLoading } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
     const selected = useSelectedClient();
     const agencyDashboard = useAgencyDashboardEnabled();
     const vaultEnabled = useVaultEnabled(organization?.id) === true;
@@ -207,6 +207,7 @@ export function Sidebar() {
 
                 <ClientSwitcher
                     clients={switcherClients}
+                    isLoading={isLoading || clientsLoading}
                     selectedId={selected.clientId}
                     recentIds={selected.recentIds}
                     hrefFor={hrefFor}
