@@ -83,8 +83,8 @@ test('My Time keeps the tiles visible and updates them after a time entry is sav
         await Promise.resolve();
     });
     assert.equal(view.container.querySelector('[data-my-time-loading]'), null);
-    assert.match(hours(view.container, 'week'), /2h/);
-    assert.match(hours(view.container, 'month'), /6h/);
+    assert.match(hours(view.container, 'week'), /2 h/);
+    assert.match(hours(view.container, 'month'), /6 h/);
 
     await act(async () => {
         publishMyTimeRefresh();
@@ -92,14 +92,21 @@ test('My Time keeps the tiles visible and updates them after a time entry is sav
     });
     assert.equal(calls, 2);
     assert.equal(view.container.querySelector('[data-my-time-loading]'), null);
-    assert.match(hours(view.container, 'week'), /2h/);
+    assert.match(hours(view.container, 'week'), /2 h/);
 
     await act(async () => {
-        releaseRefresh({ hoursThisWeek: 3.5, hoursThisMonth: 7.5, byClient: [] });
+        releaseRefresh({ hoursThisWeek: 3.5, hoursThisMonth: 7.5, byClient: [
+            { clientId: 'client-1', clientName: 'First client', hours: 4.819999999999999 },
+            { clientId: 'client-2', clientName: 'Second client', hours: 2.6100000000000003 },
+        ] });
         await Promise.resolve();
     });
-    assert.match(hours(view.container, 'week'), /3\.5h/);
-    assert.match(hours(view.container, 'month'), /7\.5h/);
+    assert.match(hours(view.container, 'week'), /3\.5 h/);
+    assert.match(hours(view.container, 'month'), /7\.5 h/);
     assert.equal(view.container.querySelector('[data-my-time-loading]'), null);
+    const content = view.container.textContent ?? '';
+    assert.match(content, /4\.82 h/);
+    assert.match(content, /2\.61 h/);
+    assert.doesNotMatch(content, /4\.819999999999999|2\.6100000000000003/);
     view.unmount();
 });

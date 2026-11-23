@@ -1,5 +1,6 @@
 'use client';
 
+import { formatHourAmount } from '@/lib/hour-format';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { format } from 'date-fns';
@@ -893,7 +894,7 @@ export function EventDetailPanel({
                             <div className="space-y-1">
                                 <div className="flex items-center gap-2 text-xs text-emerald-500">
                                     <Check className="h-3.5 w-3.5 shrink-0" />
-                                    <span>{loggedLog.hours}h logged from this block</span>
+                                    <span>{formatHourAmount(loggedLog.hours)} h logged from this block</span>
                                 </div>
                                 {loggedLog.basecampSyncError ? (
                                     <div className="flex items-start gap-2 text-[10px] text-destructive">

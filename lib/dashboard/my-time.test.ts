@@ -10,17 +10,17 @@ import {
     summarizeMyTime,
 } from './my-time.ts';
 
-test('unknown hours are an em dash and a loaded zero stays 0h', () => {
+test('unknown hours are an em dash and a loaded zero stays 0 h', () => {
     assert.equal(formatMyTimeHours(null), '—');
     assert.equal(formatMyTimeHours(Number.NaN), '—');
-    assert.equal(formatMyTimeHours(0), '0h');
+    assert.equal(formatMyTimeHours(0), '0 h');
     const today = new Date(2026, 9, 13, 12, 0, 0);
     assert.equal(summarizeMyTime(null, 'me', today), null);
     assert.equal(summarizeMyTime([], null, today), null);
     const zero = summarizeMyTime([], 'me', today);
     assert.deepEqual(zero, { week: 0, month: 0 });
-    assert.equal(formatMyTimeHours(zero?.week ?? null), '0h');
-    assert.equal(formatMyTimeHours(zero?.month ?? null), '0h');
+    assert.equal(formatMyTimeHours(zero?.week ?? null), '0 h');
+    assert.equal(formatMyTimeHours(zero?.month ?? null), '0 h');
 });
 
 test('a saved time entry asks My Time to reload, and a failed save does not', () => {
@@ -64,6 +64,16 @@ test('week and month totals count only the signed-in person', () => {
         { date: '2026-10-13', hours: 9, userId: 'other' },
     ], 'me', today);
     assert.deepEqual(totals, { week: 2, month: 6 });
-    assert.equal(formatMyTimeHours(totals?.week ?? null), '2h');
-    assert.equal(formatMyTimeHours(totals?.month ?? null), '6h');
+    assert.equal(formatMyTimeHours(totals?.week ?? null), '2 h');
+    assert.equal(formatMyTimeHours(totals?.month ?? null), '6 h');
+});
+
+test('My Time displays logged hours to two decimal places', () => {
+    assert.equal(formatMyTimeHours(4.819999999999999), '4.82 h');
+    assert.equal(formatMyTimeHours(2.6100000000000003), '2.61 h');
+    const totals = summarizeMyTime([
+        { date: '2026-10-13', hours: 4.819999999999999, userId: 'me' },
+    ], 'me', new Date(2026, 9, 13, 12));
+    assert.equal(formatMyTimeHours(totals?.week ?? null), '4.82 h');
+    assert.equal(formatMyTimeHours(totals?.month ?? null), '4.82 h');
 });

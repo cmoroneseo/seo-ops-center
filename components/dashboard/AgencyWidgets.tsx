@@ -1,5 +1,6 @@
 'use client';
 
+import { formatHourAmount } from '@/lib/hour-format';
 import { Task, Deliverable } from '@/lib/types';
 import { compareTaskDueDates, filterTasks, isOverdueTask, localDateKey } from '@/lib/tasks/my-tasks';
 import { cn } from '@/lib/utils';
@@ -386,7 +387,7 @@ export function MyTimeWidget({
                                 <div key={c.clientId} className="space-y-1">
                                     <div className="flex items-center justify-between text-xs">
                                         <span className="text-foreground truncate max-w-[160px]">{c.clientName}</span>
-                                        <span className="text-muted-foreground tabular-nums">{c.hours}h</span>
+                                        <span className="text-muted-foreground tabular-nums">{formatHourAmount(c.hours)} h</span>
                                     </div>
                                     <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                                         <div
