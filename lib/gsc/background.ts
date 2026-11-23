@@ -1,4 +1,4 @@
-import { dateOffset, historyWindow } from './history';
+import { dateOffset, finalHistoryDate, historyWindow } from './history';
 import { gscHistoryV2BackfillEnabled } from './flags';
 
 /** Today's daily sync. The 16-month window is a separate backfill flag. */
@@ -13,6 +13,7 @@ export const V2_REQUEST_GAP_MS = 100;
  * 90s budget saved one day. The backfill route uses BACKFILL_MIN_DAY_MS instead.
  */
 export const V2_DAY_BUDGET_MS = 70_000;
+const HOURLY_REFRESH_MS = 60 * 60 * 1000;
 
 export function backgroundWindowLength(env: NodeJS.ProcessEnv = process.env): number {
     return gscHistoryV2BackfillEnabled(env) ? V2_BACKFILL_HISTORY_DAYS : DAILY_HISTORY_DAYS;
@@ -49,13 +50,27 @@ export function planV2Backfill(
 }
 
 export function planBackgroundDays(
-    dates: string[], existing: { data_date: string; imported_at: string }[], now = new Date(), limit = 4,
+    dates: string[], existing: { data_date: string; imported_at: string; is_incomplete: boolean }[], now = new Date(), limit = 4,
 ): string[] {
-    const known = new Map(existing.map(day => [day.data_date, day.imported_at]));
-    const missing = dates.filter(date => !known.has(date));
-    const stale = dates.slice(0, 7).filter(date => known.has(date) && Date.parse(known.get(date)!) <= now.getTime() - (date > dateOffset(dates[0], -3) ? 3600000 : 86400000));
-    // Never starve recent revisions while older history is still being filled.
-    return [...missing.slice(0, 1), ...stale.slice(0, 1), ...missing.slice(1), ...stale.slice(1)].slice(0, limit);
+    const known = new Map(existing.map(day => [day.data_date, day]));
+    const finalThrough = finalHistoryDate(now);
+    const nowMs = now.getTime();
+    const needsFinal = (date: string) => date <= finalThrough && known.get(date)?.is_incomplete === true;
+    const dueForFinal = dates.filter(date => needsFinal(date)
+        && Date.parse(known.get(date)?.imported_at ?? '') <= nowMs - HOURLY_REFRESH_MS);
+    const recent = dates.slice(0, 7);
+    const recentMissing = recent.filter(date => !known.has(date));
+    const olderMissing = dates.slice(recent.length).filter(date => !known.has(date));
+    const stale = recent.flatMap(date => {
+        const imported = Date.parse(known.get(date)?.imported_at ?? '');
+        const maxAgeMs = date > finalThrough ? HOURLY_REFRESH_MS : 86400000;
+        return !needsFinal(date) && imported <= nowMs - maxAgeMs ? [{ date, imported }] : [];
+    }).sort((a, b) => a.imported - b.imported).map(day => day.date);
+    // Reserve recent work ahead of historical fill and rotate stale revisions by import age.
+    return [
+        ...dueForFinal, ...recentMissing.slice(0, 1), ...stale.slice(0, 1),
+        ...recentMissing.slice(1), ...olderMissing, ...stale.slice(1),
+    ].slice(0, limit);
 }
 
 export function retryDelaySeconds(attempts: number): number {

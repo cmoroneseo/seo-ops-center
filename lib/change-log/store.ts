@@ -103,6 +103,15 @@ async function rows(query: PromiseLike<{ data: Row[] | null; error: { code?: str
     return data ?? [];
 }
 
+async function* rowPages(read: (start: number, end: number) => Parameters<typeof rows>[0]) {
+    const pageSize = 1000;
+    for (let start = 0; ; start += pageSize) {
+        const page = await rows(read(start, start + pageSize - 1));
+        yield page;
+        if (page.length < pageSize) break;
+    }
+}
+
 class MissingTable extends Error {
     constructor() {
         super('missing');
@@ -169,34 +178,37 @@ async function facts(
     filter?: { pages?: string[]; queries?: string[] },
 ): Promise<GscFactRow[]> {
     const out: GscFactRow[] = [];
-    const pages = filter?.pages?.slice(0, 200) ?? [];
-    const queries = filter?.queries?.slice(0, 100) ?? [];
+    const pageGroups = filter?.pages?.length ? chunkList(filter.pages, 40) : [[]];
+    const queryGroups = filter?.queries?.length ? chunkList(filter.queries, 30) : [[]];
     for (const chunk of chunkList(dayIds, grain === 'property' ? 14 : 7)) {
-        const base = db.from('gsc_history_facts')
-            .select('day_id, grain, page, query, clicks, impressions, position, surface')
-            .in('day_id', chunk)
-            .eq('grain', grain);
-        const narrowed = pages.length && queries.length
-            ? base.in('page', pages).in('query', queries)
-            : pages.length
-                ? base.in('page', pages)
-                : queries.length
-                    ? base.in('query', queries)
-                    : base;
-        const data = await rows(narrowed.limit(8000));
-        for (const row of data) {
-            const dayId = text(row.day_id);
-            if (!dayId) continue;
-            out.push({
-                dayId,
-                grain: text(row.grain),
-                page: text(row.page),
-                query: text(row.query),
-                clicks: num(row.clicks),
-                impressions: num(row.impressions),
-                position: num(row.position),
-                surface: text(row.surface) || null,
-            });
+        for (const pages of pageGroups) {
+            for (const queries of queryGroups) {
+                const batch = rowPages((start, end) => {
+                    const query = db.from('gsc_history_facts')
+                        .select('day_id, grain, page, query, clicks, impressions, position, surface')
+                        .in('day_id', chunk).eq('grain', grain);
+                    if (pages.length) query.in('page', pages);
+                    if (queries.length) query.in('query', queries);
+                    // Within a grain, (day_id, row_key) is unique and indexed.
+                    return query.order('day_id').order('row_key').range(start, end);
+                });
+                for await (const page of batch) {
+                    for (const row of page) {
+                        const dayId = text(row.day_id);
+                        if (!dayId) continue;
+                        out.push({
+                            dayId,
+                            grain: text(row.grain),
+                            page: text(row.page),
+                            query: text(row.query),
+                            clicks: num(row.clicks),
+                            impressions: num(row.impressions),
+                            position: num(row.position),
+                            surface: text(row.surface) || null,
+                        });
+                    }
+                }
+            }
         }
     }
     return out;
@@ -218,31 +230,36 @@ async function ga4Rows(db: Admin, organizationId: string, clientId: string, prop
         if (!id || !date) continue;
         dayMeta.set(id, { date, preliminary: row.is_final === false });
     }
-    const pages = paths.length === 0 ? [] : await rows(db.from('ga4_landing_page_days')
-        .select('day, landing_page_norm, organic_sessions, key_events')
-        .eq('organization_id', organizationId)
-        .eq('client_id', clientId)
-        .in('landing_page_norm', paths)
-        .gte('day', span.start)
-        .lte('day', span.end)
-        .limit(8000));
+    const pages: Ga4PageRow[] = [];
+    if (dayMeta.size > 0) {
+        for (const group of chunkList(paths, 40)) {
+            const batches = rowPages((start, end) => db.from('ga4_landing_page_days')
+                .select('day_id, landing_page_norm, organic_sessions, key_events')
+                .eq('organization_id', organizationId).eq('client_id', clientId)
+                .in('landing_page_norm', group).gte('day', span.start).lte('day', span.end)
+                .order('id').range(start, end));
+            for await (const batch of batches) {
+                for (const row of batch) {
+                    const meta = dayMeta.get(text(row.day_id));
+                    const path = text(row.landing_page_norm);
+                    if (!meta || !path) continue;
+                    pages.push({
+                        date: meta.date,
+                        path,
+                        organicSessions: nullableNum(row.organic_sessions),
+                        keyEvents: nullableNum(row.key_events),
+                        preliminary: meta.preliminary,
+                    });
+                }
+            }
+        }
+    }
     const siteRows = dayMeta.size === 0 ? [] : await rows(db.from('ga4_daily')
         .select('day_id, organic_sessions, key_events')
         .in('day_id', [...dayMeta.keys()])
         .limit(800));
     return {
-        pages: pages.flatMap(row => {
-            const date = text(row.day).slice(0, 10);
-            const path = text(row.landing_page_norm);
-            if (!date || !path) return [];
-            return [{
-                date,
-                path,
-                organicSessions: nullableNum(row.organic_sessions),
-                keyEvents: nullableNum(row.key_events),
-                preliminary: false,
-            }];
-        }),
+        pages,
         site: siteRows.flatMap(row => {
             const meta = dayMeta.get(text(row.day_id));
             if (!meta) return [];
@@ -381,26 +398,78 @@ export function plainStartingPointNote(note: string, status: string): string | n
         .replaceAll('Search Console is about', 'Google Search Console is about');
 }
 
-export async function getChange(organizationId: string, clientId: string, changeId: string, now = new Date()): Promise<ChangeDetailResult> {
+type BaselineStatus = 'captured' | 'partial' | 'missing';
+
+function baselineSnapshot(change: SeoChange, loaded: Awaited<ReturnType<typeof loadImpacts>>, now: Date) {
+    const impact = loaded.impacts[change.id];
+    const baseline = impact?.baseline;
+    const end = baselineWindow(change.liveOn).end;
+    // The measured-day count excludes both missing and preliminary days.
+    const status: BaselineStatus = !baseline?.measured
+        ? 'missing'
+        : baseline.daysPresent < baseline.daysExpected || impact.finalThrough < end
+            ? 'partial'
+            : 'captured';
+    const note = status === 'missing'
+        ? 'No saved days in the 28 days before this change.'
+        : status === 'partial'
+            ? `Starting point saved with ${baseline?.daysPresent} of ${baseline?.daysExpected} days. Google Search Console is about ${GSC_LAG_DAYS} days behind.`
+            : 'Starting point saved from stored Google Search Console and Analytics history.';
+    return {
+        captured_at: now.toISOString(),
+        data_through: impact ? (impact.finalThrough < end ? impact.finalThrough : end) : null,
+        gsc_lag_days: GSC_LAG_DAYS,
+        status,
+        low_data: impact?.headline.lowData ?? false,
+        estimate: status !== 'captured',
+        gsc_connected: loaded.gsc,
+        ga4_connected: loaded.ga4,
+        payload: {
+            clicks: baseline?.clicks ?? null,
+            impressions: baseline?.impressions ?? null,
+            ctr: baseline?.ctr ?? null,
+            position: baseline?.position ?? null,
+            organicSessions: baseline?.organicSessions ?? null,
+            keyEvents: baseline?.keyEvents ?? null,
+            daysPresent: baseline?.daysPresent ?? 0,
+            daysExpected: baseline?.daysExpected ?? 0,
+        },
+        note,
+    };
+}
+
+async function readBaselineNote(db: Admin, organizationId: string, change: SeoChange, loaded: Awaited<ReturnType<typeof loadImpacts>>, now: Date) {
+    const { data: saved } = await db.from('seo_change_baselines').select('note, status, estimate, payload, captured_at, data_through')
+        .eq('change_id', change.id).eq('organization_id', organizationId).eq('client_id', change.clientId)
+        .maybeSingle();
+    if (!saved) return null;
+
+    const current = baselineSnapshot(change, loaded, now);
+    const savedDays = num(saved.payload?.daysPresent);
+    const incomplete = saved.status !== 'captured' || saved.estimate === true
+        || savedDays < current.payload.daysExpected || text(saved.data_through) < baselineWindow(change.liveOn).end;
+    if (incomplete && current.status === 'captured') {
+        // A concurrent detail read may already have replaced this version.
+        const { error } = await db.from('seo_change_baselines').update(current)
+            .eq('change_id', change.id).eq('organization_id', organizationId).eq('client_id', change.clientId)
+            .eq('captured_at', saved.captured_at);
+        if (!error) return plainStartingPointNote(current.note, current.status);
+    }
+    return plainStartingPointNote(text(saved.note), text(saved.status));
+}
+
+export async function getChange(organizationId: string, clientId: string, changeId: string, now = new Date(), db = createAdminClient()): Promise<ChangeDetailResult> {
     try {
-        const db = createAdminClient();
         const changes = await loadChanges(db, organizationId, clientId);
         const change = changes.find(item => item.id === changeId) ?? null;
         if (!change) return { setup: 'ready', change: null, impact: null, confounders: [], baselineNote: null, pageMarkers: [] };
         const loaded = await loadImpacts(db, organizationId, clientId, [change], now);
-        const { data } = await db.from('seo_change_baselines')
-            .select('note, status')
-            .eq('change_id', changeId)
-            .eq('organization_id', organizationId)
-            .maybeSingle();
-        const status = text((data as Row | null)?.status);
-        const note = text((data as Row | null)?.note);
         return {
             setup: 'ready',
             change,
             impact: loaded.impacts[change.id] ?? null,
             confounders: findConfounders(changes, change, loaded.impacts[change.id]?.headline.ready ? loaded.impacts[change.id].headline.days : 28),
-            baselineNote: plainStartingPointNote(note, status),
+            baselineNote: await readBaselineNote(db, organizationId, change, loaded, now),
             pageMarkers: samePageMarkers(
                 { id: change.id, pageKeys: change.pages.map(page => page.urlKey) },
                 changes.map(item => ({
@@ -430,7 +499,7 @@ export async function createChange(input: {
     userId: string;
     change: NormalizedChange;
     now?: Date;
-}): Promise<{ id: string; baselineStatus: 'captured' | 'partial' | 'missing'; baselineNote: string }> {
+}): Promise<{ id: string; baselineStatus: BaselineStatus; baselineNote: string }> {
     const db = createAdminClient();
     const now = input.now ?? new Date();
     const payload: Record<string, unknown> = {
@@ -485,42 +554,14 @@ export async function createChange(input: {
         }
         const saved: SeoChange = { id, clientId: input.clientId, ...input.change };
         const loaded = await loadImpacts(db, input.organizationId, input.clientId, [saved], now);
-        const impact = loaded.impacts[id];
-        const status = !impact || !impact.baseline.measured
-            ? 'missing'
-            : impact.baseline.daysPresent < impact.baseline.daysExpected
-                ? 'partial'
-                : 'captured';
-        const note = status === 'missing'
-            ? 'No saved days in the 28 days before this change.'
-            : status === 'partial'
-                ? `Starting point saved with ${impact.baseline.daysPresent} of ${impact.baseline.daysExpected} days. Google Search Console is about ${GSC_LAG_DAYS} days behind.`
-                : 'Starting point saved from stored Google Search Console and Analytics history.';
+        const snapshot = baselineSnapshot(saved, loaded, now);
         await db.from('seo_change_baselines').insert({
             change_id: id,
             organization_id: input.organizationId,
             client_id: input.clientId,
-            captured_at: now.toISOString(),
-            data_through: impact?.finalThrough ?? null,
-            gsc_lag_days: GSC_LAG_DAYS,
-            status,
-            low_data: impact?.headline.lowData ?? false,
-            estimate: status !== 'captured',
-            gsc_connected: loaded.gsc,
-            ga4_connected: loaded.ga4,
-            payload: {
-                clicks: impact?.baseline.clicks ?? null,
-                impressions: impact?.baseline.impressions ?? null,
-                ctr: impact?.baseline.ctr ?? null,
-                position: impact?.baseline.position ?? null,
-                organicSessions: impact?.baseline.organicSessions ?? null,
-                keyEvents: impact?.baseline.keyEvents ?? null,
-                daysPresent: impact?.baseline.daysPresent ?? 0,
-                daysExpected: impact?.baseline.daysExpected ?? 0,
-            },
-            note,
+            ...snapshot,
         });
-        return { id, baselineStatus: status, baselineNote: note };
+        return { id, baselineStatus: snapshot.status, baselineNote: snapshot.note };
     } catch (error) {
         await db.from('seo_changes').delete().eq('id', id).eq('organization_id', input.organizationId);
         if (error instanceof MissingTable) throw error;

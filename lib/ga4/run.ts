@@ -7,8 +7,9 @@ export type { Ga4QueueKind };
 import { ga4BackfillEnabled, ga4HistoryEnabled, ga4OrgAllowlist } from './flags';
 import { resolveGa4KeyEvents } from './key-events';
 import {
-    GA4_AUTH_DELAY_SECONDS, GA4_BACKOFF_BASE_SECONDS, GA4_DAILY_COOLDOWN_SECONDS, assembleGa4Days, dailyRepairDates, eachUtcDate,
-    quotaPauseScope, type Ga4DayWrite, type PropertyQuotaSnapshot,
+    GA4_AUTH_DELAY_SECONDS, GA4_BACKOFF_BASE_SECONDS, GA4_DAILY_COOLDOWN_SECONDS, GA4_DAILY_REPAIR_DAYS, GA4_EMPTY_DAY_LOOKBACK,
+    addUtcDays, assembleGa4Days, dailyRepairDates, eachUtcDate,
+    isolatedEmptyGa4Day, quotaPauseScope, utcDay, type Ga4DayCoverage, type Ga4DayWrite, type PropertyQuotaSnapshot,
 } from './sync';
 
 export class Ga4AuthError extends Error {
@@ -36,6 +37,8 @@ export interface Ga4Job {
     attempts: number;
     cursorDate: string | null;
 }
+
+export type Ga4Property = Pick<Ga4Job, 'organizationId' | 'clientId' | 'property'>;
 
 export interface Ga4Release {
     id: string;
@@ -85,8 +88,10 @@ export interface Ga4Store {
     hasWork(kind: Ga4QueueKind): Promise<boolean>;
     claim(kind: Ga4QueueKind): Promise<Ga4Job | null>;
     release(input: Ga4Release): Promise<void>;
-    replaceDay(job: Ga4Job, fetchedAt: string, day: Ga4DayWrite): Promise<boolean>;
-    keyEventOverride(job: Ga4Job): Promise<string[] | null>;
+    overdueNonFinalDates(property: Ga4Property, before: string): Promise<string[]>;
+    recentCoverage(property: Ga4Property, from: string, through: string): Promise<Ga4DayCoverage[]>;
+    replaceDay(property: Ga4Property, fetchedAt: string, day: Ga4DayWrite): Promise<boolean>;
+    keyEventOverride(property: Ga4Property): Promise<string[] | null>;
     markSynced(job: Ga4Job): Promise<void>;
     markReauth(job: Ga4Job): Promise<void>;
     markFailed(job: Ga4Job): Promise<void>;
@@ -98,7 +103,7 @@ export interface Ga4RunDeps {
     newRunId: () => string;
     store: Ga4Store;
     publish: (message: Ga4QueueSend) => Promise<void>;
-    getToken: (clientId: string) => Promise<{ token: string } | null>;
+    getToken: (clientId: string, property: string) => Promise<{ token: string } | null>;
     listKeyEvents: (token: string, propertyId: string) => Promise<string[]>;
     readRange: (input: {
         token: string;
@@ -158,20 +163,20 @@ export async function runGa4Cron(deps: Ga4RunDeps): Promise<Ga4CronResult> {
     return { daily, backfill };
 }
 
-async function readDays(
-    deps: Ga4RunDeps,
-    job: Ga4Job,
+export async function syncGa4Days(
+    deps: Pick<Ga4RunDeps, 'now' | 'store' | 'getToken' | 'listKeyEvents' | 'readRange'>,
+    job: Ga4Property,
     dates: string[],
 ): Promise<
     | { days: Ga4DayWrite[]; pause: ReturnType<typeof quotaPauseScope> }
-    | { paused: true; status: number }
+    | { paused: true }
     | { auth: Ga4AuthError }
     | { failed: true }
 > {
     if (dates.length === 0) return { days: [], pause: null };
     let token: { token: string } | null;
     try {
-        token = await deps.getToken(job.clientId);
+        token = await deps.getToken(job.clientId, job.property);
     } catch (error) {
         if (error instanceof Ga4AuthError) return { auth: error };
         return { failed: true };
@@ -188,6 +193,7 @@ async function readDays(
     const start = dates[0];
     const end = dates[dates.length - 1];
     if (!start || !end) return { failed: true };
+    const fetchedAt = deps.now();
     let read: Ga4ReadResult;
     try {
         read = await deps.readRange({ token: token.token, propertyId: job.property, start, end, keyEvents });
@@ -197,13 +203,12 @@ async function readDays(
     }
     if (!read.ok) {
         if (read.status === 401 || read.status === 403) return { auth: new Ga4AuthError('GA4 authorization was rejected', 'reauth_required') };
-        if (read.status === 429) return { paused: true, status: read.status };
+        if (read.status === 429) return { paused: true };
         return { failed: true };
     }
-    const fetchedAt = deps.now().toISOString();
     const days = assembleGa4Days({
         dates,
-        now: deps.now(),
+        now: fetchedAt,
         keyEvents,
         totals: read.reports.totals,
         organic: read.reports.organic,
@@ -211,9 +216,31 @@ async function readDays(
         landing: read.reports.landing,
     });
     for (const day of days) {
-        await deps.store.replaceDay(job, fetchedAt, day);
+        await deps.store.replaceDay(job, fetchedAt.toISOString(), day);
     }
     return { days, pause: quotaPauseScope(read.quota) };
+}
+
+async function syncGa4Daily(deps: Ga4RunDeps, job: Ga4Job, now: Date): ReturnType<typeof syncGa4Days> {
+    const regular = dailyRepairDates(now).reverse();
+    const overdue = await deps.store.overdueNonFinalDates(job, regular[0]);
+    let extra: string[];
+    if (overdue.length) {
+        // Keep the extra range short even if non-final days are months apart.
+        const end = addUtcDays(overdue[0], GA4_DAILY_REPAIR_DAYS - 1);
+        extra = overdue.filter(day => day <= end);
+    } else {
+        const from = addUtcDays(utcDay(now), -GA4_EMPTY_DAY_LOOKBACK - 1); // Include the oldest candidate's neighbor.
+        const coverage = await deps.store.recentCoverage(job, from, regular[0]);
+        const empty = isolatedEmptyGa4Day(coverage, regular[0]);
+        extra = empty ? [empty] : [];
+    }
+    if (extra.length) {
+        const repaired = await syncGa4Days(deps, job, extra);
+        if (!('days' in repaired)) return repaired;
+        if (repaired.pause) return { paused: true };
+    }
+    return syncGa4Days(deps, job, regular);
 }
 
 async function parkAuth(deps: Ga4RunDeps, job: Ga4Job, error: Ga4AuthError, now: Date): Promise<void> {
@@ -273,8 +300,7 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
 
     const now = deps.now();
     if (parsed.kind === 'daily') {
-        const dates = [...dailyRepairDates(now)].sort();
-        const outcome = await readDays(deps, job, dates);
+        const outcome = await syncGa4Daily(deps, job, now);
         if ('auth' in outcome) {
             await parkAuth(deps, job, outcome.auth, now);
             await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
@@ -318,7 +344,7 @@ export async function runGa4QueueMessage(message: unknown, deps: Ga4RunDeps): Pr
         await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);
         return;
     }
-    const outcome = await readDays(deps, job, eachUtcDate(range.start, range.end));
+    const outcome = await syncGa4Days(deps, job, eachUtcDate(range.start, range.end));
     if ('auth' in outcome) {
         await parkAuth(deps, job, outcome.auth, now);
         await continueChain(deps, parsed, GA4_LINK_DELAY_SECONDS);

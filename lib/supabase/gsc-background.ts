@@ -94,13 +94,13 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
             const auth = await getGoogleAccessToken(job.clientId, 'gsc');
             if (!auth || auth.creds.site_url !== job.property) throw new Error('Connection changed');
             const { data: days, error: coverageError } = await admin.from('gsc_history_days')
-                .select('data_date,imported_at').eq('organization_id', job.organizationId)
-                .eq('client_id', job.clientId).eq('property', job.property)
+                .select('data_date,imported_at,is_incomplete').eq('organization_id', job.organizationId)
+                .eq('client_id', job.clientId).eq('property', job.property).eq('search_type', 'web')
                 .gte('data_date', dates.at(-1)!).lte('data_date', dates[0]);
             if (coverageError) throw new Error('Unable to read coverage');
             const selected = planBackgroundDays(dates, days ?? [], now);
             const sharedSignal = v2 ? null : AbortSignal.timeout(Math.max(1, Math.min(60000, deadline - Date.now() - 2000)));
-            const savedDates = new Set((days ?? []).map(day => day.data_date));
+            const coverage = new Map((days ?? []).map(day => [day.data_date, day]));
             const gbpLandingUrls = v2 ? await landingUrlsFor(admin, job.organizationId, job.clientId) : [];
             for (const date of selected) {
                 // v1 keeps one shared timeout. v2 days make more requests, so each day gets its own.
@@ -114,7 +114,7 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
                     p_query_limited: day.queryLimited, p_facts: day.facts, p_is_incomplete: day.isIncomplete,
                 });
                 if (saveError || saved !== true) throw new Error('Snapshot was not saved');
-                savedDates.add(date);
+                coverage.set(date, { data_date: date, imported_at: new Date().toISOString(), is_incomplete: day.isIncomplete });
                 imported += 1;
             }
             if (selected.length > 0) {
@@ -141,7 +141,7 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
                     // History for this claim is already saved. Live URL rows retry on the next daily sync.
                 }
             }
-            remaining = dates.some(date => !savedDates.has(date));
+            remaining = planBackgroundDays(dates, [...coverage.values()], now, 1).length > 0;
             succeeded = true;
             delay = remaining ? 0 : 3600;
         } catch {
