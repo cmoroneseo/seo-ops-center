@@ -59,3 +59,19 @@ test('the group summary uses the untouched remainder, and each URL keeps its own
     assert.equal(early[0].clicksChange, null);
     assert.notEqual(early[0].clicksChange, 0);
 });
+
+test('group page rows compare the baseline with full days after launch', () => {
+    const rows = buildPageImpactRows({
+        pages: [{ url: 'https://example.com/services', label: 'Services' }],
+        series: [[
+            { date: '2026-11-09', clicks: 2, impressions: 10, position: 4, organicSessions: null, keyEvents: null },
+            { date: '2026-11-10', clicks: 80, impressions: 100, position: 1, organicSessions: null, keyEvents: null },
+            { date: '2026-11-11', clicks: 4, impressions: 20, position: 3, organicSessions: null, keyEvents: null },
+        ]],
+        liveOn: '2026-11-10',
+        finalThrough: '2026-11-17',
+        afterDays: 7,
+    });
+    assert.equal(rows[0]?.clicksChange, 1);
+    assert.equal(rows[0]?.impressionsChange, 1);
+});

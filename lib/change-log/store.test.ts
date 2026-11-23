@@ -34,6 +34,11 @@ function database(tables: Record<string, Row[]>) {
                 select() { return query; },
                 eq(key: string, value: unknown) { filters.push(row => row[key] === value); return query; },
                 in(key: string, values: unknown[]) { filters.push(row => values.includes(row[key])); return query; },
+                ilike(key: string, pattern: string) {
+                    const expression = new RegExp(pattern.split('%').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'), 'i');
+                    filters.push(row => expression.test(String(row[key])));
+                    return query;
+                },
                 gte(key: string, value: string) { filters.push(row => String(row[key]) >= value); return query; },
                 lte(key: string, value: string) { filters.push(row => String(row[key]) <= value); return query; },
                 order(key: string) { order.push(key); return query; },
@@ -148,4 +153,72 @@ test('query facts keep a day preliminary if any matched row is preliminary', () 
     );
     assert.equal(results[0]?.preliminary, true);
     assert.equal(results[0]?.clicks, 2);
+});
+
+test('detail uses stored query-page rows for sparse terms, suggestions and competing pages', async () => {
+    const days = [...baselineDates, ...Array.from({ length: 8 }, (_, i) => dateOffset('2026-11-10', i))];
+    const term = 'hardscape contractors corona';
+    const another = 'landscape contractors corona';
+    const competing = 'https://example.com/corona-ca/';
+    const queryFact = (day_id: string, page: string, query: string, impressions: number, position: number) => ({
+        day_id, row_key: `${page}:${query}`, grain: 'query_page', page, query, impressions, position,
+    });
+    const db = database({
+        ...seed('gsc'),
+        seo_change_queries: [term, another].map(query => ({ change_id: 'change', query, normalized_query: query })),
+        gsc_history_days: days.map(data_date => ({
+            ...scope, id: data_date, data_date, property: 'sc-domain:example.com', search_type: 'web',
+        })),
+        gsc_history_facts: [
+            ...days.map(day_id => ({ day_id, grain: 'page', page: url, clicks: 1, impressions: 30, position: 12 })),
+            queryFact(days[0], url, term, 7, 12),
+            queryFact('2026-11-10', url, term, 99, 1),
+            queryFact('2026-11-11', url, term, 1, 12),
+            queryFact(days[0], competing, term, 30, 2),
+            queryFact(days[0], url, 'hardscape contractors', 93, 10.4),
+            queryFact(days[0], url, 'landscaping corona', 28, 6),
+            queryFact(days[0], competing, 'off-page suggestion', 150, 2),
+        ],
+    });
+    const { impact } = await db.read();
+    const context = impact?.searchTermContext;
+    assert.deepEqual(context?.warnings.map(item => [item.query, item.before, item.after]), [[term, 7, 1], [another, 0, 0]]);
+    assert.deepEqual(context?.warnings[0].betterPages, [{ period: 'before', url: competing, position: 2, pagePosition: 12 }]);
+    assert.deepEqual(context?.suggestions, [
+        { query: 'hardscape contractors', impressions: 93, position: 10.4 },
+        { query: 'landscaping corona', impressions: 28, position: 6 },
+    ]);
+});
+
+test('GBP-tagged page facts are visible separately from the main page, including final zero days', async () => {
+    const after = Array.from({ length: 7 }, (_, i) => dateOffset('2026-11-11', i));
+    const days = [...baselineDates, '2026-11-10', ...after];
+    const fact = (day_id: string, page: string, clicks: number, impressions: number, position: number, surface = 'organic') => ({
+        day_id, row_key: page, grain: 'page', page, clicks, impressions, position, surface,
+    });
+    const gbp = 'http://www.example.com/?utm_campaign=gbp_listing&utm_source=maps';
+    const db = database({
+        ...seed('gsc'),
+        gsc_history_days: days.map(data_date => ({
+            ...scope, id: data_date, data_date, property: 'sc-domain:example.com', search_type: 'web', page_limited: false,
+        })),
+        gsc_history_facts: [
+            ...days.map(day => fact(day, url, day > '2026-11-10' || baselineDates.slice(0, 9).includes(day) ? 1 : 0, 25, 18)),
+            fact(baselineDates[0], gbp, 18, 1378, 8, 'gbp_link'),
+            fact(after[0], 'https://example.com/?utm_medium=organic&utm_source=google', 7, 245, 7),
+            fact(after[0], 'https://example.com/?utm_medium=email&utm_source=google', 100, 500, 1),
+            fact(after[0], 'https://example.com/other/?utm_campaign=gbp_listing', 100, 500, 1),
+            fact('2026-11-10', gbp, 100, 500, 1),
+        ],
+    });
+    const { change, impact } = await db.read();
+    assert.equal(change?.kpi, 'clicks');
+    assert.equal(impact?.kpi, 'impressions');
+    assert.equal(impact?.lowClickBaseline, 9);
+    assert.deepEqual([impact?.baseline.clicks, impact?.headline.page.clicks], [9, 7]);
+    assert.deepEqual([impact?.baseline.impressions, impact?.headline.page.impressions], [700, 175]);
+    assert.deepEqual(
+        [impact?.gbp?.before, impact?.gbp?.after].map(read => [read?.clicks, read?.impressions, read?.position, read?.daysPresent]),
+        [[18, 1378, 8, 28], [7, 245, 7, 7]],
+    );
 });

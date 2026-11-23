@@ -21,6 +21,8 @@ export type CheckpointDays = (typeof CHECKPOINTS)[number];
 
 export const BASELINE_DAYS = 28;
 export const GSC_LAG_DAYS = 3;
+/** Fewer reported impressions than this in a comparison window make a tracked term sparse. */
+export const NEAR_ZERO_QUERY_IMPRESSIONS = 10;
 
 export const VERDICT_THRESHOLDS = {
     /** Stored final days required in the 28-day baseline. */

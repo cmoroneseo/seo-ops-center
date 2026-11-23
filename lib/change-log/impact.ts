@@ -37,6 +37,7 @@ export interface ImpactSource {
     gscConnected: boolean;
     ga4Connected: boolean;
     pageDays: readonly DayPoint[];
+    gscPageDays?: readonly DayPoint[];
     sitewideDays: readonly DayPoint[];
     yoyPageDays?: readonly DayPoint[];
     yoySitewideDays?: readonly DayPoint[];
@@ -49,12 +50,21 @@ export function buildImpact(source: ImpactSource): ImpactModel {
     const baselineSpan = baselineWindow(source.liveOn);
     const baseline = sumWindow(source.pageDays, baselineSpan.start, baselineSpan.end, through);
     const baselineReady = baseline.measured && baseline.daysPresent >= VERDICT_THRESHOLDS.minBaselineDays;
-    const connected = isGaKpi(source.kpi) ? source.ga4Connected : source.gscConnected;
+    const gscBaseline = source.kpi === 'clicks' && source.gscConnected && through >= baselineSpan.end
+        ? sumWindow(source.gscPageDays ?? source.pageDays, baselineSpan.start, baselineSpan.end, through)
+        : null;
+    const lowClickBaseline = gscBaseline && gscBaseline.daysPresent >= VERDICT_THRESHOLDS.minBaselineDays
+        && gscBaseline.clicks < VERDICT_THRESHOLDS.lowDataClicks
+        ? gscBaseline.clicks
+        : null;
+    const kpi = lowClickBaseline == null ? source.kpi : 'impressions';
+    const scored = { ...source, kpi };
+    const connected = isGaKpi(kpi) ? source.ga4Connected : source.gscConnected;
     const siteBaseline = sumWindow(source.sitewideDays, baselineSpan.start, baselineSpan.end, through);
 
     const checkpoints = CHECKPOINTS.map(days => readCheckpoint({
         days,
-        source,
+        source: scored,
         through,
         lagNote,
         baseline,
@@ -73,14 +83,15 @@ export function buildImpact(source: ImpactSource): ImpactModel {
 
     const baselineControlWindow = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, 'clicks');
     const baselineControl = baselineControlWindow.mode === 'untouched' ? baselineControlWindow.read : null;
-    const control = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, source.kpi);
+    const control = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, kpi);
     const windowEnd = afterWindow(source.liveOn, 56).end;
     const lagEnd = dateOffset(through, GSC_LAG_DAYS);
     const seriesEnd = windowEnd < lagEnd ? windowEnd : lagEnd;
-    const series = chartSeries(source, through, baselineSpan.start, seriesEnd < baselineSpan.start ? baselineSpan.start : seriesEnd);
+    const series = chartSeries(scored, through, baselineSpan.start, seriesEnd < baselineSpan.start ? baselineSpan.start : seriesEnd);
 
     return {
-        kpi: source.kpi,
+        kpi,
+        lowClickBaseline,
         liveOn: source.liveOn,
         finalThrough: through,
         lagDays: GSC_LAG_DAYS,
@@ -207,8 +218,8 @@ function chartSeries(source: ImpactSource, through: string, start: string, end: 
     const last = end < start ? start : end;
     for (const date of eachDate(start, last)) {
         const preliminary = date > through;
-        const pageDay = pageByDate.get(date);
-        const siteDay = siteByDate.get(date);
+        const pageDay = date === source.liveOn ? undefined : pageByDate.get(date);
+        const siteDay = date === source.liveOn ? undefined : siteByDate.get(date);
         const measuredPage = !preliminary && pageDay && !pageDay.preliminary ? pageDay : undefined;
         points.push({
             date,
@@ -340,8 +351,8 @@ export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineIt
         url: page?.url ?? '',
         verdict: head.verdict,
         estimate: head.estimate,
-        deltaText: head.verdict === 'too_early' ? VERDICT_LABEL.too_early : dailyRateText(change.kpi, impact.baseline, head.page),
-        kpi: change.kpi,
+        deltaText: head.verdict === 'too_early' ? VERDICT_LABEL.too_early : dailyRateText(impact.kpi, impact.baseline, head.page),
+        kpi: impact.kpi,
         checkpointDays: head.ready ? head.days : null,
         headlineDays: headline.headlineDays,
         headlinePct: headline.headlinePct,

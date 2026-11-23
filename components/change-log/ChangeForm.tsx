@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { BASELINE_DAYS, VERDICT_THRESHOLDS } from '@/lib/change-log/thresholds';
 import { CHANGE_TYPES, CHANGE_TYPE_LABEL, KPI_LABEL, KPIS, TREATMENTS, TREATMENT_CHANGE_TYPE, TREATMENT_LABEL } from '@/lib/change-log/types';
 import { GROUP_PAGE_LIMIT, SINGLE_PAGE_LIMIT, validateChange, type ChangeInput } from '@/lib/change-log/validate';
 
@@ -40,6 +41,8 @@ export function ChangeForm({
     const [input, setInput] = useState<ChangeInput>(initial ?? EMPTY);
     const [error, setError] = useState<string | null>(null);
     const [paste, setPaste] = useState('');
+    const kpiId = useId();
+    const clickHint = input.kpi === 'clicks' ? `${kpiId}-hint` : undefined;
     const grouped = input.testKind === 'group';
     const pageLimit = grouped ? GROUP_PAGE_LIMIT : SINGLE_PAGE_LIMIT;
 
@@ -174,12 +177,17 @@ export function ChangeForm({
                     <span className="mb-1 block font-medium">Approved at (Pacific time, optional)</span>
                     <input className="field" type="datetime-local" value={input.approvedAtLocal} onChange={event => setInput({ ...input, approvedAtLocal: event.target.value })} />
                 </label>
-                <label className="block text-sm">
-                    <span className="mb-1 block font-medium">What we&apos;re watching</span>
-                    <select className="field" value={input.kpi} onChange={event => setInput({ ...input, kpi: event.target.value })}>
+                <div className="text-sm">
+                    <label className="mb-1 block font-medium" htmlFor={kpiId}>What we&apos;re watching</label>
+                    <select id={kpiId} aria-describedby={clickHint} className="field" value={input.kpi} onChange={event => setInput({ ...input, kpi: event.target.value })}>
                         {KPIS.map(kpi => <option key={kpi} value={kpi}>{KPI_LABEL[kpi]}</option>)}
                     </select>
-                </label>
+                    {clickHint && (
+                        <p id={clickHint} className="mt-1 text-xs text-muted-foreground">
+                            With fewer than {VERDICT_THRESHOLDS.lowDataClicks} Google clicks in the {BASELINE_DAYS} days before the change, the result uses impressions.
+                        </p>
+                    )}
+                </div>
                 <label className="block text-sm sm:col-span-2">
                     <span className="mb-1 block font-medium">Saved copy of the old version</span>
                     <input className="field" value={input.backupReference} onChange={event => setInput({ ...input, backupReference: event.target.value })} />

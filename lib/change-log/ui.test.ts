@@ -55,7 +55,7 @@ test('the example list shows one result pill per row', () => {
     assert.match(markup, /aria-sort="descending"/);
     assert.match(markup, /Clicks from Google/);
     assert.match(markup, /56-day check/);
-    assert.match(markup, /Jan 5, 2027/);
+    assert.match(markup, /Jan 6, 2027/);
     assert.match(markup, /of 2 changes/);
     assert.match(markup, /newest first/);
     assert.match(markup, /pages we didn(?:'|&#x27;|&apos;)t change/);
@@ -145,7 +145,7 @@ test('the detail uses the plain chart title, the rest of the site, and the hones
     assert.match(markup, /Test progress/);
     assert.match(markup, /In progress/);
     assert.match(markup, /Numbers are final through/);
-    assert.match(markup, /data-test-progress="59"/);
+    assert.match(markup, /data-test-progress="57"/);
     assert.match(markup, /data-test-progress-window="56"/);
     assert.equal(markup.includes('>Day by day<'), false);
     assert.equal(markup.includes('Side by side'), false);
@@ -179,10 +179,10 @@ test('the detail uses the plain chart title, the rest of the site, and the hones
     assert.match(markup, /Lower is better/);
     assert.match(markup, /<details class="change-log-record/);
     assert.equal(/<details[^>]*\sopen/.test(markup), false);
-    assert.match(markup, /data-check-days="28"[^>]*data-due="2026-12-08"[^>]*data-ready="2026-12-11"/);
-    assert.match(markup, /data-check-days="56"[^>]*data-due="2027-01-05"[^>]*data-ready="2027-01-08"/);
-    assert.match(markup, /Data ready ~Dec 11/);
-    assert.equal(markup.includes('Data ready ~Dec 10'), false);
+    assert.match(markup, /data-check-days="28"[^>]*data-due="2026-12-09"[^>]*data-ready="2026-12-12"/);
+    assert.match(markup, /data-check-days="56"[^>]*data-due="2027-01-06"[^>]*data-ready="2027-01-09"/);
+    assert.match(markup, /Data ready ~Dec 12/);
+    assert.match(markup, /Checks start the day after the change went live/);
     assert.equal(markup.includes('Remove from log'), false);
     const answerAt = markup.indexOf('Homepage main heading');
     const changedAt = markup.indexOf('What changed');
@@ -195,6 +195,55 @@ test('the detail uses the plain chart title, the rest of the site, and the hones
     assert.match(markup, /Search terms people used/);
     assert.match(markup, /Google Search Console/);
     assert.match(markup, /Google(?:'|&#x27;|&apos;)s report on how your site shows up in search/);
+});
+
+test('detail explains the low-click metric, sparse terms and separate GBP rates', () => {
+    const impact = board.impacts[h1.id];
+    const markup = renderToStaticMarkup(createElement(ChangeLogView, {
+        clientName: 'Ecoworkz',
+        mode: 'detail',
+        example: true,
+        items: board.items,
+        detail: {
+            change: h1,
+            impact: {
+                ...impact,
+                kpi: 'impressions',
+                lowClickBaseline: 9,
+                searchTermContext: {
+                    warnings: [{
+                        query: 'hardscape contractors corona',
+                        before: 7,
+                        after: 1,
+                        betterPages: [{ period: 'before', url: 'https://www.ecoworkz.net/corona-ca/', position: 2, pagePosition: 16 }],
+                    }],
+                    suggestions: [{ query: 'hardscape contractors', impressions: 93, position: 10.4 }],
+                },
+                gbp: { before: impact.baseline, after: impact.headline.page },
+            },
+            confounders: [],
+            baselineNote: null,
+        },
+        onLog: () => undefined,
+        onOpen: () => undefined,
+        onBack: () => undefined,
+        onSubmit: () => undefined,
+        onRemove: () => undefined,
+    }));
+    assert.match(markup, /saved metric is Clicks from Google/i);
+    assert.match(markup, /9 clicks in the 28 days before the change/);
+    assert.match(markup, /result uses impressions/i);
+    assert.match(markup, /data-metric="clicks" data-watched="false"/);
+    assert.match(markup, /data-metric="impressions" data-watched="true"/);
+    assert.match(markup, /7 before the change/);
+    assert.match(markup, /1 after the change/);
+    assert.match(markup, /ranks higher/);
+    assert.match(markup, /\/corona-ca\//);
+    assert.match(markup, /93 impressions/);
+    assert.match(markup, /10.4/);
+    assert.match(markup, /Google Business Profile link/);
+    assert.match(markup, /Excluded from the verdict/);
+    assert.match(markup, /Impressions per day/);
 });
 
 test('viewers do not see Log a change or the add form', () => {
@@ -277,6 +326,7 @@ test('the log form is filled with the Ecoworkz H1', () => {
     assert.match(markup, /aria-label="Page address"/);
     assert.match(markup, /aria-label="Section id"/);
     assert.match(markup, /Add another page/);
+    assert.match(markup, /With fewer than 10 Google clicks in the 28 days before the change, the result uses impressions/);
     assert.equal(markup.includes('aria-label="Page URL"'), false);
     assert.equal(markup.includes('placeholder="Widget"'), false);
     assert.equal(markup.includes('Add another URL'), false);

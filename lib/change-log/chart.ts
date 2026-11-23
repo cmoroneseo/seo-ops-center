@@ -2,6 +2,7 @@ import { dateOffset } from '@/lib/gsc/history';
 import { eachDate } from '@/lib/search-reporting/range';
 
 import { BASELINE_DAYS, GSC_LAG_DAYS } from './thresholds';
+import { afterWindow, baselineWindow } from './time';
 
 /** Metrics the day-by-day chart can plot. Counts stay in their own units. */
 export const CHART_METRICS = ['clicks', 'impressions', 'ctr', 'avg_position'] as const;
@@ -17,8 +18,8 @@ export const CHART_METRIC_LABEL: Record<ChartMetric, string> = {
 export const LAG_LABEL = "Waiting for Google's data";
 export const WEEKLY_NOTE = "Showing weekly totals, in groups of 7 days. There isn't enough day-by-day data yet.";
 export const REVERSED_NOTE = 'Higher on the chart is better.';
-export const ALIGNED_NOTE = 'The 28 days before this went live, lined up with the 28 days after. Day 1 is the start of each window.';
-export const ALIGNED_WEEKLY_NOTE = "Weekly totals, lined up. Week 1 is the start of each window. There isn't enough day-by-day data yet.";
+export const ALIGNED_NOTE = 'The 28 days before this went live, lined up with the 28 days after. The day it went live is skipped.';
+export const ALIGNED_WEEKLY_NOTE = "Weekly totals, lined up. The day this went live is skipped. There isn't enough day-by-day data yet.";
 
 /** A stored day. Days that were not stored are omitted, never passed in as zero. */
 export interface MeasuredDay {
@@ -124,8 +125,8 @@ export function dayTime(iso: string): number {
 }
 
 export function chartDomain(liveOn: string, finalThrough: string): { start: string; end: string } {
-    const start = dateOffset(liveOn, -BASELINE_DAYS);
-    const windowEnd = dateOffset(liveOn, 55);
+    const { start } = baselineWindow(liveOn);
+    const windowEnd = afterWindow(liveOn, 56).end;
     const lagEnd = dateOffset(finalThrough, GSC_LAG_DAYS);
     const end = windowEnd < lagEnd ? windowEnd : lagEnd;
     return { start, end: end < start ? start : end };
@@ -236,16 +237,17 @@ export function buildDailyChart(input: {
     const lag = lagWindow(input.finalThrough, domain);
     const byDate = new Map<string, MeasuredDay>();
     for (const day of input.days) {
-        if (day.date < domain.start || day.date > domain.end || day.date > input.finalThrough) continue;
+        if (day.date < domain.start || day.date > domain.end || day.date > input.finalThrough || day.date === input.liveOn) continue;
         byDate.set(day.date, day);
     }
     const calendar = eachDate(domain.start, domain.end);
     const beforeDates = calendar.filter(date => date < input.liveOn);
-    const afterDates = calendar.filter(date => date >= input.liveOn && date <= input.finalThrough);
+    const afterDates = calendar.filter(date => date > input.liveOn && date <= input.finalThrough);
     let plotted: Array<{ date: string; value: number | null }>;
     if (input.lowData) {
         plotted = [
             ...weeklyBuckets(beforeDates, byDate, input.metric),
+            ...(calendar.includes(input.liveOn) ? [{ date: input.liveOn, value: null }] : []),
             ...weeklyBuckets(afterDates, byDate, input.metric),
         ];
         if (lag && (plotted.length === 0 || plotted[plotted.length - 1].date < lag.end)) {
@@ -260,7 +262,7 @@ export function buildDailyChart(input: {
     }
     const beforeValues = plotted.flatMap(point => point.date < input.liveOn && point.value != null ? [point.value] : []);
     const afterValues = plotted.flatMap(point => (
-        point.date >= input.liveOn && point.date <= input.finalThrough && point.value != null ? [point.value] : []
+        point.date > input.liveOn && point.date <= input.finalThrough && point.value != null ? [point.value] : []
     ));
     const beforeAverage = mean(beforeValues);
     const afterAverage = mean(afterValues);
@@ -269,7 +271,7 @@ export function buildDailyChart(input: {
         time: dayTime(point.date),
         value: point.value,
         beforeAverage: point.date < input.liveOn && beforeAverage != null ? beforeAverage : null,
-        afterAverage: point.date >= input.liveOn && point.date <= input.finalThrough && afterAverage != null ? afterAverage : null,
+        afterAverage: point.date > input.liveOn && point.date <= input.finalThrough && afterAverage != null ? afterAverage : null,
     }));
     return {
         metric: input.metric,
@@ -301,8 +303,10 @@ export function buildSideBySide(input: {
     for (const day of input.days) {
         if (day.date <= input.finalThrough) byDate.set(day.date, day);
     }
-    const beforeDates = eachDate(dateOffset(input.liveOn, -BASELINE_DAYS), dateOffset(input.liveOn, -1));
-    const afterDates = eachDate(input.liveOn, dateOffset(input.liveOn, BASELINE_DAYS - 1));
+    const before = baselineWindow(input.liveOn);
+    const after = afterWindow(input.liveOn, BASELINE_DAYS);
+    const beforeDates = eachDate(before.start, before.end);
+    const afterDates = eachDate(after.start, after.end);
     const reversed = input.metric === 'avg_position';
     const reversedNote = reversed ? REVERSED_NOTE : null;
     if (input.lowData) {
@@ -353,8 +357,8 @@ export function indexToBaseline(
     const indexed = points.map(point => ({
         date: point.date,
         time: dayTime(point.date),
-        page: point.page == null || pageBase == null ? null : (point.page / pageBase) * 100,
-        control: point.control == null || controlBase == null ? null : (point.control / controlBase) * 100,
+        page: point.date === liveOn || point.page == null || pageBase == null ? null : (point.page / pageBase) * 100,
+        control: point.date === liveOn || point.control == null || controlBase == null ? null : (point.control / controlBase) * 100,
     }));
     return { points: indexed, hasControl: indexed.some(point => point.control != null) };
 }

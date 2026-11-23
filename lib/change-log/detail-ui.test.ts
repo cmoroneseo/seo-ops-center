@@ -45,8 +45,8 @@ test('download and more menus open, and remove asks before it deletes', async ()
     assert.equal(container.querySelector('[data-metric="avg_position"]')?.getAttribute('data-watched'), 'false');
     assert.match(container.textContent ?? '', /Lower is better/);
     assert.equal((container.textContent ?? '').includes('Remove from log'), false);
-    assert.match(container.textContent ?? '', /Data ready ~Dec 11/);
-    assert.equal((container.textContent ?? '').includes('Data ready ~Dec 10'), false);
+    assert.match(container.textContent ?? '', /Data ready ~Dec 12/);
+    assert.equal((container.textContent ?? '').includes('Data ready ~Dec 11'), false);
 
     await act(async () => {
         container.querySelector<HTMLButtonElement>('[data-menu="download"]')?.click();

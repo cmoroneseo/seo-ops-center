@@ -42,6 +42,7 @@ test('daily counts keep real zeros and leave missing days as gaps', () => {
     assert.equal(byDate.get('2026-10-01'), 0);
     assert.equal(byDate.get('2026-10-02'), null);
     assert.equal(byDate.get('2026-10-03'), 4);
+    assert.equal(byDate.get(LIVE), null);
     assert.notEqual(byDate.get('2026-10-02'), 0);
     assert.equal(model.points.some(point => point.date === '2026-10-02'), true);
     assert.equal(model.reversed, false);
@@ -88,12 +89,12 @@ test('before and after averages use measured days only and stop before the lag',
         ],
     });
     assert.equal(model.beforeAverage, 2);
-    assert.equal(model.afterAverage, 15);
+    assert.equal(model.afterAverage, 20);
     const before = model.points.filter(point => point.date < LIVE && point.beforeAverage != null);
     const after = model.points.filter(point => point.afterAverage != null);
     assert.ok(before.length > 0);
     assert.ok(before.every(point => point.beforeAverage === 2 && point.date < LIVE));
-    assert.ok(after.every(point => point.date >= LIVE && point.date <= FINAL && point.afterAverage === 15));
+    assert.ok(after.length > 0 && after.every(point => point.date > LIVE && point.date <= FINAL && point.afterAverage === 20));
     assert.equal(model.points.some(point => point.date > FINAL && point.afterAverage != null), false);
 });
 
@@ -227,7 +228,8 @@ test('overlay lines up the windows by day number and does not invent later days'
         days: [
             day(beforeStart, 2),
             day(dateOffset(beforeStart, 1), 0),
-            day(LIVE, 5),
+            day(LIVE, 99),
+            day('2026-10-14', 5),
             day('2026-10-21', 99),
         ],
     });
@@ -239,9 +241,9 @@ test('overlay lines up the windows by day number and does not invent later days'
     assert.equal(model.points[1].after, null);
     assert.equal(model.note, ALIGNED_NOTE);
     assert.equal(model.wentLiveMarker, false);
-    const lastFinalAfter = model.points.find(point => point.day === 8);
+    const lastFinalAfter = model.points.find(point => point.day === 7);
     assert.equal(lastFinalAfter?.after, null);
-    assert.ok(model.points.slice(8).every(point => point.after == null));
+    assert.ok(model.points.slice(7).every(point => point.after == null));
     assert.equal(model.reversed, false);
 
     const weekly = buildSideBySide({
@@ -249,7 +251,7 @@ test('overlay lines up the windows by day number and does not invent later days'
         liveOn: LIVE,
         finalThrough: '2026-11-30',
         lowData: true,
-        days: [day(beforeStart, 1, 3), day(LIVE, 1, 4)],
+        days: [day(beforeStart, 1, 3), day(LIVE, 1, 99), day('2026-10-14', 1, 4)],
     });
     assert.equal(weekly.weekly, true);
     assert.equal(weekly.points.length, 4);
@@ -263,17 +265,20 @@ test('the indexed view keeps each line on its own starting point and does not fi
         { date: '2026-10-01', page: 10, control: 100 },
         { date: '2026-10-02', page: null, control: null },
         { date: '2026-10-12', page: 10, control: 100 },
-        { date: LIVE, page: 0, control: 110 },
+        { date: LIVE, page: 99, control: 110 },
         { date: '2026-10-14', page: 15, control: 110 },
+        { date: '2026-10-15', page: 0, control: 110 },
     ], LIVE);
     assert.equal(indexed.hasControl, true);
     assert.equal(indexed.points[0].page, 100);
     assert.equal(indexed.points[0].control, 100);
     assert.equal(indexed.points[1].page, null);
     assert.equal(indexed.points[1].control, null);
-    assert.equal(indexed.points[3].page, 0);
+    assert.equal(indexed.points[3].page, null);
+    assert.equal(indexed.points[3].control, null);
     assert.equal(indexed.points[4].page, 150);
     assert.equal(Math.round(indexed.points[4].control ?? 0), 110);
+    assert.equal(indexed.points[5].page, 0);
     const noBase = indexToBaseline([
         { date: '2026-10-01', page: 0, control: null },
         { date: LIVE, page: 5, control: null },
