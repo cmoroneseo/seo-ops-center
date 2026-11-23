@@ -10,7 +10,7 @@ import { MonthlyPlan, WeeklyPlan, ClientProject, TimeLog } from '@/lib/types';
 import { getMonthlyPlans, upsertMonthlyPlan } from '@/lib/supabase/monthly-plans';
 import { getTimeLogs, createTimeLog, updateTimeLog, deleteTimeLog } from '@/lib/supabase/time-logs';
 import { getSeoHoursForMonth } from '@/lib/supabase/change-log';
-import {formatHoursAgainstQuota} from '@/lib/hour-format';
+import { formatHourAmount, formatHoursAgainstQuota } from '@/lib/hour-format';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { createClient } from '@/lib/supabase/client';
 
@@ -138,7 +138,7 @@ function WorkEntryRow({ log, isImported, onSave, onDelete }: WorkEntryRowProps) 
         <div className="ml-4 pl-3 border-l border-border/50 py-1 flex items-start justify-between group/entry">
             <div className="flex items-baseline gap-2 min-w-0">
                 <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(log.date)}</span>
-                <span className="text-xs font-semibold whitespace-nowrap">{log.hours}h</span>
+                <span className="text-xs font-semibold whitespace-nowrap">{formatHourAmount(log.hours)} h</span>
                 <span className="text-xs text-foreground/70 truncate">{log.description || 'SEO Work'}</span>
                 {isImported && (
                     <span className="text-[10px] text-muted-foreground/60 border border-border/40 rounded px-1 whitespace-nowrap">imported</span>

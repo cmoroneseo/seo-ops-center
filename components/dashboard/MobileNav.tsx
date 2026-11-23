@@ -33,7 +33,7 @@ import {
     visibleStaffChildren,
     type StaffLink,
 } from '@/lib/nav/staff-shell';
-import { ClientSwitcherPanel } from '@/components/dashboard/ClientSwitcher';
+import { ClientSwitcherPanel, ClientSwitcherSkeleton } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
 import { SidebarProjects } from '@/components/dashboard/SidebarProjects';
 
@@ -47,8 +47,8 @@ const primaryTabs = [
 
 export function MobileNav() {
     const pathname = usePathname();
-    const { organization, memberships, setOrganization } = useOrganization();
-    const { clients } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
+    const { organization, memberships, setOrganization, isLoading: organizationLoading } = useOrganization();
+    const { clients, isLoading: clientsLoading } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
     const selected = useSelectedClient();
     const agencyDashboard = useAgencyDashboardEnabled();
     const vaultEnabled = useVaultEnabled(organization?.id) === true;
@@ -66,6 +66,7 @@ export function MobileNav() {
         .filter((org): org is NonNullable<typeof org> => org !== null && org !== undefined);
     const showOrgSwitcher = switchableOrgs.length > 1;
     const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace, pipelineNav };
+    const isClientLoading = organizationLoading || clientsLoading;
     const selectedClient = clients.find(client => client.id === selected.clientId) ?? null;
     const sections = selected.clientId
         ? clientSections(selected.clientId, flags)
@@ -115,20 +116,26 @@ export function MobileNav() {
                 </button>
                 <button
                     onClick={() => setSelectorOpen(true)}
-                    aria-label={selectedClient ? `Client: ${selectedClient.clientName}` : 'Select a client'}
+                    aria-label={isClientLoading ? 'Loading client' : selectedClient ? `Client: ${selectedClient.clientName}` : 'Select a client'}
+                    aria-busy={isClientLoading}
+                    disabled={isClientLoading}
                     className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1 pr-1 text-left active:scale-95 transition"
                 >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-[11px] font-semibold text-primary">
-                        {selectedClient ? clientInitials(selectedClient.clientName) : (selected.clientId ? '?' : '—')}
-                    </span>
-                    <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-foreground">
-                            {selectedClient?.clientName ?? (selected.clientId ? 'Unknown client' : 'No client')}
-                        </span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
-                            {selectedClient ? clientStatusChip(selectedClient) : (selected.clientId ? 'Not in this list' : 'Agency home')}
-                        </span>
-                    </span>
+                    {isClientLoading ? <ClientSwitcherSkeleton /> : (
+                        <>
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-[11px] font-semibold text-primary">
+                                {selectedClient ? clientInitials(selectedClient.clientName) : (selected.clientId ? '?' : '—')}
+                            </span>
+                            <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold text-foreground">
+                                    {selectedClient?.clientName ?? (selected.clientId ? 'Unknown client' : 'No client')}
+                                </span>
+                                <span className="block truncate text-[11px] text-muted-foreground">
+                                    {selectedClient ? clientStatusChip(selectedClient) : (selected.clientId ? 'Not in this list' : 'Agency home')}
+                                </span>
+                            </span>
+                        </>
+                    )}
                 </button>
                 <div className="ml-auto flex items-center gap-1">
                     <button
@@ -379,7 +386,7 @@ export function MobileNav() {
                 </div>
             </Drawer>
 
-            {selectorOpen && (
+            {selectorOpen && !isClientLoading && (
                 <div className="lg:hidden fixed inset-0 z-50">
                     <div className="absolute inset-0 bg-black/50" onClick={() => setSelectorOpen(false)} />
                     <div className="absolute inset-x-0 top-0 flex max-h-[85vh] flex-col bg-card shadow-xl pt-[env(safe-area-inset-top)]">

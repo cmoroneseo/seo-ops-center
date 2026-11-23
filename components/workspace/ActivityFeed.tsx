@@ -1,5 +1,6 @@
 'use client';
 
+import { formatHourAmount } from '@/lib/hour-format';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Activity, AlertTriangle, Clock, StickyNote, ChevronDown, ChevronUp, FileText, UserCheck, Plug, Unlink, Settings2, MoreVertical, Printer, Download, Pencil, RefreshCw, CheckSquare, ClipboardList, Send, Package, Building2, Target, Shield, FileCheck2, History } from 'lucide-react';
 // ChevronDown/ChevronUp kept — used in TimeLogRow and NoteRow expand toggles
@@ -172,7 +173,7 @@ function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: T
             <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                     <p className="text-sm leading-snug">
-                        <span className="font-semibold text-blue-500">{log.hours}h</span>
+                        <span className="font-semibold text-blue-500">{formatHourAmount(log.hours)} h</span>
                         <span className="text-foreground/80">{log.status === 'paused' ? ' paused' : ' logged'}</span>
                         {loggerName && <span className="text-foreground/80"> by <span className="font-semibold">{loggerName}</span></span>}
                         <span className="text-muted-foreground text-xs ml-1.5">
@@ -764,7 +765,7 @@ function TimeAndCompletionRow({
                         {title && <span className="font-medium text-green-500">&quot;{title}&quot;</span>}
                         {finished && <span className="text-muted-foreground" data-completion-finished={finished}> · {finished}</span>}
                         <span className="text-foreground/80"> and logged </span>
-                        <span className="font-semibold text-blue-500">{log.hours}h</span>
+                        <span className="font-semibold text-blue-500">{formatHourAmount(log.hours)} h</span>
                     </p>
                     <button
                         onClick={() => onEdit(log)}
@@ -806,13 +807,13 @@ function buildPrintHTML(client: ClientProject, items: ActivityItem[], memberName
             const who = memberNames[log.userId];
             const title = (item.event.metadata.title as string | undefined) ?? log.taskTitle ?? 'task';
             const finished = completionNote(item.event.occurredAt, item.event.metadata, timeZone);
-            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong>${who ? ` by ${who}` : ''}</td><td>Completed "${title}"${finished ? ` · ${finished}` : ''}</td></tr>`;
+            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${formatHourAmount(log.hours)} h logged</strong>${who ? ` by ${who}` : ''}</td><td>Completed "${title}"${finished ? ` · ${finished}` : ''}</td></tr>`;
         }
         if (item.type === 'time_log') {
             const log = item.data as TimeLog;
             const who = memberNames[log.userId];
             const desc = [log.description || 'SEO Work', log.taskTitle ? `via "${log.taskTitle}"` : ''].filter(Boolean).join(' · ');
-            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${log.hours}h logged</strong>${who ? ` by ${who}` : ''}</td><td>${desc}</td></tr>`;
+            return `<tr><td>${fmtDate(item.date)}</td><td><strong>${formatHourAmount(log.hours)} h logged</strong>${who ? ` by ${who}` : ''}</td><td>${desc}</td></tr>`;
         }
         if (item.type === 'note') {
             const note = item.data as ClientNote;

@@ -1,5 +1,6 @@
 'use client';
 
+import { formatHourAmount } from '@/lib/hour-format';
 import React, { useState } from 'react';
 import { CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -141,7 +142,7 @@ export function ReconciliationPanel({ organizationId, members }: ReconciliationP
                             <ul className="mt-1 space-y-0.5">
                                 {result.providerOnly.map(entry => (
                                     <li key={entry.fingerprint} className="text-[11px] text-muted-foreground">
-                                        {entry.date} · {entry.hours}h · {entry.projectName}
+                                        {entry.date} · {formatHourAmount(entry.hours)} h · {entry.projectName}
                                     </li>
                                 ))}
                             </ul>
@@ -156,7 +157,7 @@ export function ReconciliationPanel({ organizationId, members }: ReconciliationP
                             <ul className="mt-1 space-y-0.5">
                                 {result.localOnly.map(entry => (
                                     <li key={entry.id} className="text-[11px] text-muted-foreground">
-                                        {entry.date} · {entry.hours}h
+                                        {entry.date} · {formatHourAmount(entry.hours)} h
                                         {entry.clientName ? ` · ${entry.clientName}` : ''}
                                     </li>
                                 ))}

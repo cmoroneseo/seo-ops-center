@@ -1,5 +1,6 @@
 'use client';
 
+import { formatHourAmount } from '@/lib/hour-format';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -144,7 +145,7 @@ export default function ClientPortalPage() {
                                         <span className="text-xs text-muted-foreground">{new Date(log.date.includes('T') ? log.date : log.date + 'T00:00:00').toLocaleDateString()}</span>
                                     </div>
                                     <div className="mt-1 flex items-center gap-2">
-                                        <span className="text-xs font-medium text-foreground">{log.hours}h</span>
+                                        <span className="text-xs font-medium text-foreground">{formatHourAmount(log.hours)} h</span>
                                     </div>
                                 </div>
                             </div>
