@@ -105,10 +105,11 @@ async function rows(query: PromiseLike<{ data: Row[] | null; error: { code?: str
 
 async function* rowPages(read: (start: number, end: number) => Parameters<typeof rows>[0]) {
     const pageSize = 1000;
-    for (let start = 0; ; start += pageSize) {
+    for (let start = 0; ;) {
         const page = await rows(read(start, start + pageSize - 1));
+        if (page.length === 0) break;
         yield page;
-        if (page.length < pageSize) break;
+        start += page.length;
     }
 }
 
@@ -439,21 +440,31 @@ function baselineSnapshot(change: SeoChange, loaded: Awaited<ReturnType<typeof l
 }
 
 async function readBaselineNote(db: Admin, organizationId: string, change: SeoChange, loaded: Awaited<ReturnType<typeof loadImpacts>>, now: Date) {
-    const { data: saved } = await db.from('seo_change_baselines').select('note, status, estimate, payload, captured_at, data_through')
+    const readSaved = () => db.from('seo_change_baselines').select('note, status, estimate, payload, captured_at, data_through')
         .eq('change_id', change.id).eq('organization_id', organizationId).eq('client_id', change.clientId)
         .maybeSingle();
+    let { data: saved } = await readSaved();
     if (!saved) return null;
 
     const current = baselineSnapshot(change, loaded, now);
-    const savedDays = num(saved.payload?.daysPresent);
-    const incomplete = saved.status !== 'captured' || saved.estimate === true
-        || savedDays < current.payload.daysExpected || text(saved.data_through) < baselineWindow(change.liveOn).end;
-    if (incomplete && current.status === 'captured') {
-        // A concurrent detail read may already have replaced this version.
-        const { error } = await db.from('seo_change_baselines').update(current)
+    const baselineEnd = baselineWindow(change.liveOn).end;
+    for (;;) {
+        const savedDays = num(saved.payload?.daysPresent);
+        const complete = saved.status === 'captured' && saved.estimate !== true
+            && savedDays >= current.payload.daysExpected && text(saved.data_through) >= baselineEnd;
+        if (complete || current.payload.daysPresent <= savedDays) break;
+
+        // Always advance the version, even when detail reads share a clock tick.
+        const capturedAt = new Date(Math.max(now.getTime(), Date.parse(saved.captured_at) + 1)).toISOString();
+        const { data: updated, error } = await db.from('seo_change_baselines').update({ ...current, captured_at: capturedAt })
             .eq('change_id', change.id).eq('organization_id', organizationId).eq('client_id', change.clientId)
-            .eq('captured_at', saved.captured_at);
-        if (!error) return plainStartingPointNote(current.note, current.status);
+            .eq('captured_at', saved.captured_at).select('note, status').maybeSingle();
+        if (updated) return plainStartingPointNote(updated.note, updated.status);
+        if (error) break;
+
+        const { data: latest } = await readSaved();
+        if (!latest || latest.captured_at === saved.captured_at) break;
+        saved = latest;
     }
     return plainStartingPointNote(text(saved.note), text(saved.status));
 }

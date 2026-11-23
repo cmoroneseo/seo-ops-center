@@ -2,8 +2,8 @@ import { createAdminClient } from './admin';
 import { getGoogleAccessToken, GoogleAuthError } from '@/lib/sync/token';
 import { fetchGscDay, gbpLandingUrlsFromCustomFields, GSC_HISTORY_FACT_LIMIT } from '@/lib/gsc/history';
 import {
-    backgroundHistoryDates, backgroundWindowLength, planBackgroundDays, planV2Backfill, retryDelaySeconds,
-    V2_BACKFILL_HISTORY_DAYS, V2_REQUEST_GAP_MS,
+    backgroundHistoryDates, backgroundWindowLength, planBackgroundDays, planOlderFinalDay, planV2Backfill, retryDelaySeconds,
+    BACKGROUND_DAYS_PER_CLAIM, V2_BACKFILL_HISTORY_DAYS, V2_DAY_BUDGET_MS, V2_REQUEST_GAP_MS,
 } from '@/lib/gsc/background';
 import {
     AUTH_SKIP_DELAY_SECONDS, BACKFILL_BUDGET_MS, BACKFILL_LOCK_STALE_MS, BACKFILL_MAX_DAYS, BACKFILL_MIN_DAY_MS,
@@ -78,6 +78,7 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
     const admin = createAdminClient();
     let imported = 0;
     let failed = 0;
+    let olderRecheckAttempted = false;
     while (Date.now() + 20000 < deadline) {
         const { data, error } = await admin.rpc('claim_gsc_sync', { p_client_id: options.clientId ?? null });
         if (error) throw new Error('Unable to claim search performance work');
@@ -102,11 +103,9 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
             const sharedSignal = v2 ? null : AbortSignal.timeout(Math.max(1, Math.min(60000, deadline - Date.now() - 2000)));
             const coverage = new Map((days ?? []).map(day => [day.data_date, day]));
             const gbpLandingUrls = v2 ? await landingUrlsFor(admin, job.organizationId, job.clientId) : [];
-            for (const date of selected) {
-                // v1 keeps one shared timeout. v2 days make more requests, so each day gets its own.
-                const signal = sharedSignal ?? AbortSignal.timeout(Math.max(1, Math.min(60000, deadline - Date.now() - 2000)));
+            const importDay = async (date: string, signal: AbortSignal, minIntervalMs: number) => {
                 const day = await fetchGscDay(job.property, auth.token, date, {
-                    signal, v2, gbpLandingUrls, minIntervalMs: v2 ? V2_REQUEST_GAP_MS : 0,
+                    signal, v2, gbpLandingUrls, minIntervalMs,
                 });
                 const { data: saved, error: saveError } = await admin.rpc('replace_gsc_history_day', {
                     p_organization_id: job.organizationId, p_client_id: job.clientId, p_property: job.property,
@@ -116,6 +115,11 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
                 if (saveError || saved !== true) throw new Error('Snapshot was not saved');
                 coverage.set(date, { data_date: date, imported_at: new Date().toISOString(), is_incomplete: day.isIncomplete });
                 imported += 1;
+            };
+            const daySignal = () => AbortSignal.timeout(Math.max(1, Math.min(60000, deadline - Date.now() - 2000)));
+            for (const date of selected) {
+                // v1 keeps one shared timeout. v2 days make more requests, so each day gets its own.
+                await importDay(date, sharedSignal ?? daySignal(), v2 ? V2_REQUEST_GAP_MS : 0);
             }
             if (selected.length > 0) {
                 // Clear recovered connection errors only for the property we just fetched.
@@ -142,6 +146,19 @@ export async function runGscSyncWorker(options: { clientId?: string; budgetMs?: 
                 }
             }
             remaining = planBackgroundDays(dates, [...coverage.values()], now, 1).length > 0;
+            if (!remaining && selected.length < BACKGROUND_DAYS_PER_CLAIM && !olderRecheckAttempted
+                && deadline - Date.now() >= V2_DAY_BUDGET_MS) {
+                const olderDate = planOlderFinalDay(dates, [...coverage.values()], now);
+                if (olderDate) {
+                    olderRecheckAttempted = true;
+                    try {
+                        await importDay(olderDate, daySignal(), V2_REQUEST_GAP_MS);
+                    } catch {
+                        // A failed optional re-check can wait for the next scheduled sync.
+                        failed += 1;
+                    }
+                }
+            }
             succeeded = true;
             delay = remaining ? 0 : 3600;
         } catch {
