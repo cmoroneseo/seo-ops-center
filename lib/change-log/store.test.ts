@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { dateOffset } from '@/lib/gsc/history';
 import { queryDaysFromFacts } from './facts';
-import { getChange } from './store';
+import { buildResultsTable } from './results';
+import { ControlMigrationRequired, getChange, updateControlPages } from './store';
 
 type Row = Record<string, unknown>;
 const now = new Date('2026-11-23T20:00:00Z');
@@ -10,7 +11,7 @@ const scope = { organization_id: 'org', client_id: 'client' };
 const url = 'https://example.com/';
 const baselineDates = Array.from({ length: 28 }, (_, i) => dateOffset('2026-10-13', i));
 
-function database(tables: Record<string, Row[]>) {
+function database(tables: Record<string, Row[]>, controlColumn = true) {
     const writes: Row[] = [];
     const factRanges: number[][] = [];
     const db = {
@@ -21,6 +22,9 @@ function database(tables: Record<string, Row[]>) {
             let to = 999;
             let patch: Row | undefined;
             function result() {
+                if (!controlColumn && patch && 'control_urls' in patch) {
+                    return { data: [], error: { code: 'PGRST204', message: 'Could not find control_urls in the schema cache' } };
+                }
                 const matched = (tables[table] ?? []).filter(row => filters.every(filter => filter(row)));
                 matched.sort((a, b) => order.reduce((cmp, key) => cmp || String(a[key]).localeCompare(String(b[key])), 0));
                 const data = matched.slice(from, to + 1);
@@ -41,6 +45,7 @@ function database(tables: Record<string, Row[]>) {
                 },
                 gte(key: string, value: string) { filters.push(row => String(row[key]) >= value); return query; },
                 lte(key: string, value: string) { filters.push(row => String(row[key]) <= value); return query; },
+                lt(key: string, value: string) { filters.push(row => String(row[key]) < value); return query; },
                 order(key: string) { order.push(key); return query; },
                 limit(value: number) { to = Math.min(value, 1000) - 1; return query; },
                 range(start: number, end: number) {
@@ -50,13 +55,18 @@ function database(tables: Record<string, Row[]>) {
                     return query;
                 },
                 update(values: Row) { patch = values; return query; },
-                async maybeSingle() { return { data: result().data[0] ?? null, error: null }; },
+                async maybeSingle() { const { data, error } = result(); return { data: data[0] ?? null, error }; },
                 then(resolve: (value: ReturnType<typeof result>) => unknown) { return Promise.resolve(result()).then(resolve); },
             };
             return query;
         },
     } as unknown as NonNullable<Parameters<typeof getChange>[4]>;
-    return { read: () => getChange('org', 'client', 'change', now, db), writes, factRanges };
+    return {
+        read: () => getChange('org', 'client', 'change', now, db),
+        saveControls: (urls: unknown, client = 'client') => updateControlPages('org', client, 'change', urls, db),
+        writes,
+        factRanges,
+    };
 }
 
 function seed(service: 'gsc' | 'ga4') {
@@ -221,4 +231,110 @@ test('GBP-tagged page facts are visible separately from the main page, including
         [impact?.gbp?.before, impact?.gbp?.after].map(read => [read?.clicks, read?.impressions, read?.position, read?.daysPresent]),
         [[18, 1378, 8, 28], [7, 245, 7, 7]],
     );
+});
+
+const pavers = 'https://example.com/pavers';
+const landscaping = 'https://example.com/landscaping';
+
+function controlsSeed(kpi = 'avg_position') {
+    const tables = seed('gsc');
+    const after = Array.from({ length: 7 }, (_, i) => dateOffset('2026-11-11', i));
+    const days = [...baselineDates, '2026-11-10', ...after];
+    return {
+        ...tables,
+        seo_changes: [{ ...tables.seo_changes[0], title: 'Homepage heading', kpi, control_urls: [] as string[] }],
+        gsc_history_days: days.map(data_date => ({
+            ...scope, id: data_date, data_date, property: 'sc-domain:example.com', search_type: 'web', page_limited: false,
+        })),
+        gsc_history_facts: days.flatMap(day_id => [
+            { day_id, grain: 'property', clicks: 100, impressions: 5000, position: 8 },
+            { day_id, grain: 'page', page: url, clicks: 20, impressions: 1000, position: 2 },
+            { day_id, grain: 'page', page: 'http://www.example.com/about/', clicks: 5, impressions: 500, position: 5 },
+            { day_id, grain: 'page', page: 'https://www.example.com/ABOUT?ref=test', clicks: 5, impressions: 500, position: 1 },
+            { day_id, grain: 'page', page: pavers, clicks: 2, impressions: 100, position: 20 },
+            { day_id, grain: 'page', page: landscaping, clicks: 6, impressions: 300, position: 40 },
+        ]),
+    };
+}
+
+test('the default position control weights stored organic page rows and excludes every test page', async () => {
+    const tables = controlsSeed();
+    tables.seo_change_pages.push({ change_id: 'change', url: 'https://example.com/about', url_key: 'example.com/about' });
+    const { impact } = await database(tables).read();
+    assert.equal(impact?.controlLabel, 'Rest of the site');
+    assert.equal(impact?.headline.controlMode, 'untouched');
+    assert.equal(impact?.headline.controlMove?.before, 35);
+    assert.equal(impact?.headline.controlMove?.after, 35);
+    assert.equal(impact?.headline.sitewide?.position, 8);
+    assert.equal(impact?.series.find(point => point.date === '2026-11-11')?.controlPosition, 35);
+    assert.equal(impact?.series.find(point => point.date === '2026-11-10')?.control, null);
+});
+
+test('saved controls replace the default in the checkpoint, the results table and the chart', async () => {
+    const tables = controlsSeed('clicks');
+    const db = database(tables);
+    assert.deepEqual(await db.saveControls([pavers, landscaping]), { status: 'saved' });
+    const { change, impact } = await db.read();
+    assert.ok(impact);
+    assert.deepEqual(change?.controlUrls, [pavers, landscaping]);
+    assert.equal(impact.controlLabel, 'Selected control pages');
+    assert.equal(impact.headline.controlMode, 'picked');
+    assert.deepEqual([impact.headline.control?.clicks, impact.headline.control?.impressions, impact.headline.control?.position], [56, 2800, 35]);
+    assert.equal(impact.headline.controlMove?.after, 8);
+    const comparison = buildResultsTable(impact).rows.find(row => row.id === 'rest_clicks');
+    assert.deepEqual([comparison?.label, comparison?.before, comparison?.after], ['Selected control page clicks', 8, 8]);
+    const point = impact.series.find(item => item.date === '2026-11-11');
+    assert.deepEqual([point?.control, point?.controlPosition], [8, 35]);
+    await db.saveControls([]);
+    assert.equal((await db.read()).impact?.headline.controlMove?.after, 80);
+});
+
+test('edits reject test and off-site pages and scope the write to the client', async () => {
+    const db = database(controlsSeed());
+    assert.deepEqual(await db.saveControls(['http://www.example.com/?ref=other']), {
+        status: 'invalid', error: "A control page can't be a page in this test.",
+    });
+    assert.deepEqual(await db.saveControls(['https://other.example.com/pavers']), {
+        status: 'invalid', error: 'Control pages must be on the same site as the test pages.',
+    });
+    assert.deepEqual(await db.saveControls([pavers], 'other-client'), { status: 'missing' });
+    assert.deepEqual(db.writes, []);
+});
+
+test('an older schema reads the default control and asks for the migration only when saving picks', async () => {
+    const db = database(seed('gsc'), false);
+    assert.deepEqual((await db.read()).change?.controlUrls, []);
+    await assert.rejects(db.saveControls([pavers]), ControlMigrationRequired);
+    assert.deepEqual(await db.saveControls([]), { status: 'saved' });
+});
+
+test('detail overlap includes both windows, matches the logged site and labels the affected pages', async () => {
+    const tables = controlsSeed();
+    tables.seo_changes[0].control_urls = [pavers];
+    const changes = [
+        { id: 'early', date: '2026-10-12', page: url },
+        { id: 'baseline-edge', date: '2026-10-13', page: url },
+        { id: 'redirect', date: '2026-11-02', page: 'http://www.example.com/?one=two' },
+        { id: 'pavers', date: '2026-11-16', page: 'https://www.example.com/pavers/' },
+        { id: 'off-site', date: '2026-11-16', page: 'https://other.example.com/pavers' },
+        { id: 'other-client', date: '2026-11-16', page: pavers, client_id: 'other' },
+        { id: 'after-edge', date: '2027-01-05', page: landscaping },
+        { id: 'late', date: '2027-01-06', page: url },
+    ];
+    for (const item of changes) {
+        tables.seo_changes.push({
+            ...tables.seo_changes[0], id: item.id, title: item.id, live_at: `${item.date}T20:00:00Z`,
+            client_id: item.client_id ?? scope.client_id,
+        });
+        tables.seo_change_pages.push({ change_id: item.id, url: item.page, url_key: item.page });
+    }
+    const { confounders } = await database(tables).read();
+    assert.deepEqual(confounders.map(item => [item.id, item.overlap, item.touchesTestPage, item.touchesControlPage]), [
+        ['baseline-edge', 'baseline', true, false],
+        ['redirect', 'baseline', true, false],
+        ['pavers', 'after', false, true],
+        ['after-edge', 'after', false, false],
+    ]);
+    tables.seo_changes[0].control_urls = [];
+    assert.equal((await database(tables).read()).confounders.find(item => item.id === 'after-edge')?.touchesControlPage, true);
 });

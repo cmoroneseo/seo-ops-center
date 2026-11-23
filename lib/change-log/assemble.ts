@@ -4,8 +4,10 @@ import {
     mergeGa4,
     mergeGa4Site,
     pageDaysFromFacts,
+    pickedDaysFromFacts,
     propertyDaysFromFacts,
     queryDaysFromFacts,
+    restPositionDaysFromFacts,
     type Ga4PageRow,
     type Ga4SiteRow,
     type GscFactRow,
@@ -21,6 +23,7 @@ export function impactsFromRows(input: {
     ga4Connected: boolean;
     historyDays: readonly HistoryDayRow[];
     pageFacts: readonly GscFactRow[];
+    restPositionFacts?: { changes: ReadonlySet<string>; rows: readonly GscFactRow[] };
     propertyFacts: readonly GscFactRow[];
     queryFacts: readonly GscFactRow[];
     ga4Pages: readonly Ga4PageRow[];
@@ -36,6 +39,8 @@ export function impactsFromRows(input: {
         });
         const gscPageDays = pageDaysFromFacts(input.historyDays, input.pageFacts, urls);
         const pageDays = mergeGa4(gscPageDays, input.ga4Pages, paths);
+        const controls = change.controlUrls ?? [];
+        const picked = controls.length > 0;
         const impact = buildImpact({
             liveOn: change.liveOn,
             kpi: change.kpi,
@@ -46,6 +51,11 @@ export function impactsFromRows(input: {
             pageDays,
             gscPageDays,
             sitewideDays: sitewide,
+            restPositionDays: input.restPositionFacts?.changes.has(change.id)
+                ? restPositionDaysFromFacts(input.historyDays, input.restPositionFacts.rows, urls)
+                : undefined,
+            pickedControlDays: picked ? pickedDaysFromFacts(input.historyDays, input.pageFacts, controls) : undefined,
+            pickedGa4Days: picked ? mergeGa4([], input.ga4Pages, controls.flatMap(url => ga4PathFor(url) ?? [])) : undefined,
             yoyPageDays: pageDays,
             yoySitewideDays: sitewide,
             queries: change.queries.map(query => ({

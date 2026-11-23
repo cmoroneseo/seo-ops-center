@@ -194,7 +194,8 @@ test('position moves under 1 are flat, and a lower rank is the helpful direction
         siteAfter: { ...DAY, clicks: 80, impressions: 2000, position: 18.8 },
     });
     assert.equal(better.headline.verdict, 'improved');
-    assert.equal(better.headline.controlMode, 'sitewide');
+    assert.equal(better.headline.controlMode, 'none');
+    assert.equal(better.headline.control, null);
 });
 
 test('low data is still judged and marked as an estimate', () => {
@@ -279,7 +280,7 @@ test('the Ecoworkz example is improved, estimated nowhere, and flags the same-da
     assert.equal(overlap.length, 1);
     assert.equal(overlap[0].overlap, 'same_day');
     assert.equal(overlap[0].title, 'El Niño promo banner');
-    const others = findConfounders(board.changes, board.changes[1], 28);
+    const others = findConfounders(board.changes, board.changes[1]);
     assert.equal(others[0].id, 'example-ecoworkz-h1');
     const csv = impactCsv(board.changes[0], h1);
     const pagesRow = csv.split('\n').find(row => row.startsWith('Pages,'));
@@ -321,4 +322,14 @@ test('Pacific wall time, last year, and the GBP-tagged URL', () => {
     assert.equal(saved?.pages[0].cmsWidgetId, '47eaa58');
     assert.equal(saved?.queries.length, 3);
     assert.equal(validateChange({ ...ecoworkzH1Input(), pages: [] }), 'Add at least one page.');
+});
+
+test('create normalizes and deduplicates controls and rejects controls on test pages or other sites', () => {
+    const input = ecoworkzH1Input();
+    assert.deepEqual(normalizeChange({
+        ...input, controlUrls: [' https://www.ecoworkz.net/pavers ', 'http://ecoworkz.net/pavers/', ''],
+    })?.controlUrls, ['https://www.ecoworkz.net/pavers']);
+    assert.equal(validateChange({ ...input, controlUrls: ['http://ecoworkz.net/?ref=preview'] }), "A control page can't be a page in this test.");
+    assert.equal(validateChange({ ...input, controlUrls: ['https://another.test/pavers'] }), 'Control pages must be on the same site as the test pages.');
+    assert.equal(normalizeChange({ ...input, controlUrls: ['https://another.test/pavers'] }), null);
 });

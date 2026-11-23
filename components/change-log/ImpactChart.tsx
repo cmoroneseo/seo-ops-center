@@ -48,7 +48,7 @@ type ChartTab = 'daily' | 'aligned' | 'indexed';
 const TABS: Array<{ id: ChartTab; label: string }> = [
     { id: 'daily', label: 'Timeline' },
     { id: 'aligned', label: 'Overlay' },
-    { id: 'indexed', label: 'Compared with the rest of the site' },
+    { id: 'indexed', label: 'Comparison' },
 ];
 
 export function ImpactChart({
@@ -168,7 +168,7 @@ export function ImpactChart({
                         controlLabel={controlLabel}
                         hasControl={indexed.hasControl}
                         seriesName={seriesName}
-                        caption={caption ?? 'Compared with the rest of the site.'}
+                        caption={caption ?? `${seriesName} compared with its starting point.`}
                     />
                 </div>
             )}

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { BASELINE_DAYS, VERDICT_THRESHOLDS } from '@/lib/change-log/thresholds';
 import { CHANGE_TYPES, CHANGE_TYPE_LABEL, KPI_LABEL, KPIS, TREATMENTS, TREATMENT_CHANGE_TYPE, TREATMENT_LABEL } from '@/lib/change-log/types';
 import { GROUP_PAGE_LIMIT, SINGLE_PAGE_LIMIT, validateChange, type ChangeInput } from '@/lib/change-log/validate';
+import { ControlPagesField } from './ControlPages';
 
 const EMPTY: ChangeInput = {
     title: '',
@@ -239,6 +240,7 @@ export function ChangeForm({
                     </div>
                 )}
             </fieldset>
+            <ControlPagesField urls={input.controlUrls ?? []} onChange={controlUrls => setInput(current => ({ ...current, controlUrls }))} />
             <label className="block text-sm">
                 <span className="mb-1 block font-medium">Search terms people used, one per line</span>
                 <textarea

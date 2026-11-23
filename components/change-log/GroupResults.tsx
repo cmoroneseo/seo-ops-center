@@ -18,7 +18,6 @@ export function GroupResults({ impact }: { impact: ImpactModel }) {
             <section className="rounded-lg border border-border bg-card p-4" data-group-summary={table.ready ? 'ready' : 'waiting'}>
                 <h3 className="text-sm font-medium">Group results</h3>
                 <p className="mt-1 text-xs text-muted-foreground">{GROUP_SUMMARY_NOTE}</p>
-                <p className="mt-1 text-xs text-muted-foreground">The result badge still compares this group with pages we didn&apos;t change.</p>
                 {waiting && <p className="mt-2 text-sm">{waiting}</p>}
                 <div className="insights-table-scroll mt-3">
                     <table className="w-full min-w-[520px] text-left text-sm">

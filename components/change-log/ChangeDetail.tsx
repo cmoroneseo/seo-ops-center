@@ -13,6 +13,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import type { ChartMarker } from '@/lib/change-log/chart';
+import { controlModeLabel } from '@/lib/change-log/control';
 import { impactCsv } from '@/lib/change-log/csv';
 import { addedWords, removedWords, wordDiff, type DiffToken } from '@/lib/change-log/diff';
 import { overlapLabel } from '@/lib/change-log/impact';
@@ -54,6 +55,7 @@ import { ptToday } from '@/lib/sync/months';
 import { cn } from '@/lib/utils';
 
 import { GroupResults } from './GroupResults';
+import { ControlPages } from './ControlPages';
 import { ImpactChart } from './ImpactChart';
 import { TestProgressCard } from './TestProgress';
 import { VerdictPill } from './VerdictPill';
@@ -73,6 +75,7 @@ export function ChangeDetail({
     onBack,
     onOpen,
     onRemove,
+    onSaveControlPages,
 }: {
     change: SeoChange;
     impact: ImpactModel;
@@ -89,6 +92,7 @@ export function ChangeDetail({
     onBack: () => void;
     onOpen: (id: string) => void;
     onRemove: () => void;
+    onSaveControlPages?: (urls: string[]) => Promise<void>;
 }) {
     const [revertOpen, setRevertOpen] = useState(revertInitiallyOpen);
     const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'impressions', dir: 'desc' });
@@ -233,6 +237,26 @@ export function ChangeDetail({
                 <WordDiff before={change.beforeText} after={change.afterText} />
             </section>
 
+            <ControlPages change={change} wholeSite={impact.checkpoints.some(check => check.controlMode === 'sitewide')}
+                onSave={canEdit && !example ? onSaveControlPages : undefined} />
+            {confounders.length > 0 && (
+                <section className="rounded-lg border border-amber-300 bg-card p-4" aria-label="Overlapping changes">
+                    <h3 className="text-sm font-medium">Overlapping changes</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">These logged changes may affect the test or its comparison.</p>
+                    <ul className="mt-2 space-y-2 text-sm">
+                        {confounders.map(item => (
+                            <li key={item.id}>
+                                <button type="button" className="font-medium text-primary" onClick={() => onOpen(item.id)}>{item.title}</button>
+                                <span className="text-muted-foreground"> · {formatDayWithYear(item.liveOn)} · {overlapLabel(item.overlap)}</span>
+                                {item.touchesTestPage && <span className="text-muted-foreground"> · Touched a test page</span>}
+                                {item.touchesControlPage && <strong> · Touched a control page</strong>}
+                                {!item.touchesTestPage && !item.touchesControlPage && <span className="text-muted-foreground"> · Other page on this site</span>}
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+
             <TestProgressCard liveOn={change.liveOn} finalThrough={impact.finalThrough} />
             <CheckStepper change={change} impact={impact} today={asOf} />
             {grouped ? <GroupResults impact={impact} /> : <ResultsTable impact={impact} />}
@@ -264,27 +288,11 @@ export function ChangeDetail({
             />
 
             <section className="rounded-lg border border-border bg-card p-4">
-                <h3 className="text-sm font-medium">Other changes in this window</h3>
-                {confounders.length === 0 ? (
-                    <p className="mt-1 text-sm text-muted-foreground">None logged.</p>
-                ) : (
-                    <ul className="mt-2 space-y-2 text-sm">
-                        {confounders.map(item => (
-                            <li key={item.id}>
-                                <button type="button" className="font-medium text-primary" onClick={() => onOpen(item.id)}>{item.title}</button>
-                                <span className="text-muted-foreground"> · {CHANGE_TYPE_LABEL[item.changeType]} · {overlapLabel(item.overlap)} · {formatDayWithYear(item.liveOn)}</span>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </section>
-
-            <section className="rounded-lg border border-border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-sm font-medium">What happens next</h3>
                     <Button type="button" size="sm" variant="outline" className="change-log-no-print" onClick={() => setRevertOpen(true)}>How to undo</Button>
                 </div>
-                <p className="mt-1 text-sm">{nextStep(change.changeType, head.verdict)}</p>
+                <p className="mt-1 text-sm">{nextStep(change.changeType, head.verdict, head.controlMode)}</p>
                 {revertOpen && (
                     <div className="mt-3 rounded-md bg-muted p-3 text-sm">
                         <p className="font-medium">Shows the saved steps. Doesn&apos;t change the live site.</p>
@@ -432,7 +440,7 @@ function ComparisonLine({ checkpoint }: { checkpoint: CheckpointRead }) {
     const others = checkpoint.controlMode === 'none' ? null : moveLabel(checkpoint.controlMove);
     return (
         <p className="text-xs text-muted-foreground">
-            {others ? `This page ${page}. Pages we didn't change ${others}.` : `This page ${page}.`}
+            {others ? `This page ${page}. ${controlModeLabel(checkpoint.controlMode)} ${others}.` : `This page ${page}.`}
         </p>
     );
 }
