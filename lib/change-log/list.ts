@@ -16,6 +16,8 @@ import {
 
 export type ResultBucket = 'improved' | 'flat' | 'declined' | 'too_early' | 'early_estimate';
 
+export const COMPARISON_UNAVAILABLE_LABEL = 'Comparison unavailable';
+
 export const RESULT_STRIP: { id: ResultBucket; label: string }[] = [
     { id: 'improved', label: VERDICT_LABEL.improved },
     { id: 'flat', label: VERDICT_LABEL.flat },
@@ -112,7 +114,8 @@ export function liveRangeLabel(range: LiveRange, today: string): string {
     return 'Custom';
 }
 
-export function resultBucket(item: Pick<TimelineItem, 'verdict' | 'estimate'>): ResultBucket {
+export function resultBucket(item: Pick<TimelineItem, 'verdict' | 'estimate'>): ResultBucket | null {
+    if (item.verdict == null) return null;
     return item.estimate ? 'early_estimate' : item.verdict;
 }
 
@@ -126,7 +129,10 @@ export function summaryCounts(
         too_early: 0,
         early_estimate: 0,
     };
-    for (const item of items) counts[resultBucket(item)] += 1;
+    for (const item of items) {
+        const bucket = resultBucket(item);
+        if (bucket != null) counts[bucket] += 1;
+    }
     return counts;
 }
 
@@ -267,7 +273,11 @@ export function sortChanges(items: readonly TimelineItem[], key: ChangeSortKey, 
         } else if (key === 'watching') {
             diff = signed(KPI_LABEL[a.kpi].localeCompare(KPI_LABEL[b.kpi]), direction);
         } else if (key === 'result') {
-            diff = signed(resultLabel(a.verdict, a.estimate).localeCompare(resultLabel(b.verdict, b.estimate)), direction)
+            diff = compareMissingLast(
+                a.verdict == null ? null : resultLabel(a.verdict, a.estimate),
+                b.verdict == null ? null : resultLabel(b.verdict, b.estimate),
+                direction,
+            )
                 || compareMissingLast(a.headlinePct, b.headlinePct, direction);
         } else {
             diff = compareMissingLast(a.nextCheckOn, b.nextCheckOn, direction)

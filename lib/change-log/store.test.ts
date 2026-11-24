@@ -29,7 +29,7 @@ function database(tables: Record<string, Row[]>, options: {
         },
         from(table: string) {
             const filters: ((row: Row) => boolean)[] = [];
-            const order: string[] = [];
+            const order: { key: string; ascending: boolean }[] = [];
             const inFilters: Record<string, unknown[]> = {};
             let from = 0;
             let to = 999;
@@ -42,7 +42,13 @@ function database(tables: Record<string, Row[]>, options: {
                 }
                 if (patch && table === 'seo_change_baselines') beforeBaselineUpdate?.();
                 const matched = (tables[table] ?? []).filter(row => filters.every(filter => filter(row)));
-                matched.sort((a, b) => order.reduce((cmp, key) => cmp || String(a[key]).localeCompare(String(b[key])), 0));
+                matched.sort((a, b) => {
+                    for (const { key, ascending } of order) {
+                        const cmp = String(a[key]).localeCompare(String(b[key]));
+                        if (cmp !== 0) return ascending ? cmp : -cmp;
+                    }
+                    return 0;
+                });
                 const data = matched.slice(from, Math.min(to + 1, from + maxRows));
                 if (patch) for (const row of data) {
                     writes.push(patch);
@@ -71,10 +77,10 @@ function database(tables: Record<string, Row[]>, options: {
                 gte(key: string, value: string) { filters.push(row => String(row[key]) >= value); return query; },
                 lte(key: string, value: string) { filters.push(row => String(row[key]) <= value); return query; },
                 lt(key: string, value: string) { filters.push(row => String(row[key]) < value); return query; },
-                order(key: string) { order.push(key); return query; },
+                order(key: string, { ascending = true } = {}) { order.push({ key, ascending }); return query; },
                 limit(value: number) { to = Math.min(value, 1000) - 1; return query; },
                 range(start: number, end: number) {
-                    ranges.push({ table, start, order: [...order], grain, inFilters: { ...inFilters }, tagged });
+                    ranges.push({ table, start, order: order.map(({ key }) => key), grain, inFilters: { ...inFilters }, tagged });
                     from = start;
                     to = end;
                     return query;
@@ -392,6 +398,56 @@ function positionRows(dates: string[]) {
     return dates.map(data_date => ({ data_date, clicks: 8, impressions: 400, position_weight: 14000 }));
 }
 
+test('the list reads rest-of-site position for the eight newest eligible changes and detail still reads a skipped change', async () => {
+    const tables = controlsSeed();
+    const recent = Array.from({ length: 7 }, (_, i) => ({
+        id: `recent-${i}`,
+        liveAt: `2026-11-10T23:1${i}:00Z`,
+    }));
+    const changes = [
+        { id: 'tied-z', liveAt: '2026-11-10T23:00:00Z' },
+        ...recent,
+        { id: 'tied-a', liveAt: '2026-11-10T23:00:00Z' },
+        { id: 'clicks', liveAt: '2026-11-10T23:30:00Z', kpi: 'clicks' },
+        { id: 'picked', liveAt: '2026-11-10T23:30:00Z', controls: [pavers] },
+    ];
+    for (const { id, liveAt, kpi, controls } of changes) {
+        const page = `https://example.com/${id}`;
+        tables.seo_changes.push({
+            ...tables.seo_changes[0], id, live_at: liveAt, kpi: kpi ?? 'avg_position', control_urls: controls ?? [],
+        });
+        tables.seo_change_pages.push({ change_id: id, url: page, url_key: `example.com/${id}` });
+        tables.gsc_history_facts.push(...tables.gsc_history_days.map(({ id: day_id }) => ({
+            day_id, grain: 'page', page, clicks: 20, impressions: 1000, position: day_id < '2026-11-10' ? 8 : 2,
+        })));
+    }
+    const db = database(tables, { positionRows: positionRows(tables.gsc_history_days.map(day => day.data_date)) });
+    const { items, impacts } = await db.list();
+
+    const selected = [...recent.map(({ id }) => id).reverse(), 'tied-a'];
+    assert.equal(db.rpcCalls.length, 8);
+    assert.ok(db.rpcCalls.every(call => call.name === 'seo_change_rest_position'));
+    assert.deepEqual(db.rpcCalls.map(call => call.args.p_excluded_page_keys), selected.map(id => [`example.com/${id}`]));
+    for (const id of selected) {
+        assert.equal(impacts[id].headline.controlMode, 'untouched');
+        assert.equal(items.find(item => item.id === id)?.verdict, 'improved');
+    }
+    for (const id of ['tied-z', 'change']) {
+        assert.equal(impacts[id].headline.controlMode, 'none');
+        assert.equal(impacts[id].headline.control, null);
+        assert.ok(impacts[id].series.every(point => point.controlPosition === null));
+        assert.equal(items.find(item => item.id === id)?.verdict, null);
+    }
+    assert.equal(impacts.picked.headline.controlMode, 'picked');
+    assert.ok(db.ranges.every(range => range.grain !== 'page' || range.inFilters.page));
+
+    const { impact } = await db.read();
+    assert.equal(db.rpcCalls.length, 9);
+    assert.deepEqual(db.rpcCalls[8].args.p_excluded_page_keys, ['example.com/']);
+    assert.equal(impact?.headline.controlMode, 'untouched');
+    assert.equal(impact?.headline.control?.position, 35);
+});
+
 test('the detail reads position once for at most 84 final days and makes no unfiltered page reads', async () => {
     const tables = controlsSeed();
     tables.seo_change_pages.push({ change_id: 'change', url: 'https://example.com/about', url_key: 'example.com/about' });
@@ -446,6 +502,8 @@ test('a missing position RPC leaves control position unavailable without loading
         assert.equal(impact?.headline.sitewide?.position, 8);
         assert.ok(impact?.series.every(point => point.controlPosition === null));
         assert.equal(db.rpcCalls.length, 1);
+        assert.equal((await db.list()).items[0]?.verdict, null);
+        assert.equal(db.rpcCalls.length, 2);
         assert.ok(db.ranges.every(range => range.grain !== 'page' || range.inFilters.page || range.tagged));
     }
 });

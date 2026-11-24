@@ -308,7 +308,8 @@ export interface TimelineItem {
     liveOn: string;
     pageLabel: string;
     url: string;
-    verdict: Verdict;
+    /** Null when the position comparison is unavailable. */
+    verdict: Verdict | null;
     estimate: boolean;
     deltaText: string;
     kpi: Kpi;
