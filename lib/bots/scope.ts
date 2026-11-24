@@ -9,6 +9,7 @@ export const BOT_TIMER_STOP_PATH = '/api/bots/timer/stop';
 export const BOT_TIMER_PAUSE_PATH = '/api/bots/timer/pause';
 export const BOT_TIMER_RESUME_PATH = '/api/bots/timer/resume';
 export const BOT_APPROVALS_PATH = '/api/bots/approvals';
+export const BOT_INTERNAL_REVIEW_PATH = '/api/bots/approvals/internal-link';
 
 const BOT_POST_PATHS = new Set([
     BOT_TASKS_PATH,
@@ -18,6 +19,7 @@ const BOT_POST_PATHS = new Set([
     BOT_TIMER_PAUSE_PATH,
     BOT_TIMER_RESUME_PATH,
     BOT_APPROVALS_PATH,
+    BOT_INTERNAL_REVIEW_PATH,
 ]);
 
 export function bearerToken(authorization: string | null | undefined): string | null {

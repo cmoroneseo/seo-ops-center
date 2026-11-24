@@ -9,6 +9,7 @@ import { linkState, uuid } from './list';
 import { canSendApproval, sendPermissionReason } from './permissions';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
+import type { ReviewDecision } from '@/lib/internal-review/model';
 import { signApprovalPhoto } from '@/lib/gbp-approvals/live';
 export function createStaffDetail(dependencies = {
   agencyActor,
@@ -51,7 +52,7 @@ export function createStaffDetail(dependencies = {
     }, 404);
     const r = result.data;
     if (r.clients) r.clients.logo_url = safeClientLogoUrl(r.clients.logo_url);
-    const [items, versions, responses, questions, events, link, comments, uploads] = await Promise.all([
+    const [items, versions, responses, questions, events, link, comments, uploads, feedback] = await Promise.all([
       admin.from('approval_items').select('*').eq('request_id', id).order('position'),
       admin.from('approval_item_versions').select('*').eq('request_id', id)
         .order('version_no', { ascending: false }),
@@ -65,6 +66,9 @@ export function createStaffDetail(dependencies = {
         .eq('request_id', id).maybeSingle(),
       admin.from('approval_comments').select('*').eq('request_id', id).order('created_at'),
       admin.from('approval_upload_reservations').select('object_key,preview_key').eq('request_id', id).eq('purpose', 'image_replacement'),
+      r.item_type === 'gbp_post' ? admin.from('approval_internal_feedback')
+        .select('id,item_id,version_id,reviewer_name,decision,comment')
+        .eq('organization_id', r.organization_id).eq('request_id', id).order('created_at').order('id') : null,
     ]);
     if ([items, versions, responses, questions, events, link, comments, uploads].some(v => v.error)) return json({
       error: 'Approvals could not be loaded.'
@@ -97,6 +101,15 @@ export function createStaffDetail(dependencies = {
         version: versions.data?.find(v => v.id === item.current_version_id) ?? null,
         releasedVersion: versions.data?.find(v => v.id === item.released_version_id) ?? null,
         response: responses.data?.find(v => v.item_id === item.id && v.version_id === (r.stage === 'sent' ? item.released_version_id : item.current_version_id)) ?? null
+      })),
+      internalFeedbackUnavailable: !!feedback?.error,
+      internalFeedback: (feedback?.data ?? []).map(entry => ({
+        id: entry.id,
+        itemId: entry.item_id,
+        versionNo: versions.data?.find(version => version.id === entry.version_id)?.version_no ?? null,
+        reviewerName: entry.reviewer_name,
+        decision: entry.decision as ReviewDecision,
+        comment: entry.comment,
       })),
       comments: (comments.data ?? []).map(comment => {
         const item = items.data?.find(item => item.id === comment.item_id);

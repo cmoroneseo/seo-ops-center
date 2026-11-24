@@ -1,6 +1,8 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { BOT_CLIENTS_PATH, botRequestDecision } from '@/lib/bots/scope'
+import { BOT_CLIENTS_PATH, BOT_INTERNAL_REVIEW_PATH, botRequestDecision } from '@/lib/bots/scope'
+import { PUBLIC_REVIEW_HEADERS } from '@/lib/gbp-approvals/public-headers'
+import { publicInternalReviewPath } from '@/lib/internal-review/model'
 import { classifyActor, clientPortalAllowedPath, contactErrorKind, isPortalLoginPath } from '@/lib/portal/access-policy'
 
 export async function middleware(request: NextRequest) {
@@ -22,14 +24,12 @@ export async function middleware(request: NextRequest) {
     // Let the lookup handler return its API-key error for missing or malformed credentials.
     if (request.method === 'GET' && pathname === BOT_CLIENTS_PATH) return NextResponse.next()
 
-    // Client GBP review. The share token is the credential. Do not attach a session,
+    if (request.method === 'POST' && pathname === BOT_INTERNAL_REVIEW_PATH) return NextResponse.next()
+
+    // Public GBP review. The share token is the credential. Do not attach a session,
     // and do not cache or send a referrer that could leak the token.
-    if (pathname.startsWith('/r/') || pathname.startsWith('/api/public/approvals')) {
-        const review = NextResponse.next()
-        review.headers.set('Cache-Control', 'no-store')
-        review.headers.set('Referrer-Policy', 'no-referrer')
-        review.headers.set('X-Robots-Tag', 'noindex, nofollow')
-        return review
+    if (pathname.startsWith('/r/') || pathname.startsWith('/api/public/approvals') || publicInternalReviewPath(pathname)) {
+        return NextResponse.next({ headers: PUBLIC_REVIEW_HEADERS })
     }
     if (
         (pathname === '/dev/gbp-approvals' || pathname === '/dev/agency-approvals')
@@ -147,6 +147,9 @@ export async function middleware(request: NextRequest) {
 
     // If user is not signed in and tries to access a protected route, redirect to /login
     if (!user && !isPublicRoute && !isReviewPortal && !isWebhookRoute && !isPortalEntry && !pathname.startsWith('/auth')) {
+        if (/^\/api\/approval-requests\/[^/]+\/internal-links$/.test(pathname)) {
+            return NextResponse.json({ error: 'Unauthorized', code: 'unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } })
+        }
         if (pathname.startsWith('/api/client-portal/')) {
             const unauthorized = NextResponse.json({ error: 'Your sign-in has expired. Sign in again to continue.' }, { status: 401 })
             response.cookies.getAll().forEach(cookie => unauthorized.cookies.set(cookie))
