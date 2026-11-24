@@ -55,17 +55,6 @@ export function pageDaysFromFacts(
         && loggedUrls.some(url => pageMatchesChange(fact.page, url))));
 }
 
-/** Position for the default control, using page impressions as weights. */
-export function restPositionDaysFromFacts(
-    days: readonly HistoryDayRow[],
-    facts: readonly GscFactRow[],
-    testUrls: readonly string[],
-): DayPoint[] {
-    const testKeys = new Set(testUrls.map(normalizeResultUrl));
-    return groupFactDays(days, facts.filter(fact => fact.grain === 'page' && isOrganicSurface(fact.surface)
-        && !isGbpTaggedUrl(fact.page) && !testKeys.has(normalizeResultUrl(fact.page))));
-}
-
 export function pickedDaysFromFacts(
     days: readonly HistoryDayRow[],
     facts: readonly GscFactRow[],

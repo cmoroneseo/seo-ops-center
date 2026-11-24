@@ -3,7 +3,7 @@ import test from 'node:test';
 import { dateOffset } from '@/lib/gsc/history';
 import { queryDaysFromFacts } from './facts';
 import { buildResultsTable } from './results';
-import { ControlMigrationRequired, getChange, updateControlPages } from './store';
+import { ControlMigrationRequired, getChange, listChanges, updateControlPages } from './store';
 
 type Row = Record<string, unknown>;
 const now = new Date('2026-11-23T20:00:00Z');
@@ -15,11 +15,18 @@ function database(tables: Record<string, Row[]>, options: {
     controlColumn?: boolean;
     maxRows?: number;
     beforeBaselineUpdate?: () => void;
+    positionRows?: Row[];
+    positionError?: { code?: string; message?: string };
 } = {}) {
     const { controlColumn = true, maxRows = 1000, beforeBaselineUpdate } = options;
     const writes: Row[] = [];
-    const ranges: { table: string; start: number; order: string[]; grain?: unknown; inFilters: Record<string, unknown[]> }[] = [];
+    const ranges: { table: string; start: number; order: string[]; grain?: unknown; inFilters: Record<string, unknown[]>; tagged: boolean }[] = [];
+    const rpcCalls: { name: string; args: Row }[] = [];
     const db = {
+        async rpc(name: string, args: Row) {
+            rpcCalls.push({ name, args });
+            return { data: options.positionRows ?? [], error: options.positionError ?? null };
+        },
         from(table: string) {
             const filters: ((row: Row) => boolean)[] = [];
             const order: string[] = [];
@@ -28,6 +35,7 @@ function database(tables: Record<string, Row[]>, options: {
             let to = 999;
             let patch: Row | undefined;
             let grain: unknown;
+            let tagged = false;
             function result() {
                 if (!controlColumn && patch && 'control_urls' in patch) {
                     return { data: [], error: { code: 'PGRST204', message: 'Could not find control_urls in the schema cache' } };
@@ -55,6 +63,7 @@ function database(tables: Record<string, Row[]>, options: {
                     return query;
                 },
                 ilike(key: string, pattern: string) {
+                    tagged = key === 'page';
                     const expression = new RegExp(pattern.split('%').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'), 'i');
                     filters.push(row => expression.test(String(row[key])));
                     return query;
@@ -65,7 +74,7 @@ function database(tables: Record<string, Row[]>, options: {
                 order(key: string) { order.push(key); return query; },
                 limit(value: number) { to = Math.min(value, 1000) - 1; return query; },
                 range(start: number, end: number) {
-                    ranges.push({ table, start, order: [...order], grain, inFilters: { ...inFilters } });
+                    ranges.push({ table, start, order: [...order], grain, inFilters: { ...inFilters }, tagged });
                     from = start;
                     to = end;
                     return query;
@@ -78,10 +87,12 @@ function database(tables: Record<string, Row[]>, options: {
         },
     } as unknown as NonNullable<Parameters<typeof getChange>[4]>;
     return {
-        read: () => getChange('org', 'client', 'change', now, db),
+        read: (readAt = now) => getChange('org', 'client', 'change', readAt, db),
+        list: () => listChanges('org', 'client', now, db),
         saveControls: (urls: unknown, client = 'client') => updateControlPages('org', client, 'change', urls, db),
         writes,
         ranges,
+        rpcCalls,
     };
 }
 
@@ -362,7 +373,7 @@ function controlsSeed(kpi = 'avg_position') {
     const days = [...baselineDates, '2026-11-10', ...after];
     return {
         ...tables,
-        seo_changes: [{ ...tables.seo_changes[0], title: 'Homepage heading', kpi, control_urls: [] as string[] }],
+        seo_changes: [{ ...tables.seo_changes[0], title: 'Homepage heading', kpi, control_urls: [] as string[], compare_last_year: false }],
         gsc_history_days: days.map(data_date => ({
             ...scope, id: data_date, data_date, property: 'sc-domain:example.com', search_type: 'web', page_limited: false,
         })),
@@ -377,17 +388,80 @@ function controlsSeed(kpi = 'avg_position') {
     };
 }
 
-test('the default position control weights stored organic page rows and excludes every test page', async () => {
+function positionRows(dates: string[]) {
+    return dates.map(data_date => ({ data_date, clicks: 8, impressions: 400, position_weight: 14000 }));
+}
+
+test('the detail reads position once for at most 84 final days and makes no unfiltered page reads', async () => {
     const tables = controlsSeed();
     tables.seo_change_pages.push({ change_id: 'change', url: 'https://example.com/about', url_key: 'example.com/about' });
-    const { impact } = await database(tables).read();
+    tables.seo_changes[0].compare_last_year = true;
+    const days = [...baselineDates, ...Array.from({ length: 56 }, (_, i) => dateOffset('2026-11-11', i))];
+    tables.gsc_history_days.push(...['2025-11-01', ...days.slice(35), '2027-01-06'].map(data_date => ({
+        ...tables.gsc_history_days[0], id: data_date, data_date,
+    })));
+    const position = positionRows(days);
+    position[0] = { data_date: days[0], clicks: 8, impressions: 1200, position_weight: 18000 };
+    const small = database(tables, { positionRows: position });
+    const readAt = new Date('2027-01-10T20:00:00Z');
+    const { impact } = await small.read(readAt);
     assert.equal(impact?.controlLabel, 'Rest of the site');
     assert.equal(impact?.headline.controlMode, 'untouched');
-    assert.equal(impact?.headline.controlMove?.before, 35);
+    assert.equal(impact?.headline.controlMove?.before, 33);
     assert.equal(impact?.headline.controlMove?.after, 35);
     assert.equal(impact?.headline.sitewide?.position, 8);
     assert.equal(impact?.series.find(point => point.date === '2026-11-11')?.controlPosition, 35);
     assert.equal(impact?.series.find(point => point.date === '2026-11-10')?.control, null);
+    assert.deepEqual(small.rpcCalls, [{
+        name: 'seo_change_rest_position',
+        args: {
+            p_organization_id: 'org', p_client_id: 'client', p_property: 'sc-domain:example.com',
+            p_day_ids: days, p_excluded_page_keys: ['example.com/', 'example.com/about'],
+        },
+    }]);
+
+    tables.gsc_history_facts.push(...Array.from({ length: 5000 }, (_, i) => ({
+        day_id: days[0], grain: 'page', page: `https://example.com/unrelated-${i}`,
+        clicks: 1, impressions: 20, position: 50,
+    })));
+    const large = database(tables, { positionRows: position });
+    await large.read(readAt);
+    const factReads = (db: typeof small) => db.ranges.filter(range => range.table === 'gsc_history_facts');
+    assert.equal(factReads(large).length, factReads(small).length);
+    assert.ok(factReads(large).every(range => range.grain !== 'page' || range.inFilters.page || range.tagged));
+    assert.deepEqual(large.rpcCalls, small.rpcCalls);
+});
+
+test('a missing position RPC leaves control position unavailable without loading all pages', async () => {
+    for (const positionError of [
+        { code: 'PGRST202' }, { code: '42883' },
+        { message: 'Could not find the function public.seo_change_rest_position in the schema cache' },
+    ]) {
+        const db = database(controlsSeed(), { positionError });
+        const { impact, setup } = await db.read();
+        assert.equal(setup, 'ready');
+        assert.equal(impact?.headline.page.position, 2);
+        assert.equal(impact?.headline.controlMode, 'none');
+        assert.equal(impact?.headline.control, null);
+        assert.equal(impact?.headline.sitewide?.position, 8);
+        assert.ok(impact?.series.every(point => point.controlPosition === null));
+        assert.equal(db.rpcCalls.length, 1);
+        assert.ok(db.ranges.every(range => range.grain !== 'page' || range.inFilters.page || range.tagged));
+    }
+});
+
+test('a non-position list skips the RPC while its detail loads it for the position chart', async () => {
+    const tables = controlsSeed('clicks');
+    const db = database(tables, { positionRows: positionRows(['2026-11-11']) });
+    await db.list();
+    assert.equal(db.rpcCalls.length, 0);
+    const { impact } = await db.read();
+    assert.equal(impact?.series.find(point => point.date === '2026-11-11')?.controlPosition, 35);
+    assert.equal(db.rpcCalls.length, 1);
+
+    tables.seo_changes[0].kpi = 'avg_position';
+    await db.list();
+    assert.equal(db.rpcCalls.length, 2);
 });
 
 test('saved controls replace the default in the checkpoint, the results table and the chart', async () => {
@@ -405,6 +479,7 @@ test('saved controls replace the default in the checkpoint, the results table an
     assert.deepEqual([comparison?.label, comparison?.before, comparison?.after], ['Selected control page clicks', 8, 8]);
     const point = impact.series.find(item => item.date === '2026-11-11');
     assert.deepEqual([point?.control, point?.controlPosition], [8, 35]);
+    assert.equal(db.rpcCalls.length, 0);
     await db.saveControls([]);
     assert.equal((await db.read()).impact?.headline.controlMove?.after, 80);
 });

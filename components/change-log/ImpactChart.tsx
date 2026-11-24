@@ -161,6 +161,9 @@ export function ImpactChart({
             {tab === 'indexed' && (
                 <div role="tabpanel" id="change-chart-panel-indexed" aria-labelledby="change-chart-tab-indexed" data-live-marker="true" className="mt-3">
                     {caption && <p className="mb-3 text-xs text-muted-foreground" data-chart-caption>{caption}</p>}
+                    {metric === 'avg_position' && !indexed.hasControl && (
+                        <p className="mb-3 text-xs text-muted-foreground">The average position comparison is unavailable.</p>
+                    )}
                     <IndexedView
                         points={indexed.points}
                         liveOn={liveOn}

@@ -1,5 +1,6 @@
 import { dateOffset } from '@/lib/gsc/history';
 import { chunkList } from '@/lib/search-reporting/fact-read';
+import { normalizeResultUrl } from '@/lib/search-reporting/result-url';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 import { impactsFromRows } from './assemble';
@@ -18,7 +19,7 @@ import { GSC_LAG_DAYS } from './thresholds';
 import { samePageMarkers, type ChartMarker } from './chart';
 import { findConfounders, timelineItem } from './impact';
 import { TREATMENTS, type SeoChange, type Treatment } from './types';
-import type { Confounder, ImpactModel, TimelineItem } from './types';
+import type { Confounder, DayPoint, ImpactModel, TimelineItem } from './types';
 import { normalizeControlUrls, type NormalizedChange } from './validate';
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -220,6 +221,58 @@ async function facts(
     return out;
 }
 
+async function readRestPositions(
+    db: Admin,
+    scope: { organizationId: string; clientId: string; property: string },
+    changes: readonly SeoChange[],
+    days: readonly HistoryDayRow[],
+): Promise<Map<string, DayPoint[]>> {
+    const result = new Map<string, DayPoint[]>();
+    const requests = changes.flatMap(change => {
+        const start = baselineWindow(change.liveOn).start;
+        const end = afterWindow(change.liveOn, 56).end;
+        const dayIds = days.filter(day => !day.preliminary && day.date >= start && day.date <= end && day.date !== change.liveOn)
+            .map(day => day.id);
+        const excludedKeys = [...new Set(change.pages.flatMap(page => normalizeResultUrl(page.url) ?? []))];
+        return dayIds.length && excludedKeys.length ? [{ id: change.id, dayIds, excludedKeys }] : [];
+    });
+    // Lists can have multiple position verdicts. Limit simultaneous site scans.
+    for (const batch of chunkList(requests, 4)) {
+        const entries = await Promise.all(batch.map(async ({ id, dayIds, excludedKeys }) => {
+            const { data, error } = await db.rpc('seo_change_rest_position', {
+                p_organization_id: scope.organizationId,
+                p_client_id: scope.clientId,
+                p_property: scope.property,
+                p_day_ids: dayIds,
+                p_excluded_page_keys: excludedKeys,
+            });
+            if (error) {
+                // Migration 140 enables position for the default control. Leave it
+                // unavailable while the RPC is missing, without loading raw page facts.
+                if (error.code === 'PGRST202' || error.code === '42883'
+                    || /could not find the function|function not found|function .+ does not exist/i.test(error.message)) return null;
+                throw new Error('Unable to read rest-of-site position', { cause: error });
+            }
+            const points: DayPoint[] = ((data ?? []) as Row[]).map(row => {
+                const impressions = num(row.impressions);
+                return {
+                    date: text(row.data_date),
+                    clicks: num(row.clicks),
+                    impressions,
+                    position: impressions > 0 ? num(row.position_weight) / impressions : 0,
+                    organicSessions: null,
+                    keyEvents: null,
+                    preliminary: false,
+                };
+            });
+            return { id, points };
+        }));
+        for (const entry of entries) if (entry) result.set(entry.id, entry.points);
+        if (entries.some(entry => entry === null)) break;
+    }
+    return result;
+}
+
 async function ga4Rows(db: Admin, organizationId: string, clientId: string, property: string, span: { start: string; end: string }, paths: string[]): Promise<{ pages: Ga4PageRow[]; site: Ga4SiteRow[] }> {
     const days = await rows(db.from('ga4_history_days')
         .select('id, day, is_final')
@@ -279,7 +332,8 @@ async function ga4Rows(db: Admin, organizationId: string, clientId: string, prop
     };
 }
 
-async function loadImpacts(db: Admin, organizationId: string, clientId: string, changes: SeoChange[], now: Date, detail?: SeoChange): Promise<{ impacts: Record<string, ImpactModel>; gsc: boolean; ga4: boolean }> {
+async function loadImpacts(db: Admin, organizationId: string, clientId: string, changes: SeoChange[], now: Date, view: 'list' | 'baseline' | SeoChange): Promise<{ impacts: Record<string, ImpactModel>; gsc: boolean; ga4: boolean }> {
+    const detail = typeof view === 'object' ? view : undefined;
     const gscProperty = await propertyFor(db, organizationId, clientId, 'gsc');
     const ga4Property = await propertyFor(db, organizationId, clientId, 'ga4');
     const span = readSpan(changes, now);
@@ -314,15 +368,13 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     const afterDayIds = detailAfter ? historyDays.filter(day => !day.preliminary
         && day.date >= detailAfter.start && day.date <= detailAfter.end).map(day => day.id) : [];
     const detailDayIds = [...baselineDayIds, ...afterDayIds];
-    const positionChanges = changes.filter(change => (detail || change.kpi === 'avg_position') && !change.controlUrls?.length);
-    const positionWindows = positionChanges
-        .map(change => ({ start: baselineWindow(change.liveOn).start, live: change.liveOn, end: afterWindow(change.liveOn, 56).end }));
-    const positionDayIds = historyDays.filter(day => !day.preliminary && positionWindows.some(window =>
-        day.date >= window.start && day.date <= window.end && day.date !== window.live)).map(day => day.id);
+    // Detail lets users switch the comparison chart to position for any KPI.
+    const positionChanges = changes.filter(change => !change.controlUrls?.length
+        && (detail || (view === 'list' && change.kpi === 'avg_position')));
     const paths = [...new Set(changes.flatMap(change => [
         ...change.pages.map(page => page.url), ...(change.controlUrls ?? []),
     ]).flatMap(url => ga4PathFor(url) ?? []))];
-    const [pageFacts, propertyFacts, baselineQueryFacts, trackedQueryFacts, ga, siteQueryFacts, taggedPageFacts, sitePageFacts] = await Promise.all([
+    const [pageFacts, propertyFacts, baselineQueryFacts, trackedQueryFacts, ga, siteQueryFacts, taggedPageFacts, restPositionDays] = await Promise.all([
         dayIds.length && pageCandidates.length
             ? facts(db, dayIds, 'page', { pages: pageCandidates })
             : Promise.resolve([]),
@@ -340,7 +392,9 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
         detailDayIds.length && candidates.length
             ? facts(db, detailDayIds, 'page', { taggedPages: true })
             : Promise.resolve([]),
-        positionDayIds.length ? facts(db, positionDayIds, 'page') : Promise.resolve([]),
+        gscProperty && positionChanges.length
+            ? readRestPositions(db, { organizationId, clientId, property: gscProperty }, positionChanges, historyDays)
+            : undefined,
     ]);
     const impacts = impactsFromRows({
         changes,
@@ -349,7 +403,7 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
         ga4Connected: Boolean(ga4Property),
         historyDays,
         pageFacts,
-        restPositionFacts: { changes: new Set(positionChanges.map(change => change.id)), rows: sitePageFacts },
+        restPositionDays,
         propertyFacts,
         queryFacts: [...baselineQueryFacts, ...trackedQueryFacts],
         ga4Pages: ga.pages,
@@ -409,14 +463,13 @@ async function loadChanges(
     });
 }
 
-export async function listChanges(organizationId: string, clientId: string, now = new Date()): Promise<ChangeListResult> {
+export async function listChanges(organizationId: string, clientId: string, now = new Date(), db = createAdminClient()): Promise<ChangeListResult> {
     try {
-        const db = createAdminClient();
         const changes = await loadChanges(db, organizationId, clientId);
         if (changes.length === 0) return { setup: 'ready', items: [], changes, impacts: {} };
         const oldest = changes.at(-1);
         const [loaded, older] = await Promise.all([
-            loadImpacts(db, organizationId, clientId, changes, now),
+            loadImpacts(db, organizationId, clientId, changes, now, 'list'),
             oldest && changes.length === CHANGE_LIST_LIMIT
                 ? loadChanges(db, organizationId, clientId, { start: baselineWindow(oldest.liveOn).start, end: oldest.liveOn })
                 : [],
@@ -645,7 +698,7 @@ export async function createChange(input: {
             if (queryError) throw new Error('Unable to save the queries');
         }
         const saved: SeoChange = { id, clientId: input.clientId, ...input.change };
-        const loaded = await loadImpacts(db, input.organizationId, input.clientId, [saved], now);
+        const loaded = await loadImpacts(db, input.organizationId, input.clientId, [saved], now, 'baseline');
         const snapshot = baselineSnapshot(saved, loaded, now);
         await db.from('seo_change_baselines').insert({
             change_id: id,

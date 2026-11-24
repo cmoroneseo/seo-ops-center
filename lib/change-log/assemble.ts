@@ -7,14 +7,13 @@ import {
     pickedDaysFromFacts,
     propertyDaysFromFacts,
     queryDaysFromFacts,
-    restPositionDaysFromFacts,
     type Ga4PageRow,
     type Ga4SiteRow,
     type GscFactRow,
     type HistoryDayRow,
 } from './facts';
 import { ga4PathFor } from './match';
-import type { ImpactModel, SeoChange } from './types';
+import type { DayPoint, ImpactModel, SeoChange } from './types';
 
 export function impactsFromRows(input: {
     changes: readonly SeoChange[];
@@ -23,7 +22,7 @@ export function impactsFromRows(input: {
     ga4Connected: boolean;
     historyDays: readonly HistoryDayRow[];
     pageFacts: readonly GscFactRow[];
-    restPositionFacts?: { changes: ReadonlySet<string>; rows: readonly GscFactRow[] };
+    restPositionDays?: ReadonlyMap<string, readonly DayPoint[]>;
     propertyFacts: readonly GscFactRow[];
     queryFacts: readonly GscFactRow[];
     ga4Pages: readonly Ga4PageRow[];
@@ -51,9 +50,7 @@ export function impactsFromRows(input: {
             pageDays,
             gscPageDays,
             sitewideDays: sitewide,
-            restPositionDays: input.restPositionFacts?.changes.has(change.id)
-                ? restPositionDaysFromFacts(input.historyDays, input.restPositionFacts.rows, urls)
-                : undefined,
+            restPositionDays: input.restPositionDays?.get(change.id),
             pickedControlDays: picked ? pickedDaysFromFacts(input.historyDays, input.pageFacts, controls) : undefined,
             pickedGa4Days: picked ? mergeGa4([], input.ga4Pages, controls.flatMap(url => ga4PathFor(url) ?? [])) : undefined,
             yoyPageDays: pageDays,

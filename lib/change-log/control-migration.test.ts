@@ -8,7 +8,7 @@ const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8'
 
 test('migration 139 is mirrored and gives existing changes the default comparison', async () => {
     assert.match(migration, /NOT APPLIED/);
-    assert.ok(schema.endsWith(migration));
+    assert.ok(schema.includes(migration));
     const db = new PGlite();
     try {
         await db.exec("create table public.seo_changes (id int primary key); insert into public.seo_changes values (1);");
