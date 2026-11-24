@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { diffWords } from '@/lib/gbp-approvals/diff';
 import { cn } from '@/lib/utils';
 
-import { LOGO, SAMPLE_POSTS, monthDay, weekday, type SamplePost } from './sample';
+import { LOGO, SAMPLE_POSTS, offerRange, weekday, type SamplePost } from './sample';
 
 export type AgencyView = 'status' | 'share' | 'revision' | 'history';
 
@@ -172,6 +172,7 @@ function RevisionPanel({
 }
 
 function PostSummary({ post }: { post: SamplePost }) {
+    const range = offerRange(post);
     return (
         <section className="rounded-xl border border-border bg-card p-4">
             <h2 className="text-base font-semibold">Post {post.position} · Planned for {weekday(post.scheduled)}</h2>
@@ -191,7 +192,7 @@ function PostSummary({ post }: { post: SamplePost }) {
                         </div>
                     </div>
                     <p className="font-semibold">{post.title}</p>
-                    <p className="text-sm text-muted-foreground">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</p>
+                    {range && <p className="text-sm text-muted-foreground">{range}</p>}
                     <p className="text-sm">{post.body}</p>
                 </div>
             </div>

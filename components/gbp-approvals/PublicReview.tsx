@@ -7,8 +7,7 @@ import { diffWords } from '@/lib/gbp-approvals/diff';
 
 import './public-review.css';
 import { PhotoGallery } from './PhotoGallery';
-import { postOfferRange } from './post-dates';
-import { weekday, type SamplePost } from './sample';
+import { offerRange, weekday, type SamplePost } from './sample';
 
 export interface ReviewQuestion {
     id: string;
@@ -29,7 +28,6 @@ export interface ReviewPost extends Omit<SamplePost, 'offerStart' | 'offerEnd'> 
     ctaUrl?: string;
     ctaLabel?: string;
     changeNote?: string | null;
-    postType?: string;
 }
 
 const NO_QUESTIONS: ReviewQuestion[] = [];
@@ -394,7 +392,7 @@ function PostCard({
 }) {
     const [suggestOpen, setSuggestOpen] = useState(false);
     const status = choice ?? post.status;
-    const range = postOfferRange(post);
+    const range = offerRange(post);
     const parts = post.previousBody ? diffWords(post.previousBody, post.body) : [];
     return (
         <article className={open ? 'ritem sel' : 'ritem'} aria-label={`Post ${post.position}`}>
@@ -505,7 +503,7 @@ function PhotoComments({ post, drafts, onChange }: {
 export function GbpPostPreview({ post, clientName, logoSrc, showFull = true }: { post: ReviewPost; clientName: string; logoSrc?: string; showFull?: boolean }) {
  const { logoRef, failedLogo, setFailedLogo } = useLogoFailure(logoSrc);
  const sources = previewPhotos(post);
- const range = postOfferRange(post);
+ const range = offerRange(post);
  return (<article className="gbp">
                             {sources.length > 0
                                 ? <PhotoGallery sources={sources} layout="gbp" alt={`Photo for ${post.title}`} />

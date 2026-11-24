@@ -2,8 +2,9 @@ export interface SamplePost {
     position: number;
     title: string;
     scheduled: string;
-    offerStart: string;
-    offerEnd: string;
+    offerStart: string | null;
+    offerEnd: string | null;
+    postType?: string;
     body: string;
     photo: string | null;
     status: 'pending' | 'approved' | 'changes_requested';
@@ -117,12 +118,29 @@ export const SAMPLE_QUESTIONS = [
     },
 ];
 
-export function monthDay(day: string): string {
-    const [year, month, date] = day.split('-').map(Number);
-    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, date)));
+function parseCalendarDate(day: string | null | undefined): Date | null {
+    if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+    const date = new Date(`${day}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === day ? date : null;
 }
 
-export function weekday(day: string): string {
-    const [year, month, date] = day.split('-').map(Number);
-    return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, date)));
+export function monthDay(day: string | null | undefined): string {
+    const date = parseCalendarDate(day);
+    return date ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(date) : '';
+}
+
+export function weekday(day: string | null | undefined): string {
+    const date = parseCalendarDate(day);
+    return date ? new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(date) : '';
+}
+
+export function offerRange({ postType, offerStart, offerEnd }: {
+    postType?: string;
+    offerStart?: string | null;
+    offerEnd?: string | null;
+}): string | null {
+    if (postType !== undefined && postType !== 'offer') return null;
+    const start = monthDay(offerStart);
+    const end = monthDay(offerEnd);
+    return start && end ? `${start} – ${end}` : null;
 }
