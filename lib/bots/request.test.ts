@@ -220,3 +220,25 @@ test('category rules match the app labels', () => {
     });
     assert.equal(broken.ok, false);
 });
+
+test('stop accepts positive numeric hours and includes them in the request hash', () => {
+    const payload = { idempotencyKey: 'stop-with-trim' };
+    const original = parse(BOT_TIMER_STOP_PATH, payload);
+    const trimmed = parse(BOT_TIMER_STOP_PATH, { ...payload, hours: 0.25 });
+    assert.ok(original.ok && trimmed.ok && trimmed.command.kind === 'stop');
+    assert.equal(trimmed.command.hours, 0.25);
+    assert.notEqual(original.command.requestHash, trimmed.command.requestHash);
+    for (const hours of [0, -1, '0.25', null]) {
+        const result = parse(BOT_TIMER_STOP_PATH, { ...payload, hours });
+        assert.ok(!result.ok);
+        assert.equal(result.code, 'invalid_request');
+    }
+});
+
+test('a trimmed stop with implicit completion time hashes the same on retry', () => {
+    const payload = { idempotencyKey: 'stop-complete-with-trim', hours: 0.25, complete: true };
+    const original = parseBotRequest(BOT_TIMER_STOP_PATH, payload, new Date('2026-11-03T15:00:00Z'));
+    const retry = parseBotRequest(BOT_TIMER_STOP_PATH, payload, new Date('2026-11-03T15:05:00Z'));
+    assert.ok(original.ok && retry.ok);
+    assert.equal(retry.command.requestHash, original.command.requestHash);
+});

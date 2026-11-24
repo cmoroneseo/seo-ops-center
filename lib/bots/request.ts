@@ -105,6 +105,7 @@ export interface BotTimerStopCommand {
     requestHash: string;
     taskId?: string;
     description?: string;
+    hours?: number;
     countsTowardBudget?: boolean;
     billable?: boolean;
     complete: boolean;
@@ -278,7 +279,7 @@ const START_FIELDS = new Set([
 
 const STOP_FIELDS = new Set([
     'idempotencyKey', 'taskId', 'description', 'countsTowardBudget',
-    'billable', 'complete', 'completedOn', 'timeZone',
+    'billable', 'complete', 'completedOn', 'timeZone', 'hours',
 ]);
 
 const PAUSE_FIELDS = new Set(['idempotencyKey', 'taskId', 'description']);
@@ -497,6 +498,10 @@ function parseStop(record: Record<string, unknown>, now: Date): BotRequestParse 
     if (taskId && !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
     const description = timerDescriptionOf(record);
     if ('ok' in description) return description;
+    const hours = record.hours;
+    if ('hours' in record && (typeof hours !== 'number' || !Number.isFinite(hours) || hours <= 0)) {
+        return fail(400, 'invalid_request', 'Hours must be a number greater than 0.');
+    }
     const counts = boolOf(record, 'countsTowardBudget');
     if (counts && typeof counts === 'object') return counts;
     const billable = boolOf(record, 'billable');
@@ -514,20 +519,23 @@ function parseStop(record: Record<string, unknown>, now: Date): BotRequestParse 
     } else if ('completedOn' in record && record.completedOn != null && record.completedOn !== '') {
         return fail(400, 'invalid_request', 'completedOn is only used when complete is true.');
     }
-    return {
-        ok: true,
-        command: withHash<BotTimerStopCommand>({
-            kind: 'stop',
-            idempotencyKey: key.key,
-            ...(taskId ? { taskId } : {}),
-            ...description,
-            ...(counts !== undefined ? { countsTowardBudget: counts } : {}),
-            ...(billable !== undefined ? { billable } : {}),
-            complete,
-            ...(completedAt ? { completedAt } : {}),
-            timeZone: zone.timeZone,
-        }),
+    const stop = {
+        kind: 'stop' as const,
+        idempotencyKey: key.key,
+        ...(taskId ? { taskId } : {}),
+        ...description,
+        ...(typeof hours === 'number' ? { hours } : {}),
+        ...(counts !== undefined ? { countsTowardBudget: counts } : {}),
+        ...(billable !== undefined ? { billable } : {}),
+        complete,
+        timeZone: zone.timeZone,
     };
+    const command = withHash<BotTimerStopCommand>({ ...stop, ...(completedAt ? { completedAt } : {}) });
+    if (typeof hours === 'number' && complete) {
+        // Hash the requested day so an implicit completion time can replay.
+        command.requestHash = hashBotRequest({ ...stop, completedOn: text(record.completedOn) ?? null });
+    }
+    return { ok: true, command };
 }
 
 export function parseBotRequest(pathname: string, body: unknown, now: Date): BotRequestParse {

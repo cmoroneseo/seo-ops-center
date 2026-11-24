@@ -4,6 +4,9 @@ import test from 'node:test';
 
 import { handleBotRequest, type BotDeps, type BotOperationRecord } from './handle.ts';
 import { liveBotDeps, withStretchRow } from './live.ts';
+import { listLedgerLogs } from '../supabase/timesheet-ledger-source.ts';
+import { createPausedTrimPatch } from '../timesheets/paused-trim-route.ts';
+import { loadPausedTrim, savePausedTrim } from '../timesheets/paused-trim-store.ts';
 import { BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
 
 // Drives the real liveBotDeps timer writes against an in-memory stand-in for
@@ -27,31 +30,46 @@ function pgTime(value: unknown): unknown {
     return new Date(ms).toISOString().replace(/\.(\d{3})Z$/, (_m, frac: string) => (frac === '000' ? '' : `.${frac}`) + '+00:00');
 }
 
+const AUDIT = /\b(?:trimmed_\w+|paused_trim_source)\b/;
+
+function field(row: Row, name: string) {
+    const [column, key] = name.split('->>');
+    return key ? (row[column] as Row | undefined)?.[key] : row[column];
+}
+
 class FakeDb {
     tasks: Row[] = [];
     timeLogs: Row[] = [];
     segments: Row[] = [];
+    auditReferences = 0;
+    missingAuditCode: string | null = null;
+    beforeWrite?: (table: string, action: string, patch: Row) => { code: string } | void;
 
     from(table: string) {
         return new FakeQuery(this, table);
     }
 
     withEmbeds(row: Row, columns: string): Row {
-        if (!columns.includes('time_log_segments')) return { ...row };
+        const selected = Object.fromEntries(Object.entries(row)
+            .filter(([key]) => !AUDIT.test(key) || columns.includes(key)));
+        if (columns.includes('paused_at:')) selected.paused_at = field(row, 'paused_trim_source->>pausedAt');
+        if (!columns.includes('time_log_segments')) return selected;
         return {
-            ...row,
+            ...selected,
             tasks: { title: 'Technical audit' },
             time_log_segments: this.segments
                 .filter(segment => segment.time_log_id === row.id)
-                .map(segment => ({ started_at: segment.started_at, ended_at: segment.ended_at, note: segment.note })),
+                .map(segment => ({ ...segment })),
         };
     }
 }
 
 class FakeQuery implements PromiseLike<{ data: unknown; error: unknown }> {
     private filters: Array<(row: Row) => boolean> = [];
-    private action: 'select' | 'insert' | 'update' = 'select';
+    private action: 'select' | 'insert' | 'update' | 'delete' | 'upsert' = 'select';
     private payload: Row = {};
+    private filterColumns: string[] = [];
+    private additions: Row[] = [];
     private columns = '*';
     private limitTo: number | null = null;
 
@@ -60,7 +78,20 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: unknown }> {
     select(columns = '*') { this.columns = columns; return this; }
     insert(row: Row) { this.action = 'insert'; this.payload = row; return this; }
     update(patch: Row) { this.action = 'update'; this.payload = patch; return this; }
-    eq(column: string, value: unknown) { this.filters.push(row => row[column] === value); return this; }
+    delete() { this.action = 'delete'; return this; }
+    upsert(rows: Row[]) { this.action = 'upsert'; this.additions = rows; return this; }
+    eq(column: string, value: unknown) {
+        this.filterColumns.push(column);
+        this.filters.push(row => field(row, column) === value);
+        return this;
+    }
+    is(column: string, value: null) {
+        this.filterColumns.push(column);
+        this.filters.push(row => (field(row, column) ?? null) === value);
+        return this;
+    }
+    gte(column: string, value: string) { this.filters.push(row => String(row[column]) >= value); return this; }
+    lte(column: string, value: string) { this.filters.push(row => String(row[column]) <= value); return this; }
     or(expression: string) {
         assert.equal(expression, 'status.eq.todo,status.is.null');
         this.filters.push(row => row.status === 'todo' || row.status == null);
@@ -79,7 +110,23 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: unknown }> {
     }
 
     private run(): { data: Row[]; error: unknown } {
+        if ([this.columns, ...this.filterColumns, ...Object.keys(this.payload)].some(value => AUDIT.test(value))) {
+            this.db.auditReferences++;
+            if (this.db.missingAuditCode) return { data: [], error: { code: this.db.missingAuditCode } };
+        }
+        if (this.action !== 'select') {
+            const error = this.db.beforeWrite?.(this.table, this.action, this.payload);
+            if (error) return { data: [], error };
+        }
         const rows = this.rows();
+        if (this.action === 'upsert') {
+            for (const row of this.additions) {
+                if (!rows.some(existing => existing.id === row.id)) {
+                    rows.push({ ...row, started_at: pgTime(row.started_at), ended_at: pgTime(row.ended_at) });
+                }
+            }
+            return { data: [], error: null };
+        }
         if (this.action === 'insert') {
             const row: Row = { id: randomUUID(), ...this.payload };
             for (const key of ['started_at', 'ended_at', 'timer_started_at']) row[key] = pgTime(row[key]);
@@ -92,8 +139,13 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: unknown }> {
         if (this.action === 'update') {
             for (const row of matched) {
                 Object.assign(row, this.payload);
-                row.timer_started_at = pgTime(row.timer_started_at);
+                for (const key of ['started_at', 'ended_at', 'timer_started_at']) {
+                    if (key in row) row[key] = pgTime(row[key]);
+                }
             }
+        }
+        if (this.action === 'delete') {
+            for (const row of matched) rows.splice(rows.indexOf(row), 1);
         }
         return { data: matched.map(row => this.db.withEmbeds(row, this.columns)), error: null };
     }
@@ -488,4 +540,287 @@ test('a configured cap counts legacy seconds: resume is refused and stop goes to
         if (previous === undefined) delete process.env.BOT_TIMER_MAX_SECONDS;
         else process.env.BOT_TIMER_MAX_SECONDS = previous;
     }
+});
+
+test('SEO stop trims the open stretch, syncs the corrected hours, and replays by hours', async () => {
+    const { db, clock, deps } = world('2026-11-17T18:00:00.000Z');
+    clock.now = new Date('2026-11-17T19:00:00.000Z');
+    const syncedHours: unknown[] = [];
+    deps.syncTimesheet = async id => {
+        syncedHours.push(db.timeLogs.find(row => row.id === id)?.hours);
+        return { status: 'pushed', providerId: '123' };
+    };
+    const stop = (hours: number) => handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+        idempotencyKey: 'stop-corrected', hours,
+    }), deps);
+
+    const response = await stop(0.25);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.timeLog.hours, 0.25);
+    assert.equal(body.timeLog.basecampEntryId, '123');
+    assert.deepEqual(syncedHours, [0.25]);
+    assert.equal(db.timeLogs[0].elapsed_seconds, 900);
+    assert.equal(db.timeLogs[0].trimmed_from_seconds, 3600);
+    assert.equal(db.timeLogs[0].trimmed_at, clock.now.toISOString());
+    assert.equal(db.timeLogs[0].trimmed_by, null);
+    assert.equal(db.timeLogs[0].trimmed_by_bot_key_id, KEY);
+    assert.equal(db.segments[0].ended_at, '2026-11-17T18:15:00+00:00');
+    assert.equal(db.segments[0].note, 'Crawl the site');
+
+    const replay = await stop(0.25);
+    assert.equal(replay.headers.get('Idempotent-Replayed'), 'true');
+    assert.deepEqual(await replay.json(), body);
+    assert.equal((await stop(0.5)).status, 409);
+    assert.deepEqual(syncedHours, [0.25]);
+});
+
+test('non-SEO stop rejects a supplied hours field and still stops without it', async () => {
+    const { db, clock, deps, synced } = world('2026-11-17T18:00:00.000Z');
+    clock.now = new Date('2026-11-17T19:00:00.000Z');
+    deps.authenticate = async () => ({ id: KEY, organizationId: ORG, name: 'operations-bot', revokedAt: null });
+
+    const rejected = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+        idempotencyKey: 'stop-outside-allowlist', hours: null,
+    }), deps);
+    assert.equal(rejected.status, 403);
+    assert.equal((await rejected.json()).code, 'forbidden');
+    assert.equal(db.timeLogs[0].status, 'in_progress');
+    assert.deepEqual(synced, []);
+
+    assert.equal((await handleBotRequest(stopRequest('stop-outside-allowlist'), deps)).status, 200);
+    assert.equal(db.timeLogs[0].hours, 1);
+    assert.deepEqual(synced, [LOG]);
+});
+
+test('a stop over the true running time leaves the timer and Basecamp untouched', async () => {
+    const { db, clock, deps, synced } = world('2026-11-17T18:00:00.000Z');
+    clock.now = new Date('2026-11-17T19:00:00.000Z');
+    const initial = structuredClone(db.timeLogs);
+    const rejected = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+        idempotencyKey: 'stop-too-many-hours', hours: 1.01,
+    }), deps);
+    assert.equal(rejected.status, 422);
+    assert.equal((await rejected.json()).code, 'hours_exceeds_running');
+    assert.deepEqual(db.timeLogs, initial);
+    assert.deepEqual(db.segments, []);
+    assert.deepEqual(synced, []);
+});
+
+test('trim removes the newest local-day time and records the whole-timer audit on each day', async () => {
+    const { db, clock, deps, synced } = world('2026-11-17T07:00:00.000Z');
+    clock.now = new Date('2026-11-17T10:00:00.000Z');
+    const response = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+        idempotencyKey: 'stop-across-midnight', hours: 1.5, timeZone: 'America/Los_Angeles',
+    }), deps);
+    assert.equal(response.status, 200);
+    assert.deepEqual(db.timeLogs.map(row => [
+        row.date, row.hours, row.elapsed_seconds, row.trimmed_from_seconds, row.trimmed_by_bot_key_id,
+    ]), [
+        ['2026-11-16', 1, 3600, 10800, KEY],
+        ['2026-11-17', 0.5, 1800, 10800, KEY],
+    ]);
+    assert.equal(db.segments[0].ended_at, '2026-11-17T08:30:00+00:00');
+    assert.deepEqual(synced, db.timeLogs.map(row => row.id));
+});
+
+test('stop without hours uses the stored app trim and keeps its description and audit', async () => {
+    const { db, clock, deps, synced } = world('2026-11-17T18:00:00.000Z', {
+        status: 'paused', timer_started_at: null, elapsed_seconds: 1800, hours: 0.5,
+        description: 'Corrected description', trimmed_from_seconds: 7200,
+        trimmed_at: '2026-11-17T20:05:00.000Z', trimmed_by: CARLOS,
+    });
+    db.segments.push({
+        id: 'retained-segment', time_log_id: LOG, started_at: '2026-11-17T18:00:00+00:00',
+        ended_at: '2026-11-17T18:30:00+00:00', note: 'Original stretch note',
+    });
+    clock.now = new Date('2026-11-17T20:10:00.000Z');
+    const response = await handleBotRequest(stopRequest('stop-app-trim'), deps);
+    assert.equal(response.status, 200);
+    assert.equal(db.timeLogs[0].hours, 0.5);
+    assert.equal(db.timeLogs[0].description, 'Corrected description');
+    assert.equal(db.timeLogs[0].trimmed_from_seconds, 7200);
+    assert.equal(db.timeLogs[0].trimmed_by, CARLOS);
+    assert.equal(db.segments[0].id, 'retained-segment');
+    assert.equal(db.segments[0].note, 'Original stretch note');
+    assert.equal(db.auditReferences, 0);
+    assert.deepEqual(synced, [LOG]);
+});
+
+test('configured cap bounds requested hours and an overdue trimmed stop still goes to review', async t => {
+    const previous = process.env.BOT_TIMER_MAX_SECONDS;
+    process.env.BOT_TIMER_MAX_SECONDS = '7200';
+    t.after(() => {
+        if (previous === undefined) delete process.env.BOT_TIMER_MAX_SECONDS;
+        else process.env.BOT_TIMER_MAX_SECONDS = previous;
+    });
+    const { db, clock, deps, synced } = world('2026-11-17T18:00:00.000Z');
+    clock.now = new Date('2026-11-17T21:00:00.000Z');
+    const stop = (idempotencyKey: string, hours: number) =>
+        handleBotRequest(request(BOT_TIMER_STOP_PATH, { idempotencyKey, hours }), deps);
+    assert.equal((await stop('over-the-cap', 2.5)).status, 422);
+    assert.equal(db.timeLogs[0].status, 'in_progress');
+    const accepted = await stop('under-the-cap', 1);
+    assert.equal(accepted.status, 200);
+    assert.equal((await accepted.json()).timeLog.basecamp.status, 'not_sent');
+    assert.equal(db.timeLogs[0].status, 'needs_review');
+    assert.equal(db.timeLogs[0].hours, 1);
+    assert.equal(db.timeLogs[0].trimmed_from_seconds, 10800);
+    assert.deepEqual(synced, []);
+});
+
+function pausedTrimWorld() {
+    const fixture = world('2026-11-17T18:00:00.000Z', {
+        status: 'paused', timer_started_at: null, elapsed_seconds: 7200, hours: 2,
+        description: 'First\nLast',
+    });
+    const { db, clock } = fixture;
+    db.segments.push(
+        { id: 'first', time_log_id: LOG, started_at: '2026-11-17T18:00:00+00:00', ended_at: '2026-11-17T19:00:00+00:00', note: 'First' },
+        { id: 'second', time_log_id: LOG, started_at: '2026-11-17T20:00:00+00:00', ended_at: '2026-11-17T21:00:00+00:00', note: 'Last' },
+    );
+    clock.now = new Date('2026-11-17T22:00:00.000Z');
+    const pausedTrim = createPausedTrimPatch({
+        authenticate: async () => ({ id: CARLOS }),
+        async findLog() {
+            const row = db.timeLogs[0];
+            return {
+                id: LOG, organizationId: ORG, botKeyId: KEY, userId: CARLOS,
+                status: String(row.status), startedAt: row.timer_started_at as string | null,
+                elapsedSeconds: Number(row.elapsed_seconds), description: row.description as string | null,
+                createdAt: String(row.created_at),
+            };
+        },
+        membership: async () => 'owner',
+        loadTime: log => loadPausedTrim(db as never, log, log.createdAt),
+        save: (log, input) => savePausedTrim(db as never, log, input),
+        now: () => clock.now,
+    });
+    return {
+        ...fixture,
+        patch: (hours: number) => pausedTrim(new Request('http://localhost/trim', {
+            method: 'PATCH', body: JSON.stringify({ hours, description: 'Corrected description' }),
+        }), LOG),
+    };
+}
+
+test('the real paused trim writes audit, restores original stretches, and syncs only on stop', async () => {
+    const { db, deps, patch, synced } = pausedTrimWorld();
+    assert.equal((await patch(0.75)).status, 200);
+    assert.equal(db.timeLogs[0].status, 'paused');
+    assert.equal(db.timeLogs[0].elapsed_seconds, 2700);
+    assert.equal(db.timeLogs[0].description, 'Corrected description');
+    assert.equal(db.timeLogs[0].trimmed_from_seconds, 7200);
+    assert.equal(db.timeLogs[0].trimmed_by, CARLOS);
+    assert.equal(db.timeLogs[0].trimmed_by_bot_key_id, null);
+    assert.deepEqual(db.segments.map(row => [row.id, row.ended_at]), [['first', '2026-11-17T18:45:00+00:00']]);
+    assert.deepEqual(synced, []);
+    const [entry] = await listLedgerLogs({
+        organizationId: ORG, from: '2026-11-17', to: '2026-11-17',
+    }, db as never);
+    assert.equal(entry.trimmedFromSeconds, 7200);
+    assert.equal(entry.pausedRunningSeconds, 2700);
+    assert.equal(entry.pausedAt, '2026-11-17T21:00:00+00:00');
+
+    assert.equal((await patch(2.01)).status, 422);
+    assert.equal((await patch(1.5)).status, 200);
+    assert.equal(db.timeLogs[0].trimmed_from_seconds, 7200);
+    assert.deepEqual(db.segments.map(row => [row.id, row.note, row.ended_at]), [
+        ['first', 'First', '2026-11-17T19:00:00+00:00'], ['second', 'Last', '2026-11-17T20:30:00+00:00'],
+    ]);
+    const auditReferences = db.auditReferences;
+    const response = await handleBotRequest(stopRequest('stop-after-retrim'), deps);
+    assert.equal(response.status, 200);
+    assert.equal(db.timeLogs[0].hours, 1.5);
+    assert.equal(db.timeLogs[0].description, 'Corrected description');
+    assert.equal(db.auditReferences, auditReferences);
+    assert.deepEqual(synced, [LOG]);
+});
+
+test('a paused trim loses its conditional write when the timer resumes', async () => {
+    const { db, patch, synced } = pausedTrimWorld();
+    db.beforeWrite = (table, _action, changes) => {
+        if (table === 'time_logs' && 'trimmed_at' in changes) {
+            db.timeLogs[0].status = 'in_progress';
+            db.timeLogs[0].timer_started_at = '2026-11-17T22:00:00+00:00';
+        }
+    };
+    const response = await patch(0.75);
+    assert.equal(response.status, 409);
+    assert.match((await response.json()).error, /changed while you were editing/);
+    assert.equal(db.timeLogs[0].status, 'in_progress');
+    assert.equal(db.timeLogs[0].elapsed_seconds, 7200);
+    assert.equal(db.timeLogs[0].trimmed_at, undefined);
+    assert.deepEqual(synced, []);
+});
+
+test('a failed restoration cannot grow segments before the corrected total is accepted', async () => {
+    const { db, patch } = pausedTrimWorld();
+    assert.equal((await patch(0.75)).status, 200);
+    db.beforeWrite = (table, _action, changes) => {
+        if (table === 'time_logs' && 'trimmed_at' in changes) return { code: 'XX000' };
+    };
+    assert.equal((await patch(1.5)).status, 500);
+    assert.equal(db.timeLogs[0].elapsed_seconds, 2700);
+    assert.deepEqual(db.segments.map(row => row.ended_at), ['2026-11-17T18:45:00+00:00']);
+    db.beforeWrite = undefined;
+    assert.equal((await patch(1.5)).status, 200);
+    assert.equal(db.timeLogs[0].elapsed_seconds, 5400);
+});
+
+test('normal timer saves and ledger reads work before the trim migration', async () => {
+    for (const code of ['42703', 'PGRST204']) {
+        const { db, clock, deps, synced } = world('2026-11-17T18:00:00.000Z');
+        db.missingAuditCode = code;
+        clock.now = new Date('2026-11-17T18:30:00.000Z');
+        const explicitStop = await handleBotRequest(request(BOT_TIMER_STOP_PATH, {
+            idempotencyKey: 'trim-unavailable', hours: 0.25,
+        }), deps);
+        assert.equal(explicitStop.status, 503);
+        assert.equal((await explicitStop.json()).error, 'Trim needs a database update.');
+        assert.equal(db.timeLogs[0].status, 'in_progress');
+        assert.deepEqual(db.segments, []);
+        assert.deepEqual(synced, []);
+
+        db.auditReferences = 0;
+        assert.equal((await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, { idempotencyKey: 'pause-no-audit' }), deps)).status, 200);
+        const entries = await listLedgerLogs({
+            organizationId: ORG, from: '2026-11-17', to: '2026-11-17', userId: CARLOS,
+        }, db as never);
+        assert.equal(entries.length, 1);
+        assert.equal(entries[0].pausedRunningSeconds, 1800);
+        assert.equal(entries[0].trimmedFromSeconds, undefined);
+        assert.equal(db.auditReferences, 1);
+        assert.equal((await handleBotRequest(request(BOT_TIMER_RESUME_PATH, { idempotencyKey: 'resume-no-audit', taskId: TASK }), deps)).status, 200);
+        clock.now = new Date('2026-11-17T19:00:00.000Z');
+        assert.equal((await handleBotRequest(stopRequest('stop-no-audit'), deps)).status, 200);
+        assert.equal(db.timeLogs[0].hours, 1);
+        assert.deepEqual(synced, [LOG]);
+        assert.equal(db.auditReferences, 1);
+    }
+});
+
+test('a new pause after resuming uses the corrected duration plus the new stretch as its bound', async () => {
+    const { db, deps, patch, clock } = pausedTrimWorld();
+    assert.equal((await patch(0.75)).status, 200);
+    assert.equal((await handleBotRequest(request(BOT_TIMER_RESUME_PATH, {
+        idempotencyKey: 'resume-after-trim', taskId: TASK,
+    }), deps)).status, 200);
+    clock.now = new Date('2026-11-17T22:30:00.000Z');
+    assert.equal((await handleBotRequest(request(BOT_TIMER_PAUSE_PATH, {
+        idempotencyKey: 'new-pause-after-trim',
+    }), deps)).status, 200);
+    assert.equal(db.timeLogs[0].elapsed_seconds, 4500);
+    assert.equal((await patch(1.26)).status, 422);
+    assert.equal((await patch(1.25)).status, 200);
+    assert.equal(db.timeLogs[0].trimmed_from_seconds, 4500);
+});
+
+test('two simultaneous paused trims share one reservation', async () => {
+    const { db, patch } = pausedTrimWorld();
+    const results = await Promise.all([patch(0.75), patch(1.25)]);
+    assert.deepEqual(results.map(response => response.status).sort(), [200, 409]);
+    assert.equal(db.timeLogs[0].trimmed_from_seconds, 7200);
+    assert.ok([2700, 4500].includes(Number(db.timeLogs[0].elapsed_seconds)));
+    assert.equal(field(db.timeLogs[0], 'paused_trim_source->>editId'), undefined);
 });

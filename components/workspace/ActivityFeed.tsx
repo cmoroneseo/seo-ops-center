@@ -218,13 +218,15 @@ function TimeLogRow({ log, onEdit, loggerName }: { log: TimeLog; onEdit: (log: T
                                 {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                             </button>
                         )}
-                        <button
-                            onClick={() => onEdit(log)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground mt-0.5 ml-1"
-                            title="Edit entry"
-                        >
-                            <Pencil className="h-3.5 w-3.5" />
-                        </button>
+                        {log.status !== 'paused' && (
+                            <button
+                                onClick={() => onEdit(log)}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground mt-0.5 ml-1"
+                                title="Edit entry"
+                            >
+                                <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                        )}
                     </div>
                 </div>
                 {(hasDescription || log.taskTitle) && (

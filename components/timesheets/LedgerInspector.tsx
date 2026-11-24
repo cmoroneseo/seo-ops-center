@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { X, CheckCircle2, AlertTriangle, ExternalLink, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatHourAmount } from '@/lib/hour-format';
 import { formatDayHeading, formatDuration, formatSourceLabel } from '@/lib/timesheets/format';
 import type { LedgerLog, LedgerClientGroup, LedgerTaskRow } from '@/lib/timesheets/ledger';
 import { midnightSplitLabel } from '@/lib/timer/attempt-state';
@@ -16,15 +17,79 @@ interface LedgerInspectorProps {
     onClose: () => void;
     onAddTime: () => void;
     onMap?: (timeLogId: string) => void;
+    onPausedTrimSaved?: () => void;
 }
 
-/**
- * Progressive disclosure for one grid row: the individual entries behind the
- * cell, where each came from, and whether it is fully mapped.
- *
- * Editing stays on the existing hardened time-log routes — this panel opens
- * them, it does not reimplement them.
- */
+function PausedTimeEdit({ entry, onSaved }: { entry: LedgerLog; onSaved: () => void }) {
+    const [open, setOpen] = useState(false);
+    const [hours, setHours] = useState('');
+    const [description, setDescription] = useState('');
+    const [error, setError] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    async function save(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        const correctedHours = Number(hours);
+        if (!Number.isFinite(correctedHours) || correctedHours <= 0) {
+            setError('Hours must be greater than 0.');
+            return;
+        }
+        setSaving(true);
+        setError('');
+        try {
+            const response = await fetch(`/api/timesheets/ledger/${encodeURIComponent(entry.id)}/trim`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hours: correctedHours, description }),
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.error || 'Unable to save time.');
+            setOpen(false);
+            onSaved();
+        } catch (saveError) {
+            setError(saveError instanceof Error ? saveError.message : 'Unable to save time.');
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    const inputClass = 'mt-1 w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm text-foreground';
+    const actionClass = 'rounded text-sm font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary';
+    if (!open) {
+        return (
+            <button type="button" className={cn('mt-3', actionClass)} onClick={() => {
+                const seconds = entry.pausedRunningSeconds ?? entry.elapsedSeconds;
+                setHours(String(seconds === undefined ? entry.hours : Math.floor(seconds / 3600 * 1e9) / 1e9));
+                setDescription(entry.description);
+                setError('');
+                setOpen(true);
+            }}>
+                Edit time
+            </button>
+        );
+    }
+
+    return (
+        <form className="mt-3 space-y-2 border-t border-border pt-3" onSubmit={save} noValidate>
+            <label className="block text-sm font-medium">
+                Hours
+                <input type="number" inputMode="decimal" step="any" value={hours} disabled={saving}
+                    onChange={event => setHours(event.target.value)} className={inputClass} />
+            </label>
+            <label className="block text-sm font-medium">
+                Description
+                <textarea value={description} disabled={saving} maxLength={2000} rows={3}
+                    onChange={event => setDescription(event.target.value)} className={inputClass} />
+            </label>
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+            <div className="flex gap-4">
+                <button type="submit" disabled={saving} className={actionClass}>{saving ? 'Saving…' : 'Save'}</button>
+                <button type="button" disabled={saving} onClick={() => setOpen(false)} className="text-sm text-muted-foreground">Cancel</button>
+            </div>
+        </form>
+    );
+}
+
 export function LedgerInspector({
     group,
     row,
@@ -32,6 +97,7 @@ export function LedgerInspector({
     onClose,
     onAddTime,
     onMap,
+    onPausedTrimSaved,
 }: LedgerInspectorProps) {
     const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -159,6 +225,12 @@ export function LedgerInspector({
                                     </p>
                                 )}
 
+                                {entry.trimmedFromSeconds !== undefined && (
+                                    <p className="mt-2 text-sm text-muted-foreground">
+                                        Trimmed from {formatHourAmount(entry.trimmedFromSeconds / 3600)} h
+                                    </p>
+                                )}
+
                                 <div className="mt-3 flex items-center justify-between gap-3">
                                     {pausedBotTimer ? (
                                         <span className="text-sm font-medium text-foreground">Paused</span>
@@ -189,6 +261,9 @@ export function LedgerInspector({
                                         </button>
                                     )}
                                 </div>
+                                {pausedBotTimer && entry.isBotTimer && onPausedTrimSaved && (
+                                    <PausedTimeEdit entry={entry} onSaved={onPausedTrimSaved} />
+                                )}
                             </li>
                         );
                     })}

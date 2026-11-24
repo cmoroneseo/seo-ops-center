@@ -2,7 +2,7 @@
 
 SEO bots look up clients, create and complete tasks, and run timers in SEO Ops Center over HTTP. Time is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`, user `360c97ac-54fc-41fb-b660-0566d63c2e1b`). A stopped timer is a normal SEO Ops time entry: a closed session on `time_logs`, then the same Basecamp timesheet path the task drawer uses.
 
-Bots do not log minutes after the fact. There is no `minutes` or `hours` field. `POST /api/bots/time` is gone.
+Bots start and stop timers to record elapsed time. SEO bots can reduce that time with `hours` on stop. `POST /api/bots/time` is gone.
 
 Tasks created from bot input are assigned to Carlos. The insert sets `assignee_id` and `assignee_ids` to his user id, `created_by` to the same id, and `status_history` to a `todo` entry by him. `priority` is `medium` and `tags` is empty. A top-level to-do imported from Basecamp is also assigned to Carlos and carries the provider's completion state. Imported steps carry their Basecamp completion state and arrive unassigned.
 
@@ -247,14 +247,21 @@ Stops the running timer, or a paused timer when nothing is running. Stop works f
 | --- | --- | --- |
 | `idempotencyKey` | yes | A replay returns the original stop and does not post a second Basecamp entry. |
 | `taskId` | no | When sent, it must be the task the timer is on. A mismatch is **409** `timer_task_mismatch`. Omit it to stop whatever is running. |
-| `description` | no | Stop note. Appended after every stretch note. It is not a duration. |
+| `hours` | no | Corrected total as a positive JSON number in decimal hours, such as `0.75`. Only the 12 SEO bot key names listed under Complete a task without a timer may send it. |
+| `description` | no | Stop note. Appended to the retained stretch notes or to the description edited in Timesheets. |
 | `countsTowardBudget` | no | Falls back to the value from start. |
 | `billable` | no | Falls back to the value from start. |
 | `complete` | no | `true` marks the task done and completes the linked Basecamp to-do or step. |
 | `completedOn` | no | `YYYY-MM-DD`, only with `complete: true`. A future day is rejected. |
 | `timeZone` | no | IANA zone for the calendar day and the midnight split. Defaults to `America/Los_Angeles`. |
 
-A normal stop is sent to Basecamp with `createIfMissing: true`, the same call the drawer makes when Send to Basecamp is on. `basecamp.status` is `pushed`, `skipped`, or `failed`. The timesheet **note** is the stretch notes in order, then the stop note. Hours, minutes, and timestamps are not written into that note. Time stays in the timesheet hours field. If no note was sent, the note falls back to the task title.
+A normal stop is sent to Basecamp with `createIfMissing: true`, the same call the drawer makes when Send to Basecamp is on. `basecamp.status` is `pushed`, `skipped`, or `failed`. The timesheet **note** uses retained stretch notes in order followed by the stop note. When stopping directly from an edited pause, it uses the saved description before the stop note. If the result is empty, the note falls back to the task title. Time stays in the timesheet hours field.
+
+When `hours` is supplied, stop keeps the earliest running time and removes time from the newest end first. Retained stretches keep their notes. Legacy carried seconds come before timestamped stretches and remain on their original date. Stop splits the retained time by local day after trimming and uses the rounded hours for each day's Basecamp entry. Stretches use millisecond precision with a minimum retained interval of one millisecond. Legacy carry uses whole seconds. Dated logs keep the existing whole-second elapsed totals and hundredth-hour rounding.
+
+The maximum for `hours` is the lower of the timer's current running time (including an open stretch up to the stop request) and `BOT_TIMER_MAX_SECONDS` when configured. If the timer was edited in Timesheets, the bound uses the corrected stretches and any running time since then. A request above the bound returns **422** `hours_exceeds_running` and leaves the timer and Basecamp untouched. A request within the bound still follows the configured cap's review rule. If the timer was already past the cap, the corrected logs go to `needs_review` and their Basecamp timesheets are held for review. At exactly the cap, normal stop and sync apply.
+
+`hours` is part of the stop request hash. A replay with the same value returns the original response. Changing the value with the same idempotency key returns **409** `idempotency_conflict`.
 
 Omit `taskId` and a running timer is stopped. Omit `taskId` with nothing running and exactly one paused timer, and that paused timer is stopped. Several paused timers and no `taskId` is **409** `timer_ambiguous`. `taskId` of a paused timer stops that one and leaves a different running timer alone. A `taskId` that matches neither is **409** `timer_task_mismatch` when something is running, and **404** `timer_not_running` when nothing is.
 
@@ -322,6 +329,14 @@ The same column on `tasks` marks tasks the bot created. A running timer is `time
 
 Paused and capped bot timers show in Timesheets. A paused entry is in **Paused bot timers** and is not SEO budget time until stop. Each stretch, with its start, end, and note, shows on the task. A human pause is unchanged: the row stays `in_progress`, the open segment is closed, and no `paused` status is written.
 
+An organization owner or admin can use **Edit time** on a paused bot entry in Timesheets. Saving updates its running time and description and leaves it paused. Basecamp sync happens through the normal stop flow. The original running time bounds re-edits during the same pause, and time can be restored from the original stretches. Resuming carries forward the corrected duration and starts a new stretch. Later notes follow the regular stretch summary rules.
+
+Trim audit on `time_logs` includes `trimmed_from_seconds` (the whole timer's original running seconds before correction, including time above a configured cap), `trimmed_at` (the latest trim timestamp), and the actor in `trimmed_by` (Timesheets session user) or `trimmed_by_bot_key_id` (bot stop key). Stopping with `hours` records audit on each finalized day. A regular stop preserves the audit on the edited row. Timesheets shows **Trimmed from X h** when audit is present.
+
+Migration 143 enables both types of trim. Before it is applied, a valid trim returns **503** with “Trim needs a database update.” Regular timer actions still work, and Timesheets omits the audit label.
+
+Trims use a conditional parent update and a short-lived reservation shared by both trim paths. Segment reductions run before the parent save, and restorations or new segments run after it. These are separate database requests. A conflicting resume or stop can observe the earlier total with fewer stored stretches, which may shift some time to the carried date. An interrupted restoration may leave some of the accepted time without a stretch until it is saved again. A stop interrupted after finalizing the parent can leave its segment history or later day rows incomplete. Basecamp sync starts after the stop save and all its day rows succeed.
+
 ## Idempotency
 
 Send the same `idempotencyKey` and the same body again. The response is the original JSON with header `Idempotent-Replayed: true`.
@@ -340,9 +355,9 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | --- | --- | --- |
 | 401 | `missing_api_key` | No `Authorization: Bearer` header. |
 | 401 | `invalid_api_key` | The key is unknown, malformed, or revoked. |
-| 403 | `forbidden` | The key called a route outside its scope, the body asked for a forbidden action, a bot other than `seo-manager` tried to create a task, or a key outside the SEO allowlist tried to complete a task without a timer. |
+| 403 | `forbidden` | The key called a route outside its scope, the body asked for a forbidden action, a bot other than `seo-manager` tried to create a task, or a key outside the SEO allowlist tried to complete a task without a timer or send `hours` on stop. |
 | 400 | `invalid_json` | The body is not JSON. |
-| 400 | `invalid_request` | A required field is missing or a value is not usable. `minutes` and `hours` are not accepted. |
+| 400 | `invalid_request` | A required field is missing or a value is invalid. Stop's `hours` must be a positive JSON number. |
 | 400 | `unknown_field` | The body contains a field this route does not accept. |
 | 400 | `completion_date` | `completedOn` is in the future or is not a real day. |
 | 404 | `client_not_found` | No client in this organization matches. |
@@ -358,9 +373,12 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 409 | `timer_cap_reached` | Resume targeted a paused timer that already reached `BOT_TIMER_MAX_SECONDS`. Stop it. Not returned when that variable is unset. |
 | 409 | `timer_task_mismatch` | Pause or stop sent a `taskId` that is not the timer being closed. |
 | 409 | `timer_ambiguous` | Stop omitted `taskId` and this bot has more than one paused timer. |
+| 409 | `timer_changed` | The timer changed during stop. Check the timer and retry with a new idempotency key. |
 | 409 | `idempotency_conflict` | This key was already used with a different body. |
 | 409 | `idempotency_in_progress` | The same key is already running. |
 | 409 | `actor_not_found` | Carlos Morones is not a member of the key's organization. |
+| 422 | `hours_exceeds_running` | Stop's `hours` is above the current running time or configured cap. The timer stays open. |
 | 500 | `internal` | The write failed after the key was accepted. A retry of the same body resumes the same operation. |
 | 500 | `client_lookup_failed` | The client lookup could not be read. |
 | 500 | `timer_lookup_failed` | The timer could not be read. This is not a missing timer. Retry the same request. |
+| 503 | `trim_unavailable` | Migration 143 is needed to stop with `hours`. |

@@ -74,7 +74,7 @@ function normalizeString(value: unknown) {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-async function getAuthenticatedActor() {
+export async function getAuthenticatedActor() {
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,

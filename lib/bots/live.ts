@@ -9,6 +9,7 @@ import { BOT_ACTOR_EMAIL } from './keys.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import { matchBotTask } from './task-lookup.ts';
 import { botStretchSegmentId, closedRunningMs } from './timer.ts';
+import { finalizeTrimmedBotTimer, trimAuditColumns } from './timer-trim.ts';
 import {
     basecampStepFromResponse,
     BotTimerLookupError,
@@ -124,6 +125,7 @@ function timerBase(row: Record<string, unknown>, stretches: BotTimerStretch[]): 
         projectId: typeof row.project_id === 'string' ? row.project_id : null,
         stretches,
         carriedSeconds: carriedSecondsOf(row, stretches),
+        elapsedSeconds: Number(row.elapsed_seconds ?? 0),
         carriedDate: typeof row.date === 'string' && row.date ? row.date : null,
     };
 }
@@ -677,6 +679,7 @@ export function liveBotDeps(
                 })
                 .eq('id', input.timer.id)
                 .eq('status', 'paused')
+                .eq('elapsed_seconds', input.timer.elapsedSeconds ?? 0)
                 .select(TIMER_COLUMNS)
                 .maybeSingle();
             if (error?.code === '23505') return 'conflict';
@@ -697,7 +700,10 @@ export function liveBotDeps(
         async finalizeTimer(input) {
             const first = input.slices[0];
             if (!first) return null;
-            for (const stretch of input.stretches) {
+            const trim = input.trimAudit;
+            for (const stretch of trim ? [] : input.stretches) {
+                // Existing closed intervals may have been restored by a trim.
+                if (input.timer.stretches.includes(stretch)) continue;
                 const { error: segmentError } = await admin().from('time_log_segments').insert({
                     id: botStretchSegmentId(input.timer.id, stretch.startedAt),
                     time_log_id: input.timer.id,
@@ -729,22 +735,33 @@ export function liveBotDeps(
                     createdAt: input.stoppedAt,
                 }];
             }
-            const { data, error } = await admin()
-                .from('time_logs')
-                .update(patch)
-                .eq('id', input.timer.id)
-                .in('status', ['in_progress', 'paused'])
-                .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
-                .maybeSingle();
-            if (error) throw error;
-            if (!data) {
-                const { data: existing, error: readError } = await admin()
-                    .from('time_logs')
-                    .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
-                    .eq('id', input.timer.id)
-                    .maybeSingle();
-                if (readError || !existing || existing.status === 'in_progress' || existing.status === 'paused') return null;
-                return [logRecord(existing)];
+            const columns = 'id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id';
+            let data: Record<string, unknown> | null;
+            if (trim) {
+                data = await finalizeTrimmedBotTimer(admin(), {
+                    ...input.timer,
+                    status: input.timer.startedAt ? 'in_progress' : 'paused',
+                    elapsedSeconds: input.timer.elapsedSeconds ?? 0,
+                }, patch, input.stretches, trim, columns);
+                if (!data) return 'changed';
+            } else {
+                let update = admin().from('time_logs').update(patch)
+                    .eq('id', input.timer.id).in('status', ['in_progress', 'paused']);
+                if (!input.timer.startedAt) {
+                    update = update.eq('status', 'paused').eq('elapsed_seconds', input.timer.elapsedSeconds ?? 0);
+                }
+                const result = await update.select(columns).maybeSingle();
+                if (result.error) throw result.error;
+                data = result.data;
+                if (!data) {
+                    const { data: existing, error } = await admin()
+                        .from('time_logs').select(columns).eq('id', input.timer.id).maybeSingle();
+                    if (error || !existing) return null;
+                    if (existing.status === 'in_progress' || existing.status === 'paused') {
+                        return input.timer.startedAt ? null : 'changed';
+                    }
+                    return [logRecord(existing)];
+                }
             }
             const logs = [logRecord(data)];
             for (const slice of input.slices.slice(1)) {
@@ -767,6 +784,7 @@ export function liveBotDeps(
                         category: null,
                         source: 'seo_pm',
                         bot_key_id: input.timer.botKeyId,
+                        ...(trim ? trimAuditColumns(trim) : {}),
                     })
                     .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
                     .single();
