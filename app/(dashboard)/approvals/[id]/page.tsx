@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { ArrowDown, ArrowUp, CheckCircle, Copy, Lock, Send, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { PreviewDialog } from '@/components/approvals-v2/PreviewDialog';
+import { ItemErrorBoundary } from '@/components/approvals-v2/ItemErrorBoundary';
 import { PagePreview } from '@/components/approvals-v2/PagePreview';
 import { AgencyComments, type AgencyComment } from '@/components/approvals-v2/AgencyComments';
 import { sanitizeDoc } from '@/lib/approvals-v2/page-doc';
@@ -313,6 +314,7 @@ export default function Page({
           const p = version?.payload;
           if (!p) return null;
           return <article key={item.id} className="space-y-4 rounded-xl border border-border bg-card p-4">
+            <ItemErrorBoundary title={p.title}>
             <header className="space-y-2">
               <h2 className="font-semibold">{index + 1}. {p.title}</h2>
               <TypeChip row={{
@@ -411,6 +413,7 @@ export default function Page({
               onClick={() => void act('final', {
                 itemId: item.id
               })}>Mark final</Button>}
+            </ItemErrorBoundary>
           </article>;
         })}
         {data.questions.length > 0 && <section className="rounded-xl border bg-card p-4">

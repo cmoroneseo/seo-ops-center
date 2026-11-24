@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { diffWords } from '@/lib/gbp-approvals/diff';
 
 import './public-review.css';
-import { monthDay, weekday, type SamplePost } from './sample';
+import { offerRange, weekday, type SamplePost } from './sample';
 
 export interface ReviewQuestion {
     id: string;
@@ -22,7 +22,6 @@ export interface ReviewPost extends SamplePost {
     ctaUrl?: string;
     ctaLabel?: string;
     changeNote?: string | null;
-    postType?: string;
 }
 
 const NO_QUESTIONS: ReviewQuestion[] = [];
@@ -363,6 +362,7 @@ function PostCard({
 }) {
     const [suggestOpen, setSuggestOpen] = useState(false);
     const status = choice ?? post.status;
+    const range = offerRange(post);
     const parts = post.previousBody ? diffWords(post.previousBody, post.body) : [];
     return (
         <article className={open ? 'ritem sel' : 'ritem'} aria-label={`Post ${post.position}`}>
@@ -401,7 +401,7 @@ function PostCard({
                     </div>
                     <dl className="det">
                         <dt>Planned for</dt><dd>{weekday(post.scheduled)}</dd>
-                        <dt>Offer runs</dt><dd>{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</dd>
+                        {range && <><dt>Offer runs</dt><dd>{range}</dd></>}
                         <dt>Button</dt><dd>{post.ctaLabel ?? 'View offer'}</dd>
                         <dt>Opens</dt><dd>{post.ctaUrl}</dd>
                         <dt>Photo</dt><dd>{post.photo ? 'Included' : 'Needed'}</dd>
@@ -444,6 +444,7 @@ function PostCard({
 
 export function GbpPostPreview({ post, clientName, logoSrc, showFull = true }: { post: ReviewPost; clientName: string; logoSrc?: string; showFull?: boolean }) {
  const { logoRef, failedLogo, setFailedLogo } = useLogoFailure(logoSrc);
+ const range = offerRange(post);
  return (<article className="gbp">
                             <div className={post.photo ? 'g-photo' : 'g-photo g-photo-missing'}>
                                 {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}
@@ -452,7 +453,7 @@ export function GbpPostPreview({ post, clientName, logoSrc, showFull = true }: {
                                 <div className="g-head"><span className="g-av">{logoSrc && failedLogo !== logoSrc ? <img ref={logoRef} src={logoSrc} alt="" onError={() => setFailedLogo(logoSrc)} /> : <span className="g-av-initial" aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}</span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
                                 <div className="g-offer">{post.postType ?? 'Offer'}</div>
                                 <h3 className="g-title">{post.title}</h3>
-                                <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>
+                                {range && <div className="g-date">{range}</div>}
                                 <p className="g-desc">{showFull ? post.body : `${post.body.slice(0, 140)}…`} <span className="g-more">More</span></p>
                                 <div className="g-cta"><span className="g-btn">{post.ctaLabel ?? 'View offer'}</span></div>
                             </div>
