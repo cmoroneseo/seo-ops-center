@@ -27,7 +27,7 @@ import {
     type TimelineItem,
     type Verdict,
 } from './types';
-import { headlineFields, nextCheck } from './list';
+import { COMPARISON_UNAVAILABLE_LABEL, headlineFields, nextCheck } from './list';
 import { testProgress } from './progress';
 import { classifyCheckpoint, isLowData } from './verdict';
 
@@ -351,6 +351,9 @@ function formatCtr(value: number): string {
 
 export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineItem {
     const head = impact.headline;
+    const comparisonUnavailable = impact.kpi === 'avg_position' && impact.gscConnected && (
+        head.ready ? head.controlMove?.helpful == null : !impact.series.some(point => point.controlPosition != null)
+    );
     const page = change.pages[0];
     const headline = headlineFields(head);
     const upcoming = nextCheck(change.liveOn, impact.finalThrough);
@@ -363,9 +366,11 @@ export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineIt
         liveOn: change.liveOn,
         pageLabel: page?.label || page?.url || 'Page',
         url: page?.url ?? '',
-        verdict: head.verdict,
-        estimate: head.estimate,
-        deltaText: head.verdict === 'too_early' ? VERDICT_LABEL.too_early : dailyRateText(impact.kpi, impact.baseline, head.page),
+        verdict: comparisonUnavailable ? null : head.verdict,
+        estimate: !comparisonUnavailable && head.estimate,
+        deltaText: comparisonUnavailable ? COMPARISON_UNAVAILABLE_LABEL
+            : head.verdict === 'too_early' ? VERDICT_LABEL.too_early
+                : dailyRateText(impact.kpi, impact.baseline, head.page),
         kpi: impact.kpi,
         checkpointDays: head.ready ? head.days : null,
         headlineDays: headline.headlineDays,

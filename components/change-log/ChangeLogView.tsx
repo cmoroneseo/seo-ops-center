@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import {
     CHANGE_COLUMNS,
+    COMPARISON_UNAVAILABLE_LABEL,
     DEFAULT_CHANGE_SORT,
     RESULT_STRIP,
     filterChanges,
@@ -281,7 +282,11 @@ export function ChangeLogView({
                                             <TableCell className="whitespace-nowrap text-sm">{formatDayWithYear(item.liveOn)}</TableCell>
                                             <TableCell className="whitespace-normal text-sm">{KPI_LABEL[item.kpi]}</TableCell>
                                             <TableCell className="whitespace-normal">
-                                                <VerdictPill verdict={item.verdict} estimate={item.estimate} pct={item.headlinePct} />
+                                                {item.verdict == null ? (
+                                                    <span className="text-sm text-muted-foreground">{COMPARISON_UNAVAILABLE_LABEL}</span>
+                                                ) : (
+                                                    <VerdictPill verdict={item.verdict} estimate={item.estimate} pct={item.headlinePct} />
+                                                )}
                                                 <span className="mt-1 block text-xs text-muted-foreground">{resultDetail(item)}</span>
                                             </TableCell>
                                             <TableCell className="whitespace-normal">

@@ -25,6 +25,8 @@ import { normalizeControlUrls, type NormalizedChange } from './validate';
 type Admin = ReturnType<typeof createAdminClient>;
 type Row = Record<string, unknown>;
 const CHANGE_LIST_LIMIT = 100;
+// Bound list loads to two batches of rest-of-site position scans.
+const LIST_REST_POSITION_MAX_CHANGES = 8;
 
 export interface ChangeListResult {
     setup: 'ready' | 'missing';
@@ -226,6 +228,7 @@ async function readRestPositions(
     scope: { organizationId: string; clientId: string; property: string },
     changes: readonly SeoChange[],
     days: readonly HistoryDayRow[],
+    maxChanges = changes.length,
 ): Promise<Map<string, DayPoint[]>> {
     const result = new Map<string, DayPoint[]>();
     const requests = changes.flatMap(change => {
@@ -237,7 +240,7 @@ async function readRestPositions(
         return dayIds.length && excludedKeys.length ? [{ id: change.id, dayIds, excludedKeys }] : [];
     });
     // Lists can have multiple position verdicts. Limit simultaneous site scans.
-    for (const batch of chunkList(requests, 4)) {
+    for (const batch of chunkList(requests.slice(0, maxChanges), 4)) {
         const entries = await Promise.all(batch.map(async ({ id, dayIds, excludedKeys }) => {
             const { data, error } = await db.rpc('seo_change_rest_position', {
                 p_organization_id: scope.organizationId,
@@ -368,7 +371,8 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     const afterDayIds = detailAfter ? historyDays.filter(day => !day.preliminary
         && day.date >= detailAfter.start && day.date <= detailAfter.end).map(day => day.id) : [];
     const detailDayIds = [...baselineDayIds, ...afterDayIds];
-    // Detail lets users switch the comparison chart to position for any KPI.
+    // List changes are already ordered by newest live_at, then id. Detail
+    // lets users switch the comparison chart to position for any KPI.
     const positionChanges = changes.filter(change => !change.controlUrls?.length
         && (detail || (view === 'list' && change.kpi === 'avg_position')));
     const paths = [...new Set(changes.flatMap(change => [
@@ -393,7 +397,10 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
             ? facts(db, detailDayIds, 'page', { taggedPages: true })
             : Promise.resolve([]),
         gscProperty && positionChanges.length
-            ? readRestPositions(db, { organizationId, clientId, property: gscProperty }, positionChanges, historyDays)
+            ? readRestPositions(
+                db, { organizationId, clientId, property: gscProperty }, positionChanges, historyDays,
+                view === 'list' ? LIST_REST_POSITION_MAX_CHANGES : undefined,
+            )
             : undefined,
     ]);
     const impacts = impactsFromRows({
