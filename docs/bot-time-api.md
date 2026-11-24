@@ -1,6 +1,6 @@
 # Bot API
 
-SEO bots look up clients, create tasks, and run timers in SEO Ops Center over HTTP. Time is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`, user `360c97ac-54fc-41fb-b660-0566d63c2e1b`). A stopped timer is a normal SEO Ops time entry: a closed session on `time_logs`, then the same Basecamp timesheet path the task drawer uses.
+SEO bots look up clients, create and complete tasks, and run timers in SEO Ops Center over HTTP. Time is attributed to Carlos Morones (`cmorones@marketingempiregroup.com`, user `360c97ac-54fc-41fb-b660-0566d63c2e1b`). A stopped timer is a normal SEO Ops time entry: a closed session on `time_logs`, then the same Basecamp timesheet path the task drawer uses.
 
 Bots do not log minutes after the fact. There is no `minutes` or `hours` field. `POST /api/bots/time` is gone.
 
@@ -74,7 +74,8 @@ An `inactive` client returns **409** `client_inactive` before any write or Basec
 | `taskTitle` | unless `basecampTodoId` is sent | Matches an existing task by exact, case-sensitive title. When importing a new task, this field overrides the Basecamp title. |
 | `basecampTodoId` | no | Positive integer or string of digits for an existing top-level to-do in this client's configured Basecamp project. Omit both parent fields when sending it. |
 | `parentTaskId` or `parentTitle` | no | Creates one subtask under that existing top-level task. `parentTitle` is exact. Send `parentTaskId` when more than one parent has that title. |
-| `subtasks` | no | A list of `{ title, category?, dueDate? }`, at most 20, titles unique in the call. Applies to the top-level task. Omit both parent fields when sending it. |
+| `subtasks` | no | A list of `{ title, description?, category?, dueDate? }`, at most 20, titles unique in the call. Applies to the top-level task. Omit both parent fields when sending it. |
+| `description` | no | Text up to 5,000 characters after trimming, with the same rules for each subtask. Blank text is omitted. Stored only on a new task. |
 | `category` | no | Stored on `tasks.category` when the task is created. Omit it and the task is unlabeled. `content`, `technical`, `local`, `links`, `strategy`, `admin`, and `reporting` are always accepted. A label the client already uses, such as `SEO`, is accepted only as that exact string. |
 | `dueDate` | no | `YYYY-MM-DD`. Also sent as the Basecamp due date when the to-do is created. |
 
@@ -87,7 +88,11 @@ One call does one of these:
 
 An exact title that already exists is returned with `created: false`. It is not duplicated. A title that matches more than one task is **409**.
 
+Use descriptions for work instructions. Keep hours, minutes, elapsed time, budget figures, and other contract numbers out of every description. The API trims outer whitespace and includes the resulting text in the idempotency check. Each returned task and subtask has `descriptionApplied`, which is `true` when the API saved the supplied description on insert. An existing match keeps its description and returns `descriptionApplied: false`.
+
 Without `basecampTodoId`, the app creates or reuses the parent's Basecamp to-do on the client's SEO Plan list. Subtasks become steps on that to-do. If sync is off or the SEO Plan list is missing, the tasks stay in SEO Ops.
+
+The create push sends the saved description when it creates a Basecamp to-do. The Basecamp step writer accepts a title only, so subtask descriptions stay in SEO Ops.
 
 When the parent already has a Basecamp to-do, the push checks its steps for each unlinked subtask. Titles must match exactly after trimming whitespace and ignoring case. A unique, unclaimed match is linked in SEO Ops and left untouched in Basecamp. A subtask with no match gets a new step.
 
@@ -101,9 +106,10 @@ curl -X POST https://seo-ops-center.vercel.app/api/bots/tasks \
     "idempotencyKey": "august-blogs",
     "clientName": "Ecoworkz",
     "taskTitle": "August blogs",
+    "description": "Prepare drafts for the agreed topics.",
     "category": "content",
     "subtasks": [
-      { "title": "Brief", "category": "content" },
+      { "title": "Brief", "description": "List the audience and target queries.", "category": "content" },
       { "title": "Draft" }
     ]
   }'
@@ -113,7 +119,7 @@ curl -X POST https://seo-ops-center.vercel.app/api/bots/tasks \
 
 Send `basecampTodoId` to link an existing top-level task or import a new one. The to-do can be on any list in the client's configured Basecamp project, including Onboarding. This path requires only the configured project and creates no Basecamp to-do.
 
-An exact `taskTitle` match links an unlinked app task. If the to-do already belongs to a task in this client and the title identifies no conflicting task, the response returns that task with `created: false` and preserves its title. With no matching task or existing link, the app imports the Basecamp title, description, due date, and completion state. A supplied `taskTitle` or `dueDate` overrides the corresponding value on the new app task.
+An exact `taskTitle` match links an unlinked app task. If the to-do already belongs to a task in this client and the title identifies no conflicting task, the response returns that task with `created: false` and preserves its title. With no matching task or existing link, the app imports the Basecamp title, description, due date, and completion state. A supplied `taskTitle`, `description`, or `dueDate` overrides the corresponding value on the new app task. A requested subtask description is also saved if a uniquely matching Basecamp step is imported as a new app task.
 
 Migration 137 enforces one task per Basecamp recording in the database, including to-dos and steps. If a concurrent request claims a recording during a link or import, the bot returns `409 basecamp_todo_linked`.
 
@@ -256,6 +262,31 @@ There is nothing running or paused to stop (including when a configured cap swee
 
 `complete: true` still marks the task done. It works from running or paused.
 
+## Complete a task without a timer
+
+`POST /api/bots/tasks/complete`
+
+The allowed key names are `seo-manager`, `technical-seo`, `on-page-seo`, `content-writer`, `copy-humanizer`, `web-design-cro`, `seo-strategist`, `seo-revenue-framework`, `seo-aeo-desk`, `aeo-seo-bot`, `ai-search-visibility`, and `performance-watch`. Names are case-insensitive. Every other bot key receives **403** `forbidden`.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `idempotencyKey` | yes | Same rules as create. |
+| `taskId` | yes | UUID of an existing task in the key's organization. |
+| `completedOn` | no | A real `YYYY-MM-DD` date. Omit it or send today's date to use the current instant. A past day is recorded at noon in `timeZone`. A future day returns **400** `completion_date`. |
+| `timeZone` | no | IANA time zone. Defaults to `America/Los_Angeles`. |
+
+A successful request returns **200** with `idempotencyKey`, `bot`, `actor`, `task` (`id`, `title`, `status`, `completedAt`, and [links](#response-links)), `completion`, and `alreadyDone`. The app records the status change by Carlos and completes the linked Basecamp to-do or step. `completion.status` is `pushed`, `skipped`, or `failed`. An unlinked task returns `skipped`. This route creates no time entry.
+
+If the task is already done, `alreadyDone` is `true`, `completion.status` is `skipped`, and the task keeps its existing completion date and history. Repeating the same key and body returns the original response with `Idempotent-Replayed: true`, even if the current date or task has since changed. A new key checks the task again.
+
+A missing task or a task in another organization returns **404** `task_not_found`. An inactive client returns **409** `client_inactive`. A running or paused timer on the task returns **409** `timer_open` and stays open. Stop the timer with `complete: true` using the key that owns it. Use a new idempotency key if you call standalone completion again after a conflict.
+
+## Response links
+
+Task objects in create, timer, and completion responses include `url`, an absolute `/tasks?task=<id>` link. Create includes the same field for each returned subtask. When a task is assigned to a Project, its response also includes `projectUrl`, which opens the Project in the client's workspace. The links use `NEXT_PUBLIC_SITE_URL`, defaulting to `https://seo-ops-center.vercel.app`.
+
+Timer objects include `taskUrl`. A `timeLog` includes `taskUrl` when the response has no task object. A `cappedTimer` also has `taskUrl` for the task whose timer was capped.
+
 ## Length cap
 
 There is **no maximum length** unless `BOT_TIMER_MAX_SECONDS` is set to a positive integer (whole seconds). Unset, blank, zero, and any other value mean unlimited. Pause, resume, and stop then record the true running time. A long timer is `logged` on stop, not `needs_review`, and it is sent to Basecamp the same way a short one is. Resume does not return `timer_cap_reached`.
@@ -271,7 +302,7 @@ There is no separate soft warning for a long timer. `needs_review` is only the c
 
 When a cap is set, it does not wait for the bot to call stop.
 
-- Every bot call except pause and stop closes an overdue **running** timer first. Pause and stop apply the cap in that response.
+- Start, resume, and standard task creation close an overdue **running** timer first. Pause and stop apply the cap in that response. Standalone completion leaves timers open.
 - `GET` or `POST /api/cron/cap-bot-timers` closes every running bot timer past the cap. It does not close paused timers. With no cap configured, that sweep caps nothing and does not read running timers. A paused timer whose latest stretch ended at least seven days ago is still returned as `stalePaused` for review and is left paused. The sweep runs once a day (05:30 UTC). A bot that never calls back waits for that run. The saved duration is the configured cap of running time, not the time until the sweep noticed.
 
 `basecamp.status` on a capped stop is `not_sent`.
@@ -309,7 +340,7 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | --- | --- | --- |
 | 401 | `missing_api_key` | No `Authorization: Bearer` header. |
 | 401 | `invalid_api_key` | The key is unknown, malformed, or revoked. |
-| 403 | `forbidden` | The key was used on another route, the body asked for a delete or a settings change, or a bot other than `seo-manager` tried to create a task. |
+| 403 | `forbidden` | The key called a route outside its scope, the body asked for a forbidden action, a bot other than `seo-manager` tried to create a task, or a key outside the SEO allowlist tried to complete a task without a timer. |
 | 400 | `invalid_json` | The body is not JSON. |
 | 400 | `invalid_request` | A required field is missing or a value is not usable. `minutes` and `hours` are not accepted. |
 | 400 | `unknown_field` | The body contains a field this route does not accept. |
@@ -319,10 +350,11 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 404 | `timer_not_running` | Pause found nothing running, or stop found nothing running or paused. |
 | 404 | `timer_not_paused` | Resume found no paused timer on that task. |
 | 409 | `ambiguous_client` | More than one client has that exact name. Send `clientId`. |
-| 409 | `client_inactive` | Task creation targeted an inactive client. |
+| 409 | `client_inactive` | Task creation or standalone completion targeted an inactive client. |
 | 409 | `ambiguous_task` | More than one task has that title, or the ids and titles disagree. |
 | 409 | `timer_already_running` | This bot is already timing a different task, or resume was called while a timer is running. |
 | 409 | `timer_paused` | Start targeted a task that already has a paused timer. Resume it. |
+| 409 | `timer_open` | Standalone completion found a running or paused timer on the task. Stop it with `complete: true`. |
 | 409 | `timer_cap_reached` | Resume targeted a paused timer that already reached `BOT_TIMER_MAX_SECONDS`. Stop it. Not returned when that variable is unset. |
 | 409 | `timer_task_mismatch` | Pause or stop sent a `taskId` that is not the timer being closed. |
 | 409 | `timer_ambiguous` | Stop omitted `taskId` and this bot has more than one paused timer. |

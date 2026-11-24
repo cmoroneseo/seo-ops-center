@@ -25,7 +25,7 @@ import {
 
 type Role = 'owner' | 'admin' | 'member' | 'viewer';
 
-const TASK_COLUMNS = 'id, organization_id, client_id, project_id, title, status, priority, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
+const TASK_COLUMNS = 'id, organization_id, client_id, project_id, initiative_id, title, status, priority, completed_at, status_history, basecamp_todo_id, basecamp_project_id, parent_task_id, category, due_date, bot_operation_id';
 
 function admin() {
     return createAdminClient();
@@ -35,8 +35,9 @@ function taskRecord(row: Record<string, unknown>): BotTaskRecord {
     return {
         id: String(row.id),
         organizationId: String(row.organization_id),
-        clientId: String(row.client_id),
+        clientId: typeof row.client_id === 'string' ? row.client_id : '',
         projectId: typeof row.project_id === 'string' ? row.project_id : null,
+        initiativeId: typeof row.initiative_id === 'string' ? row.initiative_id : null,
         title: String(row.title),
         status: typeof row.status === 'string' ? row.status : 'todo',
         priority: typeof row.priority === 'string' ? row.priority : null,
@@ -470,12 +471,13 @@ export function liveBotDeps(
             if (error) throw error;
             return data ? taskRecord(data) : null;
         },
-        async getTask(taskId) {
-            const { data, error } = await admin()
+        async getTask(taskId, organizationId) {
+            let query = admin()
                 .from('tasks')
                 .select(TASK_COLUMNS)
-                .eq('id', taskId)
-                .maybeSingle();
+                .eq('id', taskId);
+            if (organizationId) query = query.eq('organization_id', organizationId);
+            const { data, error } = await query.maybeSingle();
             if (error) throw error;
             return data ? taskRecord(data) : null;
         },
@@ -486,6 +488,7 @@ export function liveBotDeps(
                     organizationId: input.organizationId,
                     clientId: input.clientId,
                     title: input.title,
+                    description: input.description,
                     ...(input.category ? { category: input.category } : {}),
                     ...(input.dueDate ? { dueDate: input.dueDate } : {}),
                     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
@@ -501,8 +504,8 @@ export function liveBotDeps(
             if (error || !data) throw error ?? new Error('task insert failed');
             return taskRecord(data);
         },
-        async saveTask(taskId, patch) {
-            const { data, error } = await admin()
+        async saveTask(task, patch) {
+            const query = admin()
                 .from('tasks')
                 .update({
                     status: patch.status,
@@ -510,11 +513,27 @@ export function liveBotDeps(
                     status_history: patch.statusHistory,
                     ...(patch.status === 'done' ? { blocked_reason: null } : {}),
                 })
-                .eq('id', taskId)
-                .select(TASK_COLUMNS)
-                .single();
-            if (error || !data) throw error ?? new Error('task update failed');
-            return taskRecord(data);
+                .eq('id', task.id)
+                .eq('organization_id', task.organizationId);
+            // A legacy null status reads as 'todo'. Match it as well when claiming the transition.
+            const matching = task.status === 'todo'
+                ? query.or('status.eq.todo,status.is.null')
+                : query.eq('status', task.status);
+            const { data, error } = await matching.select(TASK_COLUMNS).maybeSingle();
+            if (error) throw error;
+            return data ? taskRecord(data) : null;
+        },
+        async hasOpenTaskTimer(organizationId, taskId) {
+            const { data, error } = await admin()
+                .from('time_logs')
+                .select('id')
+                .eq('organization_id', organizationId)
+                .eq('task_id', taskId)
+                .in('status', ['in_progress', 'paused'])
+                .limit(1)
+                .maybeSingle();
+            if (error) raiseTimerLookupError(error);
+            return data !== null;
         },
         async findRunningTimer(botKeyId) {
             const { data, error } = await admin()

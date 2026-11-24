@@ -47,6 +47,7 @@ export interface BotCreatedTaskInput {
     organizationId: string;
     clientId: string;
     title: string;
+    description?: string;
     category?: string;
     dueDate?: string;
     parentTaskId?: string;
@@ -79,6 +80,7 @@ export function botCreatedTaskRow(input: BotCreatedTaskInput): Record<string, un
             organizationId: input.organizationId,
             clientId: input.clientId,
             title: input.title,
+            description: input.description,
             ...(input.category ? { category: input.category } : {}),
             ...(input.dueDate ? { dueDate: input.dueDate } : {}),
             ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),

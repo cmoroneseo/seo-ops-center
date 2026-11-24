@@ -14,7 +14,7 @@ import {
     normalizeStepTitle,
     type BasecampTodoStep,
 } from '../basecamp/todo-steps.ts';
-import type { BasecampStep, BotActor, BotClientRecord, BotDeps, BotTaskRecord } from './handle.ts';
+import type { BasecampStep, BotActor, BotClientRecord, BotCreatedTaskResult, BotDeps, BotTaskRecord } from './handle.ts';
 import type { BotCreateCommand, BotSubtaskDraft } from './request.ts';
 
 export interface BotBasecampTasks extends BasecampTodoReader, BasecampLinkStore<BotTaskRecord> {
@@ -26,14 +26,8 @@ interface Failure {
     body: { code: string; error: string };
 }
 
-interface TaskResult {
-    task: BotTaskRecord;
-    created: boolean;
-    basecampStepId?: string;
-}
-
-interface LinkedTaskResult extends TaskResult {
-    children: TaskResult[];
+interface LinkedTaskResult extends BotCreatedTaskResult {
+    children: BotCreatedTaskResult[];
     basecamp: BasecampStep;
 }
 
@@ -53,7 +47,7 @@ interface LinkBasecampTodoInput {
     operationId: string;
     now: string;
     deps: BotDeps;
-    insertSubtask(parent: BotTaskRecord, draft: BotSubtaskDraft, index: number): Promise<TaskResult | { status: number; body: unknown }>;
+    insertSubtask(parent: BotTaskRecord, draft: BotSubtaskDraft, index: number): Promise<BotCreatedTaskResult | { status: number; body: unknown }>;
 }
 
 export async function linkBasecampTodo(input: LinkBasecampTodoInput) {
@@ -131,6 +125,7 @@ async function linkTodo(input: LinkBasecampTodoInput): Promise<LinkedTaskResult 
         [root] = await basecampTasks.insertImportedTasks([{
             ...built.rows[0],
             title: command.taskTitle ?? built.rows[0].title,
+            description: command.description ?? built.rows[0].description,
             due_date: command.dueDate ?? built.rows[0].due_date,
             assignee_id: actor.userId,
             assignee_ids: [actor.userId],
@@ -140,14 +135,23 @@ async function linkTodo(input: LinkBasecampTodoInput): Promise<LinkedTaskResult 
         if (!root) throw new Error('Could not save the imported Basecamp task');
     }
 
+    const requestedByTitle = groupByStepTitle(command.subtasks);
+    const descriptionsByStepId = new Map<number, string>();
+    for (const [title, matches] of groupByStepTitle(steps)) {
+        const requested = requestedByTitle.get(title);
+        const description = requested?.[0].description;
+        if (matches.length === 1 && requested?.length === 1 && description) {
+            descriptionsByStepId.set(matches[0].id, description);
+        }
+    }
     const { stepsByTitle, childrenByStepId, imported } = await importBasecampTodoSteps({
         store: basecampTasks, root, steps, projectId, todoId, userId: actor.userId, now, matchExistingTitles: true,
+        descriptionsByStepId,
     });
     const importedIds = new Set(imported.map(task => task.id));
 
-    const children: TaskResult[] = [];
+    const children: BotCreatedTaskResult[] = [];
     const basecamp: BasecampStep = { status: 'pushed', providerId: todoId };
-    const requestedByTitle = groupByStepTitle(command.subtasks);
     const skip = (reason: string) => {
         basecamp.subtasksSkipped = (basecamp.subtasksSkipped ?? 0) + 1;
         basecamp.reason = reason;
@@ -159,7 +163,11 @@ async function linkTodo(input: LinkBasecampTodoInput): Promise<LinkedTaskResult 
         if (match) {
             const child = childrenByStepId.get(String(match.id));
             if (matches.length === 1 && requestedByTitle.get(title)?.length === 1 && child) {
-                children.push({ task: child, created: importedIds.has(child.id), basecampStepId: String(match.id) });
+                const created = importedIds.has(child.id);
+                children.push({
+                    task: child, created, basecampStepId: String(match.id),
+                    descriptionApplied: created && descriptionsByStepId.has(match.id),
+                });
             } else {
                 skip(BASECAMP_STEP_MATCH_CONFLICT);
             }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { parseBotRequest } from './request.ts';
-import { BOT_TASKS_PATH, BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_START_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
+import { BOT_TASKS_COMPLETE_PATH, BOT_TASKS_PATH, BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_START_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
 
 const NOW = new Date('2026-11-03T18:00:00.000Z');
 const CLIENT = '33333333-3333-4333-8333-333333333333';
@@ -36,6 +36,69 @@ test('task create accepts a parent with subtasks and rejects minute logging', ()
     });
     assert.equal(minutes.ok, false);
     if (!minutes.ok) assert.equal(minutes.code, 'unknown_field');
+});
+
+test('create trims descriptions, omits empty descriptions, and hashes supplied descriptions', () => {
+    const body = { idempotencyKey: 'create-described', clientId: CLIENT, taskTitle: 'Audit' };
+    const described = parse(BOT_TASKS_PATH, {
+        ...body, description: ' Review the URLs. ', subtasks: [{ title: 'Draft', description: ' Write up findings.\n' }],
+    });
+    const otherTask = parse(BOT_TASKS_PATH, {
+        ...body, description: 'Review the redirects.', subtasks: [{ title: 'Draft', description: 'Write up findings.' }],
+    });
+    const otherChild = parse(BOT_TASKS_PATH, {
+        ...body, description: 'Review the URLs.', subtasks: [{ title: 'Draft', description: 'Record findings.' }],
+    });
+    assert.ok(described.ok && described.command.kind === 'create' && otherTask.ok && otherChild.ok);
+    assert.equal(described.command.description, 'Review the URLs.');
+    assert.equal(described.command.subtasks[0].description, 'Write up findings.');
+    assert.notEqual(described.command.requestHash, otherTask.command.requestHash);
+    assert.notEqual(described.command.requestHash, otherChild.command.requestHash);
+
+    const empty = parse(BOT_TASKS_PATH, {
+        ...body, description: '  ', subtasks: [{ title: 'Draft', description: '' }],
+    });
+    const omitted = parse(BOT_TASKS_PATH, { ...body, subtasks: [{ title: 'Draft' }] });
+    assert.ok(empty.ok && omitted.ok);
+    assert.deepEqual(empty.command, omitted.command);
+});
+
+test('create descriptions must be text within the description limit', () => {
+    const body = { idempotencyKey: 'create-described', clientId: CLIENT, taskTitle: 'Audit' };
+    for (const description of [42, null, 'x'.repeat(5001)]) {
+        for (const fields of [{ description }, { subtasks: [{ title: 'Draft', description }] }]) {
+            const parsed = parse(BOT_TASKS_PATH, { ...body, ...fields });
+            assert.ok(!parsed.ok);
+            assert.equal(parsed.code, 'invalid_request');
+        }
+    }
+    assert.ok(parse(BOT_TASKS_PATH, { ...body, description: 'x'.repeat(5000) }).ok);
+});
+
+test('standalone completion validates the task and date and hashes the request independently of the clock', () => {
+    const body = { idempotencyKey: 'complete-audit', taskId: PARENT };
+    const first = parse(BOT_TASKS_COMPLETE_PATH, body);
+    const retry = parseBotRequest(BOT_TASKS_COMPLETE_PATH, body, new Date(NOW.getTime() + 1000));
+    const dated = parse(BOT_TASKS_COMPLETE_PATH, { ...body, completedOn: '2026-11-02', timeZone: 'America/New_York' });
+    assert.ok(first.ok && first.command.kind === 'complete' && retry.ok && dated.ok && dated.command.kind === 'complete');
+    assert.equal(first.command.completedAt, NOW.toISOString());
+    assert.equal(first.command.requestHash, retry.command.requestHash);
+    assert.equal(dated.command.completedAt, '2026-11-02T17:00:00.000Z');
+    assert.notEqual(first.command.requestHash, dated.command.requestHash);
+
+    for (const [fields, code] of [
+        [{ taskId: undefined }, 'invalid_request'],
+        [{ taskId: 'invalid' }, 'invalid_request'],
+        [{ completedOn: '2026-11-04' }, 'completion_date'],
+        [{ completedOn: '2026-10-99' }, 'completion_date'],
+        [{ completedOn: 2 }, 'completion_date'],
+        [{ timeZone: 'Mars/Olympus' }, 'invalid_request'],
+        [{ description: 'extra' }, 'unknown_field'],
+    ] as const) {
+        const invalid = parse(BOT_TASKS_COMPLETE_PATH, { ...body, ...fields });
+        assert.ok(!invalid.ok);
+        assert.equal(invalid.code, code);
+    }
 });
 
 test('a subtask under an existing parent is a create, and a timer cannot create', () => {
@@ -97,7 +160,7 @@ test('stop accepts completion and rejects a future day', () => {
 });
 
 test('a delete field is forbidden on every bot route', () => {
-    for (const pathname of [BOT_TASKS_PATH, BOT_TIMER_START_PATH, BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_STOP_PATH]) {
+    for (const pathname of [BOT_TASKS_PATH, BOT_TASKS_COMPLETE_PATH, BOT_TIMER_START_PATH, BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_STOP_PATH]) {
         const parsed = parse(pathname, { idempotencyKey: 'not-allowed', delete: true });
         assert.equal(parsed.ok, false);
         if (!parsed.ok) assert.equal(parsed.code, 'forbidden');

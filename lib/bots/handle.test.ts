@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import { randomUUID } from 'node:crypto';
 
 import { createBasecampTimesheetPost, resolveBasecampTimesheetRecording } from '../basecamp/timesheet-post-route.ts';
@@ -20,7 +20,7 @@ import {
     type FinalizedBotLog,
     type RunningBotTimer,
 } from './handle.ts';
-import { BOT_TASKS_PATH, BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_START_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
+import { BOT_TASKS_COMPLETE_PATH, BOT_TASKS_PATH, BOT_TIMER_PAUSE_PATH, BOT_TIMER_RESUME_PATH, BOT_TIMER_START_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
 
 const ORG = '22222222-2222-4222-8222-222222222222';
 const CLIENT = '33333333-3333-4333-8333-333333333333';
@@ -63,6 +63,7 @@ function task(patch: Partial<BotTaskRecord> & Pick<BotTaskRecord, 'id' | 'title'
         organizationId: ORG,
         clientId: CLIENT,
         projectId: null,
+        initiativeId: null,
         status: 'todo',
         completedAt: null,
         statusHistory: [],
@@ -165,6 +166,7 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
                 organizationId: input.organizationId,
                 clientId: input.clientId,
                 title: input.title,
+                description: input.description,
                 ...(input.category ? { category: input.category } : {}),
                 ...(input.dueDate ? { dueDate: input.dueDate } : {}),
                 ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
@@ -189,13 +191,16 @@ function world(patch: Partial<Mem> = {}): { mem: Mem; deps: BotDeps } {
             mem.tasks.push(created);
             return created;
         },
-        async saveTask(taskId, patch) {
-            const item = mem.tasks.find(row => row.id === taskId);
+        async saveTask(previous, patch) {
+            const item = mem.tasks.find(row => row.id === previous.id && row.status === previous.status);
             if (!item) return null;
             item.status = patch.status;
             item.completedAt = patch.completedAt;
             item.statusHistory = patch.statusHistory;
             return item;
+        },
+        async hasOpenTaskTimer(organizationId, taskId) {
+            return mem.timers.some(timer => timer.organizationId === organizationId && timer.taskId === taskId);
         },
         async findRunningTimer(botKeyId) {
             return mem.timers.find(item => item.botKeyId === botKeyId && item.pausedAt == null && item.startedAt != null) ?? null;
@@ -322,6 +327,196 @@ function request(pathname: string, body: Record<string, unknown>, token: string 
         body: JSON.stringify(body),
     });
 }
+
+function setEnv(t: TestContext, name: string, value: string) {
+    const previous = process.env[name];
+    process.env[name] = value;
+    t.after(() => {
+        if (previous === undefined) delete process.env[name];
+        else process.env[name] = previous;
+    });
+}
+
+test('create stores descriptions on new tasks and subtasks and leaves matches alone', async (t) => {
+    setEnv(t, 'NEXT_PUBLIC_SITE_URL', '');
+    const { mem, deps } = world();
+    const payload = {
+        idempotencyKey: 'create-described', clientId: CLIENT, taskTitle: 'Audit',
+        description: ' Review the URLs. ', subtasks: [{ title: 'Draft', description: ' Write up findings. ' }],
+    };
+    const response = await handleBotRequest(request(BOT_TASKS_PATH, payload), deps);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(mem.rows[0].description, 'Review the URLs.');
+    assert.equal(mem.rows[1].description, 'Write up findings.');
+    for (const result of [body.task, ...body.subtasks]) {
+        assert.equal(result.descriptionApplied, true);
+        assert.equal(result.url, `https://seo-ops-center.vercel.app/tasks?task=${result.id}`);
+        assert.equal('projectUrl' in result, false);
+    }
+
+    mem.tasks[0].initiativeId = 'project-a';
+    mem.tasks[1].initiativeId = 'project-b';
+    const matched = await handleBotRequest(request(BOT_TASKS_PATH, {
+        ...payload, idempotencyKey: 'match-described', description: 'Replace the notes.',
+        subtasks: [{ title: 'Draft', description: 'Replace the instructions.' }],
+    }), deps);
+    assert.equal(matched.status, 200);
+    const matches = await matched.json();
+    assert.equal(matches.task.descriptionApplied, false);
+    assert.equal(matches.subtasks[0].descriptionApplied, false);
+    assert.equal(matches.task.projectUrl, `https://seo-ops-center.vercel.app/workspace/${CLIENT}?tab=projects&projectId=project-a`);
+    assert.equal(matches.subtasks[0].projectUrl, `https://seo-ops-center.vercel.app/workspace/${CLIENT}?tab=projects&projectId=project-b`);
+    assert.deepEqual(mem.rows.map(row => row.description), ['Review the URLs.', 'Write up findings.']);
+});
+
+test('standalone completion attributes the status change, calls Basecamp once, and replays the stored response', async (t) => {
+    setEnv(t, 'NEXT_PUBLIC_SITE_URL', 'https://app.example.test///');
+    const existing = task({
+        id: '11111111-1111-4111-8111-111111111111', title: 'Audit', basecampTodoId: '77', initiativeId: 'project-a',
+    });
+    const { mem, deps } = world({ keyName: 'Technical-SEO', tasks: [existing] });
+    const payload = { idempotencyKey: 'complete-audit', taskId: existing.id };
+    const response = await handleBotRequest(request(BOT_TASKS_COMPLETE_PATH, payload), deps);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body, {
+        idempotencyKey: payload.idempotencyKey,
+        bot: 'Technical-SEO',
+        actor: { userId: CARLOS, name: actor.name, email: actor.email },
+        task: {
+            id: existing.id, title: 'Audit', status: 'done', completedAt: NOW.toISOString(),
+            url: `https://app.example.test/tasks?task=${existing.id}`,
+            projectUrl: `https://app.example.test/workspace/${CLIENT}?tab=projects&projectId=project-a`,
+        },
+        completion: { status: 'pushed', providerId: '77' },
+        alreadyDone: false,
+    });
+    assert.deepEqual(existing.statusHistory, [{ status: 'done', at: NOW.toISOString(), by: CARLOS }]);
+    assert.equal(mem.operations[0].taskId, existing.id);
+    assert.equal(mem.logs.length, 0);
+    assert.deepEqual(mem.synced, []);
+
+    mem.now = new Date(NOW.getTime() + 60_000);
+    const replay = await handleBotRequest(request(BOT_TASKS_COMPLETE_PATH, payload), deps);
+    assert.equal(replay.headers.get('Idempotent-Replayed'), 'true');
+    assert.deepEqual(await replay.json(), body);
+
+    const conflict = await handleBotRequest(request(BOT_TASKS_COMPLETE_PATH, {
+        ...payload, completedOn: '2026-11-02',
+    }), deps);
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).code, 'idempotency_conflict');
+
+    const repeat = await handleBotRequest(request(BOT_TASKS_COMPLETE_PATH, {
+        ...payload, idempotencyKey: 'already-completed', completedOn: '2026-11-02',
+    }), deps);
+    assert.equal(repeat.status, 200);
+    const alreadyDone = await repeat.json();
+    assert.equal(alreadyDone.alreadyDone, true);
+    assert.equal(alreadyDone.completion.status, 'skipped');
+    assert.equal(alreadyDone.task.completedAt, NOW.toISOString());
+    assert.equal(existing.statusHistory.length, 1);
+    assert.deepEqual(mem.completed, [existing.id]);
+});
+
+test('standalone completion skips Basecamp on an unlinked task', async () => {
+    const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Audit' });
+    const { mem, deps } = world({ tasks: [existing] });
+    const response = await handleBotRequest(request(BOT_TASKS_COMPLETE_PATH, {
+        idempotencyKey: 'complete-local', taskId: existing.id, completedOn: '2026-11-02',
+    }), deps);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.task.completedAt, '2026-11-02T20:00:00.000Z');
+    assert.equal(body.alreadyDone, false);
+    assert.equal(body.completion.status, 'skipped');
+    assert.equal('projectUrl' in body.task, false);
+    assert.deepEqual(mem.completed, []);
+});
+
+test('standalone completion rejects non-SEO keys, missing or out-of-org tasks, and inactive clients', async () => {
+    const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Audit', basecampTodoId: '77' });
+    const otherOrg = { ...existing, organizationId: 'other-org' };
+    for (const [fixture, status, code] of [
+        [{ keyName: 'call-tracking', tasks: [existing] }, 403, 'forbidden'],
+        [{ tasks: [] }, 404, 'task_not_found'],
+        [{ tasks: [otherOrg] }, 404, 'task_not_found'],
+        [{ tasks: [existing], clientStatus: 'inactive' }, 409, 'client_inactive'],
+    ] as const) {
+        const { mem, deps } = world({ ...fixture, tasks: [...fixture.tasks] });
+        const response = await handleBotRequest(request(BOT_TASKS_COMPLETE_PATH, {
+            idempotencyKey: 'complete-audit', taskId: existing.id,
+        }), deps);
+        assert.equal(response.status, status);
+        assert.equal((await response.json()).code, code);
+        assert.deepEqual(mem.completed, []);
+        assert.ok(mem.tasks.every(item => item.status === 'todo'));
+    }
+});
+
+test('standalone completion leaves running and paused timers on the task open', async (t) => {
+    setEnv(t, 'BOT_TIMER_MAX_SECONDS', '60');
+    const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Audit' });
+    const { deps, mem } = world({ tasks: [existing] });
+    await handleBotRequest(request(BOT_TIMER_START_PATH, {
+        idempotencyKey: 'start-audit', taskId: existing.id, clientId: CLIENT,
+    }), deps);
+    mem.now = new Date(NOW.getTime() + 120_000);
+    const running = await handleBotRequest(request(BOT_TASKS_COMPLETE_PATH, {
+        idempotencyKey: 'complete-running', taskId: existing.id,
+    }), deps);
+    assert.equal(running.status, 409);
+    assert.equal((await running.json()).code, 'timer_open');
+    assert.equal(mem.timers[0]?.startedAt, NOW.toISOString());
+
+    const pausedAt = new Date(NOW.getTime() + 30_000).toISOString();
+    Object.assign(mem.timers[0], { pausedAt, startedAt: null, botKeyId: 'another-key' });
+    const paused = await handleBotRequest(request(BOT_TASKS_COMPLETE_PATH, {
+        idempotencyKey: 'complete-paused', taskId: existing.id,
+    }), deps);
+    assert.equal(paused.status, 409);
+    assert.match((await paused.json()).error, /stop it with complete: true/i);
+    assert.equal(mem.timers[0]?.pausedAt, pausedAt);
+    assert.equal(existing.status, 'todo');
+    assert.equal(mem.logs.length, 0);
+});
+
+test('timer start, pause, resume, and stop return the task and its project link', async (t) => {
+    setEnv(t, 'NEXT_PUBLIC_SITE_URL', 'https://app.example.test/');
+    const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Audit', initiativeId: 'project-a' });
+    const { deps, mem } = world({ tasks: [existing] });
+    const calls = [
+        [BOT_TIMER_START_PATH, { idempotencyKey: 'start-audit', taskId: existing.id, clientId: CLIENT }],
+        [BOT_TIMER_PAUSE_PATH, { idempotencyKey: 'pause-audit' }],
+        [BOT_TIMER_RESUME_PATH, { idempotencyKey: 'resume-audit', taskId: existing.id }],
+        [BOT_TIMER_STOP_PATH, { idempotencyKey: 'stop-audit' }],
+    ] as const;
+    for (const [path, payload] of calls) {
+        const response = await handleBotRequest(request(path, payload), deps);
+        assert.equal(response.status, 200);
+        const { task: returned } = await response.json();
+        assert.equal(returned.url, `https://app.example.test/tasks?task=${existing.id}`);
+        assert.equal(returned.projectUrl, `https://app.example.test/workspace/${CLIENT}?tab=projects&projectId=project-a`);
+        mem.now = new Date(mem.now.getTime() + 60_000);
+    }
+});
+
+test('timer stop returns a task URL on the time log when the task is unavailable', async (t) => {
+    setEnv(t, 'NEXT_PUBLIC_SITE_URL', 'https://app.example.test');
+    const existing = task({ id: '11111111-1111-4111-8111-111111111111', title: 'Audit' });
+    const { deps, mem } = world({ tasks: [existing] });
+    await handleBotRequest(request(BOT_TIMER_START_PATH, {
+        idempotencyKey: 'start-audit', taskId: existing.id, clientId: CLIENT,
+    }), deps);
+    mem.now = new Date(NOW.getTime() + 60_000);
+    mem.tasks = [];
+    const response = await handleBotRequest(request(BOT_TIMER_STOP_PATH, { idempotencyKey: 'stop-audit' }), deps);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.task, undefined);
+    assert.equal(body.timeLog.taskUrl, `https://app.example.test/tasks?task=${existing.id}`);
+});
 
 test('only the seo-manager key can create a task, and it is assigned to the owner', async () => {
     const denied = world({ keyName: 'technical-seo' });
@@ -542,6 +737,28 @@ test('bot imports a to-do under its original title or a requested title', async 
         assert.deepEqual(writes, []);
         assert.deepEqual(mem.pushed, []);
     }
+});
+
+test('bot saves supplied descriptions when importing a to-do and its requested step', async () => {
+    const { link, mem } = todoLinkWorld({ steps: [{ id: 81, title: 'Review' }] });
+    const response = await link({
+        description: 'Review the site.', subtasks: [{ title: ' review ', description: 'Check the findings.' }],
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.task.descriptionApplied, true);
+    assert.equal(body.subtasks[0].descriptionApplied, true);
+    assert.deepEqual(mem.rows.map(row => row.description), ['Review the site.', 'Check the findings.']);
+
+    const matched = await link({
+        idempotencyKey: 'match-existing-basecamp', description: 'Keep the existing description.',
+        subtasks: [{ title: 'Review', description: 'Keep the existing step description.' }],
+    });
+    assert.equal(matched.status, 200);
+    const matches = await matched.json();
+    assert.equal(matches.task.descriptionApplied, false);
+    assert.equal(matches.subtasks[0].descriptionApplied, false);
+    assert.deepEqual(mem.rows.map(row => row.description), ['Review the site.', 'Check the findings.']);
 });
 
 test('bot retry returns the same linked task and checks the request hash', async () => {

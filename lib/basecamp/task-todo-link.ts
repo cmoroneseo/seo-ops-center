@@ -72,6 +72,7 @@ export async function importBasecampTodoSteps<T extends BasecampLinkedTask>(inpu
     userId: string;
     now: string;
     matchExistingTitles: boolean;
+    descriptionsByStepId?: ReadonlyMap<number, string>;
     skipRecordingConflicts?: boolean;
     resolveAssignees?: (personIds: number[]) => Promise<Map<number, string>>;
 }) {
@@ -120,6 +121,10 @@ export async function importBasecampTodoSteps<T extends BasecampLinkedTask>(inpu
         parents: [{ basecampTodoId: Number(todoId), taskId: root.id }],
         alreadyImportedStepIds: claimedIds,
     });
+    for (const row of rows) {
+        const description = input.descriptionsByStepId?.get(Number(row.basecamp_todo_id));
+        if (description) row.description = description;
+    }
     let imported: T[] = [];
     if (rows.length > 0) {
         imported = input.skipRecordingConflicts

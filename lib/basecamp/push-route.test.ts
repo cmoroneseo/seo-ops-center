@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { botCreatedTaskRow } from '../bots/task-create.ts';
+import { basecampTodoCreateBody } from './api.ts';
 import { normalizeBasecampTodoStep } from './todo-steps.ts';
 
 type RouteModule = typeof import('./push-route.ts');
@@ -284,6 +286,57 @@ test('create push uses canonical project and task content after verified list se
             assigneePersonIds: [9],
             completionSubscriberPersonIds: [12],
         },
+    });
+});
+
+test('Basecamp to-do creation forwards the description stored by bot create', async () => {
+    const { createBasecampPushPost } = await loadRouteModule();
+    const row = botCreatedTaskRow({
+        organizationId: canonicalTask.organizationId,
+        clientId: canonicalTask.clientId,
+        title: 'Audit landing pages',
+        description: 'Review redirects.\nRecord links that need an update.',
+        actorUserId: authorized.userId,
+        botKeyId: 'seo-bot',
+        botOperationId: null,
+        now: '2026-08-20T00:00:00.000Z',
+    });
+    const task = {
+        ...canonicalTask, basecampTodoId: null, basecampProjectId: null, status: 'todo',
+        title: String(row.title), description: typeof row.description === 'string' ? row.description : '',
+        dueDate: null, assigneePersonIds: [], completionSubscriberPersonIds: [],
+    };
+    let payload: unknown;
+    const post = createBasecampPushPost({
+        authorizeTask: async () => authorized,
+        createStore: () => ({
+            getTask: async () => task,
+            updateTaskLink: async () => null,
+            markTaskSynced: async () => null,
+        }),
+        createAccessSource: () => externalSource(),
+        provider: {
+            isConfigured: () => true,
+            getTodo: async () => null,
+            listTodolists: async () => [{ id: 44 }],
+            createTodo: async (_projectId, _todolistId, params) => {
+                payload = basecampTodoCreateBody(params);
+                return { id: 77, appUrl: 'https://3.basecamp.test/task/77' };
+            },
+            completeTodo: async () => false,
+            reopenTodo: async () => false,
+            createComment: async () => null,
+            updateTodoDueDate: async () => false,
+            updateTodoAssignees: async () => false,
+        },
+        now: () => '2026-08-20T00:00:00.000Z',
+    });
+
+    const response = await post(request({ action: 'create_todo', taskId: task.id }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(payload, {
+        content: 'Audit landing pages',
+        description: 'Review redirects.\nRecord links that need an update.',
     });
 });
 

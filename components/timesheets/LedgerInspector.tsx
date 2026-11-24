@@ -223,7 +223,7 @@ export function LedgerInspector({
             {row.taskId && (
                 <footer className="border-t border-border p-5">
                     <Link
-                        href={`/tasks?taskId=${row.taskId}`}
+                        href={`/tasks?task=${encodeURIComponent(row.taskId)}`}
                         className="flex items-center justify-center gap-2 rounded-lg border border-primary px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     >
                         Open task
