@@ -78,6 +78,10 @@ export function historyWindow(now = new Date()) {
     return { start: dateOffset(end, -27), end };
 }
 
+export function finalHistoryDate(now = new Date()): string {
+    return dateOffset(historyWindow(now).end, -3);
+}
+
 export function historyDates(start: string, end: string): string[] {
     const valid = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T12:00:00Z`)) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
     if (!valid(start) || !valid(end) || start > end) throw new Error('Invalid history date range');
@@ -190,7 +194,7 @@ export async function fetchGscDay(property: string, token: string, date: string,
         pageLimited: false,
         queryLimited: false,
         facts: [],
-        isIncomplete: date > dateOffset(historyWindow(options.now).end, -3),
+        isIncomplete: date > finalHistoryDate(options.now),
         organicTotalsScope: null,
         organicTotalsLabel: null,
     };

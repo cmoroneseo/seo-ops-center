@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Fragment, Suspense, useEffect, useState } from 'react';
 import {
-    Menu, X, Search, LogOut, Check, FileCheck2,
+    Menu, X, Search, LogOut, Check, FileCheck2, Home,
     LayoutDashboard, Briefcase, CheckSquare, PackageCheck, MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,8 @@ import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { ApprovalBadge } from '@/components/approvals-v2/Badge';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useOrganization } from '@/components/providers/organization-provider';
+import { useMyOverdueCount } from '@/lib/hooks/use-my-overdue-count';
+import { MyTasksBadge } from '@/components/dashboard/MyTasksBadge';
 import { useClients } from '@/lib/hooks/use-clients';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
@@ -28,26 +30,25 @@ import {
     isAgencyLinkActive,
     isClientLinkActive,
     switchClientHref,
+    visibleStaffChildren,
+    type StaffLink,
 } from '@/lib/nav/staff-shell';
-import { ClientSwitcherPanel } from '@/components/dashboard/ClientSwitcher';
+import { ClientSwitcherPanel, ClientSwitcherSkeleton } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
+import { SidebarProjects } from '@/components/dashboard/SidebarProjects';
 
 const primaryTabs = [
     { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Clients', href: '/workspace', icon: Briefcase },
-    { name: 'Tasks', href: '/tasks', icon: CheckSquare },
+    { name: 'My Tasks', href: '/tasks', icon: CheckSquare },
     { name: 'Approvals', href: '/approvals', icon: FileCheck2 },
-    { name: 'Deliver', href: '/deliverables', icon: PackageCheck },
+    { name: 'Deliverables', href: '/deliverables', icon: PackageCheck },
 ];
-
-function isActiveHref(pathname: string, href: string) {
-    return pathname === href || (href !== '/' && pathname.startsWith(href));
-}
 
 export function MobileNav() {
     const pathname = usePathname();
-    const { organization, memberships, setOrganization } = useOrganization();
-    const { clients } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
+    const { organization, memberships, setOrganization, isLoading: organizationLoading } = useOrganization();
+    const { clients, isLoading: clientsLoading } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
     const selected = useSelectedClient();
     const agencyDashboard = useAgencyDashboardEnabled();
     const vaultEnabled = useVaultEnabled(organization?.id) === true;
@@ -55,6 +56,8 @@ export function MobileNav() {
     const campaignWorkspace = campaignWorkspaceEnabled();
     const pipelineNav = pipelineNavEnabled();
     const [menuOpen, setMenuOpen] = useState(false);
+    const userId = memberships.find(member => member.organizationId === organization?.id)?.userId;
+    const overdueCount = useMyOverdueCount(menuOpen ? organization?.id : null, userId);
     const [selectorOpen, setSelectorOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
 
@@ -63,6 +66,7 @@ export function MobileNav() {
         .filter((org): org is NonNullable<typeof org> => org !== null && org !== undefined);
     const showOrgSwitcher = switchableOrgs.length > 1;
     const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace, pipelineNav };
+    const isClientLoading = organizationLoading || clientsLoading;
     const selectedClient = clients.find(client => client.id === selected.clientId) ?? null;
     const sections = selected.clientId
         ? clientSections(selected.clientId, flags)
@@ -112,20 +116,26 @@ export function MobileNav() {
                 </button>
                 <button
                     onClick={() => setSelectorOpen(true)}
-                    aria-label={selectedClient ? `Client: ${selectedClient.clientName}` : 'Select a client'}
+                    aria-label={isClientLoading ? 'Loading client' : selectedClient ? `Client: ${selectedClient.clientName}` : 'Select a client'}
+                    aria-busy={isClientLoading}
+                    disabled={isClientLoading}
                     className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1 pr-1 text-left active:scale-95 transition"
                 >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-[11px] font-semibold text-primary">
-                        {selectedClient ? clientInitials(selectedClient.clientName) : (selected.clientId ? '?' : '—')}
-                    </span>
-                    <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-foreground">
-                            {selectedClient?.clientName ?? (selected.clientId ? 'Unknown client' : 'No client')}
-                        </span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
-                            {selectedClient ? clientStatusChip(selectedClient) : (selected.clientId ? 'Not in this list' : 'Agency home')}
-                        </span>
-                    </span>
+                    {isClientLoading ? <ClientSwitcherSkeleton /> : (
+                        <>
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-[11px] font-semibold text-primary">
+                                {selectedClient ? clientInitials(selectedClient.clientName) : (selected.clientId ? '?' : '—')}
+                            </span>
+                            <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold text-foreground">
+                                    {selectedClient?.clientName ?? (selected.clientId ? 'Unknown client' : 'No client')}
+                                </span>
+                                <span className="block truncate text-[11px] text-muted-foreground">
+                                    {selectedClient ? clientStatusChip(selectedClient) : (selected.clientId ? 'Not in this list' : 'Agency home')}
+                                </span>
+                            </span>
+                        </>
+                    )}
                 </button>
                 <div className="ml-auto flex items-center gap-1">
                     <button
@@ -144,7 +154,7 @@ export function MobileNav() {
 
             <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 flex items-stretch border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 pb-[env(safe-area-inset-bottom)]">
                 {primaryTabs.map((tab) => {
-                    const active = isActiveHref(pathname, tab.href);
+                    const active = isAgencyLinkActive(pathname, tab.href);
                     return (
                         <Link
                             key={tab.name}
@@ -211,70 +221,116 @@ export function MobileNav() {
                         </div>
                     )}
 
+                    <div className="mb-2">
+                        {[
+                            { label: 'Home', href: '/dashboard', icon: Home },
+                            { label: 'My Tasks', href: '/tasks', icon: CheckSquare },
+                        ].map(({ label, href, icon: Icon }) => {
+                            const active = isAgencyLinkActive(pathname, href);
+                            return (
+                                <Link
+                                    key={href}
+                                    href={href}
+                                    onClick={() => setMenuOpen(false)}
+                                    aria-label={href === '/tasks' && overdueCount
+                                        ? `My Tasks (${overdueCount} of your tasks overdue)`
+                                        : href === '/tasks' && overdueCount === null
+                                            ? 'My Tasks (checking overdue tasks)'
+                                            : undefined}
+                                    aria-current={active ? 'page' : undefined}
+                                    className={cn(
+                                        'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
+                                        active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                    )}
+                                >
+                                    <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                                    {label}
+                                    {href === '/tasks' && <MyTasksBadge count={overdueCount} />}
+                                </Link>
+                            );
+                        })}
+                    </div>
+
                     {sections.map(section => (
-                        <div key={section.id} className="mb-2">
-                            <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                {section.label}
-                            </span>
-                            {section.links.map(link => {
-                                const active = isClientLinkActive(pathname, selected.search, link, flags);
-                                const children = link.children ?? [];
-                                const item = (
-                                    <Link
-                                        key={link.id}
-                                        href={link.href}
-                                        onClick={() => setMenuOpen(false)}
-                                        aria-current={active ? 'page' : undefined}
-                                        className={cn(
-                                            'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
-                                            active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
-                                        )}
-                                    >
-                                        {link.label}
-                                    </Link>
-                                );
-                                if (children.length === 0) return item;
-                                return (
-                                    <div key={link.id}>
-                                        {item}
-                                        {children.map(child => {
-                                            const childActive = isClientLinkActive(pathname, selected.search, child, flags);
-                                            return (
-                                                <Link
-                                                    key={child.id}
-                                                    href={child.href}
-                                                    onClick={() => setMenuOpen(false)}
-                                                    aria-current={childActive ? 'page' : undefined}
-                                                    className={cn(
-                                                        'flex items-center gap-3 rounded-xl px-6 py-3 text-sm font-medium transition-colors',
-                                                        childActive ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
-                                                    )}
-                                                >
-                                                    {child.label}
-                                                </Link>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })}
-                            {section.overflow?.map(link => {
-                                const active = isClientLinkActive(pathname, selected.search, link, flags);
-                                return (
-                                    <Link
-                                        key={link.id}
-                                        href={link.href}
-                                        onClick={() => setMenuOpen(false)}
-                                        aria-current={active ? 'page' : undefined}
-                                        className={cn(
-                                            'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
-                                            active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
-                                        )}
-                                    >
-                                        {link.label}
-                                    </Link>
-                                );
-                            })}
-                        </div>
+                        <Fragment key={section.id}>
+                            <div className="mb-2">
+                                {section.label && (
+                                    <span className="block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                        {section.label}
+                                    </span>
+                                )}
+                                {section.links.map(link => {
+                                    const isActive = (item: StaffLink) => isClientLinkActive(pathname, selected.search, item, flags);
+                                    const active = isActive(link);
+                                    const children = visibleStaffChildren(link, isActive);
+                                    const item = (
+                                        <Link
+                                            key={link.id}
+                                            href={link.href}
+                                            onClick={() => setMenuOpen(false)}
+                                            aria-current={active ? 'page' : undefined}
+                                            className={cn(
+                                                'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
+                                                active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                            )}
+                                        >
+                                            {link.label}
+                                        </Link>
+                                    );
+                                    if (children.length === 0) return item;
+                                    return (
+                                        <div key={link.id}>
+                                            {item}
+                                            {children.map(child => {
+                                                const childActive = isActive(child);
+                                                return (
+                                                    <Link
+                                                        key={child.id}
+                                                        href={child.href}
+                                                        onClick={() => setMenuOpen(false)}
+                                                        aria-current={childActive ? 'page' : undefined}
+                                                        className={cn(
+                                                            'flex items-center gap-3 rounded-xl px-6 py-3 text-sm font-medium transition-colors',
+                                                            childActive ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                                        )}
+                                                    >
+                                                        {child.label}
+                                                    </Link>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+                                {section.overflow?.map(link => {
+                                    const active = isClientLinkActive(pathname, selected.search, link, flags);
+                                    return (
+                                        <Link
+                                            key={link.id}
+                                            href={link.href}
+                                            onClick={() => setMenuOpen(false)}
+                                            aria-current={active ? 'page' : undefined}
+                                            className={cn(
+                                                'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
+                                                active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
+                                            )}
+                                        >
+                                            {link.label}
+                                        </Link>
+                                    );
+                                })}
+                            </div>
+                            {section.id === (pipelineNav ? 'client' : 'workspace') && selected.clientId && menuOpen && (
+                                <div className="mb-2">
+                                    <SidebarProjects
+                                        clientId={selected.clientId}
+                                        organizationId={organization?.id}
+                                        pathname={selected.pathname}
+                                        search={selected.search}
+                                        onNavigate={() => setMenuOpen(false)}
+                                    />
+                                </div>
+                            )}
+                        </Fragment>
                     ))}
 
                     <div className="mb-2">
@@ -330,7 +386,7 @@ export function MobileNav() {
                 </div>
             </Drawer>
 
-            {selectorOpen && (
+            {selectorOpen && !isClientLoading && (
                 <div className="lg:hidden fixed inset-0 z-50">
                     <div className="absolute inset-0 bg-black/50" onClick={() => setSelectorOpen(false)} />
                     <div className="absolute inset-x-0 top-0 flex max-h-[85vh] flex-col bg-card shadow-xl pt-[env(safe-area-inset-top)]">

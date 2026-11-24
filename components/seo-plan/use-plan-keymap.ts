@@ -7,7 +7,7 @@ import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
 
 /**
  * The one key listener for the SEO Plan tab.
- * Month steps, row focus, and the side panel's j/k/Enter/Escape all go through it.
+ * Row focus, and the side panel's j/k/Enter/Escape all go through it.
  * `t` starts or pauses the focused row through `onRowTimer`.
  */
 export function usePlanKeymap({
@@ -22,7 +22,7 @@ export function usePlanKeymap({
     onClosePanel,
     onToggleCheck,
     onRowTimer,
-    onShiftMonth,
+    onMoveTask,
 }: {
     rootRef: RefObject<HTMLElement | null>;
     searchRef: RefObject<HTMLInputElement | null>;
@@ -35,7 +35,7 @@ export function usePlanKeymap({
     onClosePanel?: () => void;
     onToggleCheck?: (taskId: string) => void | Promise<void>;
     onRowTimer?: (taskId: string) => void;
-    onShiftMonth: (delta: -1 | 1) => void;
+    onMoveTask: (taskId: string, direction: 'up' | 'down') => void;
 }): { helpOpen: boolean; closeHelp: () => void } {
     const [helpOpen, setHelpOpen] = useState(false);
 
@@ -47,6 +47,15 @@ export function usePlanKeymap({
             const root = rootRef.current;
             const visibleIds = visiblePlanRowIds(root ?? document)
                 .filter(id => !isPendingStageTaskId(id));
+            if (focusedId && visibleIds.includes(focusedId) && !helpOpen && !panelOpen
+                && event.altKey && !event.ctrlKey && !event.metaKey
+                && (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+                && !planShortcutBlocked(event.target, event.key)
+                && root && (document.activeElement === document.body || root.contains(document.activeElement))) {
+                event.preventDefault();
+                onMoveTask(focusedId, event.key === 'ArrowUp' ? 'up' : 'down');
+                return;
+            }
             const action = planKeymapAction({
                 key: event.key,
                 shiftKey: event.shiftKey,
@@ -69,7 +78,6 @@ export function usePlanKeymap({
                 onClosePanel,
                 onToggleCheck,
                 onRowTimer,
-                onShiftMonth,
                 onQueryChange,
                 setHelpOpen,
             });
@@ -81,9 +89,9 @@ export function usePlanKeymap({
         helpOpen,
         onClosePanel,
         onOpenTask,
+        onMoveTask,
         onQueryChange,
         onRowTimer,
-        onShiftMonth,
         onToggleCheck,
         panelOpen,
         query,
@@ -119,7 +127,6 @@ function applyPlanKey(
         onClosePanel?: () => void;
         onToggleCheck?: (taskId: string) => void | Promise<void>;
         onRowTimer?: (taskId: string) => void;
-        onShiftMonth: (delta: -1 | 1) => void;
         onQueryChange: (query: string) => void;
         setHelpOpen: Dispatch<SetStateAction<boolean>>;
     },
@@ -132,15 +139,15 @@ function applyPlanKey(
     event.preventDefault();
     switch (action.type) {
         case 'focus-add': {
-            const add = handlers.root?.querySelector('[data-plan-add]');
-            if (add instanceof HTMLElement) add.focus();
+            const fields = handlers.root?.querySelectorAll<HTMLInputElement>(
+                'input[data-add]:not([data-add-parent])',
+            );
+            const add = Array.from(fields ?? []).find(field => !field.disabled && !field.closest('[hidden]'));
+            add?.focus();
             return;
         }
         case 'focus-search':
             handlers.searchRef.current?.focus();
-            return;
-        case 'shift-month':
-            handlers.onShiftMonth(action.delta);
             return;
         case 'move':
             handlers.setFocusedId(action.taskId);

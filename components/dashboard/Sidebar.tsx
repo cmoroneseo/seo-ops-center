@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
     Archive,
@@ -14,6 +14,7 @@ import {
     FileCheck2,
     FileText,
     Flag,
+    FolderKanban,
     Globe,
     GraduationCap,
     History,
@@ -31,6 +32,8 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useMyOverdueCount } from '@/lib/hooks/use-my-overdue-count';
+import { MyTasksBadge } from '@/components/dashboard/MyTasksBadge';
 import { useClients } from '@/lib/hooks/use-clients';
 import { keywordTrackingEnabled } from '@/lib/keyword-tracking/flag';
 import { campaignWorkspaceEnabled } from '@/lib/campaign-workspace/flag';
@@ -46,10 +49,14 @@ import {
     isAgencyLinkActive,
     isClientLinkActive,
     switchClientHref,
+    visibleStaffChildren,
     type StaffLink,
 } from '@/lib/nav/staff-shell';
 import { ClientSwitcher, type SwitcherClient } from '@/components/dashboard/ClientSwitcher';
 import { useSelectedClient } from '@/components/dashboard/use-selected-client';
+import { activeSidebarProjectId, isProjectsGridActive } from '@/lib/nav/sidebar-projects';
+import { projectsHref } from '@/lib/projects/project-links';
+import { SidebarProjects } from '@/components/dashboard/SidebarProjects';
 import { ApprovalBadge } from '@/components/approvals-v2/Badge';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 
@@ -58,6 +65,7 @@ const ICONS: Record<string, LucideIcon> = {
     'campaign-workspace': Flag,
     plan: Target,
     tasks: CheckSquare,
+    projects: FolderKanban,
     deliverables: PackageCheck,
     time: Clock,
     reports: ClipboardList,
@@ -111,8 +119,14 @@ function NavLink({ link, active, nested = false }: { link: StaffLink; active: bo
 }
 
 export function Sidebar() {
-    const { organization } = useOrganization();
-    const { clients } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
+    const { organization, memberships, isLoading } = useOrganization();
+    const userId = memberships.find(member => member.organizationId === organization?.id)?.userId;
+    const count = useMyOverdueCount(organization?.id, userId);
+    const overdueCount = userId || isLoading ? count : 0;
+    const myTasksLabel = overdueCount
+        ? `My Tasks (${overdueCount} of your tasks overdue)`
+        : 'My Tasks';
+    const { clients, isLoading: clientsLoading } = useClients({ statuses: ['Active', 'Onboarding', 'Paused', 'Cancelled'] });
     const selected = useSelectedClient();
     const agencyDashboard = useAgencyDashboardEnabled();
     const vaultEnabled = useVaultEnabled(organization?.id) === true;
@@ -134,6 +148,7 @@ export function Sidebar() {
         : [];
     const agency = agencyLinks({ agencyDashboard });
     const flags = { keywordTracking, vault: vaultEnabled, campaignWorkspace };
+    const myTasksActive = isAgencyLinkActive(selected.pathname, '/tasks');
     const agencyActive = agency.some(link => isAgencyLinkActive(selected.pathname, link.href));
 
     function hrefFor(clientId: string) {
@@ -192,6 +207,7 @@ export function Sidebar() {
 
                 <ClientSwitcher
                     clients={switcherClients}
+                    isLoading={isLoading || clientsLoading}
                     selectedId={selected.clientId}
                     recentIds={selected.recentIds}
                     hrefFor={hrefFor}
@@ -200,6 +216,30 @@ export function Sidebar() {
                     onOpenChange={open => setMenu(open ? 'clients' : null)}
                 />
 
+                <div className="space-y-0.5">
+                    <NavLink
+                        link={{ id: 'home', label: 'Home', href: '/dashboard' }}
+                        active={isAgencyLinkActive(selected.pathname, '/dashboard')}
+                    />
+                    <Link
+                        href="/tasks"
+                        title={myTasksLabel}
+                        aria-label={overdueCount === null ? 'My Tasks (checking overdue tasks)' : myTasksLabel}
+                        aria-current={myTasksActive ? 'page' : undefined}
+                        className={navClass(myTasksActive)}
+                    >
+                        {myTasksActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />}
+                        <RowIcon id="tasks" />
+                        <span className="sr-only xl:not-sr-only xl:truncate">My Tasks</span>
+                        <MyTasksBadge count={overdueCount} className="max-xl:absolute max-xl:right-0 max-xl:top-0" />
+                    </Link>
+                    <Link href="/approvals" title="Approvals" className={navClass(selected.pathname.startsWith('/approvals'))}>
+                        <FileCheck2 className="h-4 w-4 shrink-0" aria-hidden />
+                        <span className="hidden xl:inline">Approvals</span>
+                        <ApprovalBadge />
+                    </Link>
+                </div>
+
                 <div ref={agencyRef} className="relative">
                     <button
                         type="button"
@@ -207,20 +247,15 @@ export function Sidebar() {
                         aria-expanded={menu === 'agency'}
                         title="Agency"
                         onClick={() => setMenu(menu === 'agency' ? null : 'agency')}
-                        className={navClass(agencyActive || menu === 'agency')}
+                        className={navClass(agencyActive)}
                     >
-                        {(agencyActive || menu === 'agency') && (
+                        {agencyActive && (
                             <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />
                         )}
                         <Building2 className="h-4 w-4 shrink-0" aria-hidden />
                         <span className="hidden flex-1 truncate text-left xl:inline">Agency</span>
                         <ChevronDown className={cn('hidden h-3.5 w-3.5 shrink-0 xl:block', menu === 'agency' && 'rotate-180')} />
                     </button>
-                    <Link href="/approvals" title="Approvals" className={navClass(selected.pathname.startsWith('/approvals'))}>
-                        <FileCheck2 className="h-4 w-4 shrink-0" aria-hidden />
-                        <span className="hidden xl:inline">Approvals</span>
-                        <ApprovalBadge />
-                    </Link>
                     {menu === 'agency' && (
                         <div role="menu" className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg xl:right-0 xl:w-auto">
                             {agency.map(link => (
@@ -239,7 +274,6 @@ export function Sidebar() {
                                     >
                                         <RowIcon id={link.id} />
                                         {link.label}
-                                        {link.id === 'approvals' && <ApprovalBadge />}
                                     </Link>
                                     {link.dividerAfter && <div className="my-1 h-px bg-border" />}
                                 </span>
@@ -253,55 +287,79 @@ export function Sidebar() {
                 {sections.map(section => {
                     const overflowActive = section.overflow?.some(link => isClientLinkActive(selected.pathname, selected.search, link, flags)) ?? false;
                     return (
-                        <div key={section.id} className="space-y-0.5">
-                            <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
-                                {section.label}
-                            </div>
-                            {section.links.map(link => {
-                                const active = isClientLinkActive(selected.pathname, selected.search, link, flags);
-                                const children = link.children ?? [];
-                                if (children.length === 0) {
-                                    return <NavLink key={link.id} link={link} active={active} />;
-                                }
-                                return (
-                                    <div key={link.id} className="space-y-0.5" role="group" aria-label={link.label}>
-                                        <NavLink link={link} active={active} />
-                                        {children.map(child => (
+                        <Fragment key={section.id}>
+                            <div className="space-y-0.5">
+                                {section.label && section.links.length > 0 && (
+                                    <div className="hidden px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
+                                        {section.label}
+                                    </div>
+                                )}
+                                {section.links.map(link => {
+                                    const isActive = (item: StaffLink) => isClientLinkActive(selected.pathname, selected.search, item, flags);
+                                    const active = isActive(link);
+                                    const children = visibleStaffChildren(link, isActive);
+                                    if (children.length === 0) {
+                                        return <NavLink key={link.id} link={link} active={active} />;
+                                    }
+                                    return (
+                                        <div key={link.id} className="space-y-0.5" role="group" aria-label={link.label}>
+                                            <NavLink link={link} active={active} />
+                                            {children.map(child => (
+                                                <NavLink
+                                                    key={child.id}
+                                                    link={child}
+                                                    nested
+                                                    active={isActive(child)}
+                                                />
+                                            ))}
+                                        </div>
+                                    );
+                                })}
+                                {section.overflow && section.overflow.length > 0 && (
+                                    <div ref={moreRef}>
+                                        <button
+                                            type="button"
+                                            title="More"
+                                            aria-expanded={menu === 'more'}
+                                            onClick={() => setMenu(current => current === 'more' ? null : 'more')}
+                                            className={navClass(overflowActive)}
+                                        >
+                                            {(overflowActive) && (
+                                                <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />
+                                            )}
+                                            <MoreHorizontal className="h-4 w-4 shrink-0" aria-hidden />
+                                            <span className="hidden truncate xl:inline">More...</span>
+                                        </button>
+                                        {menu === 'more' && section.overflow.map(link => (
                                             <NavLink
-                                                key={child.id}
-                                                link={child}
-                                                nested
-                                                active={isClientLinkActive(selected.pathname, selected.search, child, flags)}
+                                                key={link.id}
+                                                link={link}
+                                                active={isClientLinkActive(selected.pathname, selected.search, link, flags)}
                                             />
                                         ))}
                                     </div>
-                                );
-                            })}
-                            {section.overflow && section.overflow.length > 0 && (
-                                <div ref={moreRef}>
-                                    <button
-                                        type="button"
-                                        title="More"
-                                        aria-expanded={menu === 'more'}
-                                        onClick={() => setMenu(current => current === 'more' ? null : 'more')}
-                                        className={navClass(overflowActive)}
-                                    >
-                                        {(overflowActive) && (
-                                            <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden />
-                                        )}
-                                        <MoreHorizontal className="h-4 w-4 shrink-0" aria-hidden />
-                                        <span className="hidden truncate xl:inline">More...</span>
-                                    </button>
-                                    {menu === 'more' && section.overflow.map(link => (
+                                )}
+                            </div>
+                            {section.id === (pipelineNav ? 'client' : 'workspace') && selected.clientId && (
+                                <>
+                                    <div className="xl:hidden">
                                         <NavLink
-                                            key={link.id}
-                                            link={link}
-                                            active={isClientLinkActive(selected.pathname, selected.search, link, flags)}
+                                            link={{ id: 'projects', label: 'Projects', href: projectsHref(selected.clientId) }}
+                                            active={isProjectsGridActive(selected.pathname, selected.search, selected.clientId)
+                                                || activeSidebarProjectId(selected.pathname, selected.search, selected.clientId) !== null}
                                         />
-                                    ))}
-                                </div>
+                                    </div>
+                                    <div className="hidden xl:block">
+                                        <SidebarProjects
+                                            clientId={selected.clientId}
+                                            organizationId={organization?.id}
+                                            pathname={selected.pathname}
+                                            search={selected.search}
+                                        />
+                                    </div>
+                                </>
                             )}
-                        </div>
+                        </Fragment>
                     );
                 })}
             </nav>

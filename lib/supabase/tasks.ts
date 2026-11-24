@@ -1,3 +1,4 @@
+import { TASK_DATA_CHANGED_EVENT } from '../tasks/my-tasks';
 import { createClient } from './client';
 import { createNotification } from './notifications';
 import { logActivity } from './client-activity';
@@ -18,7 +19,6 @@ import {
 import { seoPlanPushTodolistId } from '../basecamp/plan-lists';
 import { taskCreateRow } from '../tasks/create-row';
 import { completedAtForLiveUrl, parseLiveUrlInput, splitLiveUrl } from '../tasks/live-url';
-import { isTaskStage } from '../tasks/stage';
 import { PART_OF_OTHER_CLIENT_ERROR, partOfWrite } from '../tasks/part-of';
 import { normalizeBlockedReason, taskStatusUpdate } from '../tasks/status';
 import { sumTaskLoggedHours } from '../time-budget-logic';
@@ -66,7 +66,6 @@ export async function getClientBasecampConfig(clientId: string | undefined): Pro
 export function rowToTask(row: any): Task {
     return {
         id: row.id,
-        stage: isTaskStage(row.stage) ? row.stage : undefined,
         position: typeof row.position === 'number' && Number.isFinite(row.position) ? row.position : undefined,
         organizationId: row.organization_id,
         projectId: row.project_id ?? undefined,
@@ -124,6 +123,7 @@ function rowToComment(row: any): TaskComment {
 }
 
 export type TaskInsert = {
+    initiativeId?: string;
     sourceMarketingPlanItemId?: string;
     organizationId: string;
     projectId?: string;
@@ -162,8 +162,7 @@ export type TaskInsert = {
     /** Routes parent creation through the atomic Search Insights workflow. */
     sourceInvestigationId?: string;
     /** Roadmap column. Omitted inserts keep the database default. */
-    stage?: Task['stage'];
-    /** Order within the client, stage, and parent. Omitted inserts keep the default. */
+    /** Order within the project and parent. Omitted inserts keep the default. */
     position?: number;
     /** Live page for a content piece. Omitted inserts leave the column empty. */
     publishedUrl?: string | null;
@@ -322,46 +321,6 @@ export async function getTasksByClient(clientId: string, throwOnError = false): 
     }
 }
 
-export interface DirectChildStage {
-    id: string;
-    stage: string | null;
-    parentTaskId: string;
-    position: number | null;
-}
-
-/**
- * Stage and order of direct subtasks. Used when an onboarding parent is
- * placed so its steps follow. An empty parent list is not a query.
- * A failed read throws so the caller can still place the parents.
- */
-export async function getDirectChildStages(parentIds: readonly string[]): Promise<DirectChildStage[]> {
-    if (parentIds.length === 0) return [];
-    const supabase = createClient();
-    if (!supabase) throw new Error('Tasks unavailable');
-    const rows: DirectChildStage[] = [];
-    const size = 100;
-    for (let index = 0; index < parentIds.length; index += size) {
-        const part = parentIds.slice(index, index + size);
-        const { data, error } = await supabase
-            .from('tasks')
-            .select('id, stage, parent_task_id, position')
-            .in('parent_task_id', [...part]);
-        if (error) throw error;
-        for (const row of data ?? []) {
-            const id = typeof row.id === 'string' ? row.id : '';
-            const parentTaskId = typeof row.parent_task_id === 'string' ? row.parent_task_id : '';
-            if (!id || !parentTaskId) continue;
-            rows.push({
-                id,
-                stage: typeof row.stage === 'string' ? row.stage : null,
-                parentTaskId,
-                position: typeof row.position === 'number' && Number.isFinite(row.position) ? row.position : null,
-            });
-        }
-    }
-    return rows;
-}
-
 /** Single task with its subtasks and total logged hours. */
 export async function getTask(taskId: string): Promise<{
     task: Task | null;
@@ -431,6 +390,10 @@ export async function getTask(taskId: string): Promise<{
 // Mutations
 // ---------------------------------------------------------------------------
 
+function notifyTaskDataChanged() {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(TASK_DATA_CHANGED_EVENT));
+}
+
 export async function createTask(
     t: TaskInsert,
 ): Promise<{
@@ -448,7 +411,11 @@ export async function createTask(
             const result = await supabase.rpc('create_task_from_marketing_plan_item', { p_item_id: t.sourceMarketingPlanItemId });
             data = result.data?.task;
             error = result.error;
-            if (!error && data && result.data?.created === false) return { success: true, data: rowToTask(data) };
+            if (!error && data && result.data?.created === false) {
+                const existingTask = rowToTask(data);
+                notifyTaskDataChanged();
+                return { success: true, data: existingTask };
+            }
         } else if (t.sourceInvestigationId) {
             const result = await supabase.rpc('create_task_from_search_investigation', {
                 p_investigation_id: t.sourceInvestigationId,
@@ -565,6 +532,7 @@ export async function createTask(
             });
         }
 
+        notifyTaskDataChanged();
         return { success: true, data: task, ...(basecampSync ? { basecampSync } : {}) };
     } catch (err: any) {
         console.error('Error creating task:', err);
@@ -576,7 +544,7 @@ export async function updateTask(
     taskId: string,
     // startDate/scheduledMinutes are omitted from the base so they can widen to
     // null — an intersection would collapse `string | null` back to `string`.
-    patch: Omit<Partial<TaskInsert>, 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours' | 'parentTaskId' | 'category' | 'stage'> & {
+    patch: Omit<Partial<TaskInsert>, 'initiativeId' | 'dueDate' | 'startDate' | 'scheduledMinutes' | 'estimatedHours' | 'parentTaskId' | 'category'> & {
         status?: TaskStatus;
         completedAt?: string | null;
         assigneeIds?: string[];
@@ -599,8 +567,7 @@ export async function updateTask(
         /** null clears the label stored in category. */
         category?: string | null;
         /** Onboarding flag. Written directly so a nested task can change it. */
-        stage?: Task['stage'];
-        /** Order in the stage column. Only a finite number is written. */
+        /** Order within the project or parent. Only a finite number is written. */
         position?: number;
     },
 ): Promise<{ success: boolean; data?: Task; error?: string }> {
@@ -617,7 +584,6 @@ export async function updateTask(
             ...(patch.priority !== undefined && { priority: patch.priority }),
             ...(patch.status !== undefined && { status: patch.status }),
             ...(patch.category !== undefined && { category: patch.category }),
-            ...(patch.stage !== undefined && { stage: patch.stage }),
             ...(typeof patch.position === 'number' && Number.isFinite(patch.position) && { position: patch.position }),
             ...(patch.tags !== undefined && { tags: patch.tags }),
             ...(patch.estimatedHours !== undefined && { estimated_hours: patch.estimatedHours }),
@@ -924,6 +890,7 @@ export async function updateTask(
             });
         }
 
+        notifyTaskDataChanged();
         return { success: true, data: updatedTask };
     } catch (err: any) {
         console.error('Error updating task:', err);
@@ -938,6 +905,7 @@ export async function deleteTask(taskId: string): Promise<{ success: boolean; er
         // Subtasks cascade via FK; comments cascade via FK
         const { error } = await supabase.from('tasks').delete().eq('id', taskId);
         if (error) throw error;
+        notifyTaskDataChanged();
         return { success: true };
     } catch (err: any) {
         console.error('Error deleting task:', err);
@@ -1218,7 +1186,6 @@ export async function createTaskFromTemplate(
             subtaskTitles: overrides.subtaskTitles,
             syncToBasecamp: overrides.syncToBasecamp,
             basecampTodolistId: overrides.basecampTodolistId,
-            stage: overrides.stage,
             actorName: overrides.actorName,
         });
     } catch (err: any) {

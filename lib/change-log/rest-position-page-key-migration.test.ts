@@ -1,0 +1,288 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+import { PGlite } from '@electric-sql/pglite';
+
+const migration140 = readFileSync(new URL('../../migrations/140_seo_change_rest_position.sql', import.meta.url), 'utf8');
+const migration141 = readFileSync(new URL('../../migrations/141_seo_change_rest_position_page_key.sql', import.meta.url), 'utf8');
+const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+
+const pages = [
+    'http://example.com',
+    'HTTPS://WWW.EXAMPLE.COM:443///?q=1#section',
+    'https://user:pass@www.Example.COM:8443/ABOUT///#section',
+    'https://example.com//About//',
+    'https://example.com/%61bout/',
+    'https://example.com/ab%2f/',
+    'https://example.com/Caf%C3%89/',
+    'https://example.com/%61%zz/',
+    'https://example.com/%61%ff/',
+    'https://example.com/other?utm_medium%3Dgbp',
+    'https://example.com/other?utm_medium%3Dgbp&ref=test',
+    'https://example.com/other?utm%5Fmedium=gbp',
+    'https://example.com/other?UTM_MEDIUM=GbP',
+    'https://example.com/other?utm_medium=%67bp',
+    'https://example.com/other?utm_medium=%47BP',
+    'https://example.com/other?utm_medium=%zz',
+    'https://example.com/other?utm_medium=%ff',
+    'https://example.com/other?utm_medium=gbp&utm_medium=email',
+    'https://example.com/other?utm_medium=email&utm%5fmedium=gbp',
+    'https://example.com/other?utm_medium&utm_medium=gbp',
+    'https://example.com/other?utm_source=google&utm_medium=organic',
+    'https://example.com/other?utm_campaign=gbp_listing#section',
+    'https://example.com/other?utm_medium=gbp=extra',
+    'https://example.com/other#?utm_medium=gbp',
+    'https://example.com/other?no-equals',
+    'ftp://example.com/about?utm_medium=gbp',
+    'not a URL',
+    '',
+];
+
+test('migration 141 is mirrored verbatim and starts with a lock timeout without a backfill or index build', () => {
+    assert.match(migration141, /NOT APPLIED — needs owner approval/);
+    assert.ok(schema.includes(`${migration141}\n-- Migration 142:`));
+    const sql = migration141.replace(/--[^\n]*/g, '').trimStart();
+    assert.match(sql, /^set local lock_timeout = '5s';/i);
+    assert.doesNotMatch(sql, /\bdo\s+\$\$|\bcreate\s+index\b|\bbackfill_gsc_history_page_key\(/i);
+});
+
+test('migration 141 matches migration 140 with stored keys, fallback, and backfill', async () => {
+    const db = new PGlite();
+    const organization = '00000000-0000-0000-0000-000000000001';
+    const client = '00000000-0000-0000-0000-000000000002';
+    const other = '00000000-0000-0000-0000-000000000003';
+    const property = 'sc-domain:example.com';
+    const dayIds = Array.from({ length: 8 }, (_, i) => `00000000-0000-0000-0000-00000000001${i}`);
+    const selectedDays = dayIds.slice(0, -1);
+    const rpc140 = 'select * from public.seo_change_rest_position_v140($1, $2, $3, $4, $5)';
+    const rpc141 = 'select * from public.seo_change_rest_position($1, $2, $3, $4, $5)';
+    const procedure = 'call public.run_gsc_history_page_key_backfill';
+    const exclusions = [[], ['example.com/'], ['example.com/about'], ['example.com/café'], ['example.com/about', null], null];
+
+    const addFact = (dayId: string, page: string, impressions: number, surface: string | null = 'organic', grain = 'page') =>
+        db.query(`
+            insert into public.gsc_history_facts (day_id, grain, page, clicks, impressions, position, surface)
+            values ($1, $2, $3, 1, $4, 2.5, $5) returning id
+        `, [dayId, grain, page, impressions, surface]);
+
+    const pendingPageIds = async () => (await db.query<{ id: number }>(`
+        select id from public.gsc_history_facts where grain = 'page' and page_gbp_tagged is null order by id
+    `)).rows.map(row => row.id);
+
+    const backfill = async (afterId: number | null, limit: number | null) => (await db.query<{
+        updated: number;
+        last_id: number | null;
+    }>('select * from public.backfill_gsc_history_page_key_batch($1, $2)', [afterId, limit])).rows[0];
+
+    const expectSameResults = async () => {
+        for (const keys of exclusions) {
+            const args = [organization, client, property, selectedDays, keys];
+            const legacy = (await db.query(rpc140, args)).rows;
+            assert.equal(legacy.length, 2);
+            assert.deepEqual((await db.query(rpc141, args)).rows, legacy, `excluded keys: ${JSON.stringify(keys)}`);
+        }
+    };
+
+    try {
+        await db.exec(`
+            create role anon;
+            create role authenticated;
+            create role service_role;
+            create table public.gsc_history_days (
+                id uuid primary key, organization_id uuid, client_id uuid, property text,
+                data_date date, search_type text, is_incomplete boolean
+            );
+            create table public.gsc_history_facts (
+                id bigint generated by default as identity primary key,
+                day_id uuid references public.gsc_history_days(id), grain text, page text not null,
+                clicks bigint, impressions bigint, position double precision, surface text
+            );
+            grant select on public.gsc_history_days to service_role;
+            grant select, insert, update on public.gsc_history_facts to service_role;
+        `);
+        await db.exec(migration140);
+        await db.exec(migration140.replaceAll('public.seo_change_rest_position(', 'public.seo_change_rest_position_v140('));
+
+        for (const [i, dayId] of dayIds.entries()) {
+            await db.query('insert into public.gsc_history_days values ($1, $2, $3, $4, $5, $6, $7)', [
+                dayId, i === 2 ? other : organization, i === 3 ? other : client,
+                i === 4 ? 'sc-domain:other.com' : property, `2026-11-1${i}`, i === 5 ? 'image' : 'web', i === 6,
+            ]);
+        }
+        for (const [i, page] of pages.entries()) {
+            await addFact(dayIds[0], page, i + 1);
+        }
+        await addFact(dayIds[0], 'https://example.com/blank-surface', 100, '');
+        await addFact(dayIds[0], 'https://example.com/null-surface', 100, null);
+        await addFact(dayIds[0], 'https://example.com/gbp-surface', 100, 'gbp_link');
+        await addFact(dayIds[0], 'https://example.com/other-grain', 100, 'organic', 'query_page');
+        await addFact(dayIds[0], 'https://example.com/other-grain', 100, 'organic', 'page_organic');
+        await addFact(dayIds[1], 'https://example.com/second-day', 30);
+        for (const dayId of dayIds.slice(2)) await addFact(dayId, 'https://example.com/out-of-scope', 100);
+        await db.query(`
+            insert into public.gsc_history_facts (id, day_id, grain, page, clicks, impressions, position, surface)
+            values (100001, $1, 'page', 'https://example.com/%61bout', 2, 20, 3.5, 'organic')
+        `, [dayIds[1]]);
+
+        const originalPageIds = (await db.query<{ id: number }>(`
+            select id from public.gsc_history_facts where grain = 'page' order by id
+        `)).rows.map(row => row.id);
+        await db.exec(`begin; ${migration141} commit;`);
+        assert.deepEqual(await pendingPageIds(), originalPageIds);
+        assert.deepEqual((await db.query(`
+            select id from public.gsc_history_facts where page_key is not null or page_gbp_tagged is not null
+        `)).rows, []);
+
+        // Project the inline 140 expressions over the URL corpus, without the RPC filters.
+        const legacyKey = migration140.match(/and \(\s*(regexp_replace[\s\S]+?)\s*= any\(p_excluded_page_keys\)/)?.[1];
+        const legacyTag = migration140.match(/and not (case when strpos[\s\S]+?else false end)/)?.[1];
+        const legacyRegex = migration140.match(/cross join lateral (regexp_match\([\s\S]+?as parsed\(url\))/)?.[1];
+        assert.ok(legacyKey && legacyTag && legacyRegex);
+        const helperResults = await db.query<{
+            page: string | null;
+            legacy_key: string | null;
+            legacy_tag: boolean;
+            page_key: string | null;
+            page_gbp_tagged: boolean;
+        }>(`
+            select f.page, ${legacyKey} as legacy_key, ${legacyTag} as legacy_tag,
+                   public.seo_change_page_key(f.page) as page_key,
+                   public.seo_change_page_gbp_tagged(f.page) as page_gbp_tagged
+            from unnest($1::text[]) as f(page)
+            cross join lateral ${legacyRegex}
+        `, [[...pages, null]]);
+        assert.equal(helperResults.rows.length, pages.length + 1);
+        for (const row of helperResults.rows) {
+            assert.equal(row.page_key, row.legacy_key, `page key for ${row.page}`);
+            assert.equal(row.page_gbp_tagged, row.legacy_tag, `GBP tag for ${row.page}`);
+            assert.equal(typeof row.page_gbp_tagged, 'boolean');
+        }
+
+        for (const role of ['anon', 'authenticated']) {
+            await db.exec(`set role ${role}`);
+            await assert.rejects(db.query(rpc141, [organization, client, property, selectedDays, []]), /permission denied for function/);
+            await assert.rejects(db.query("select public.seo_change_page_key('https://example.com')"), /permission denied for function/);
+            await assert.rejects(db.query("select public.seo_change_page_gbp_tagged('https://example.com')"), /permission denied for function/);
+            await assert.rejects(backfill(null, 2), /permission denied for function/);
+            await assert.rejects(db.exec(`${procedure}(null::bigint, 2, 1)`), /permission denied for procedure/);
+            await assert.rejects(db.query('select public.set_gsc_history_page_key()'), /permission denied for function/);
+        }
+        await db.exec('set role service_role');
+        await expectSameResults();
+        for (const dayArg of [[], Array(84).fill(dayIds[0]), Array(85).fill(dayIds[0]), null]) {
+            const args = [organization, client, property, dayArg, []];
+            const legacy = (await db.query(rpc140, args)).rows;
+            assert.equal(legacy.length, dayArg?.length === 84 ? 1 : 0);
+            assert.deepEqual((await db.query(rpc141, args)).rows, legacy);
+        }
+
+        for (const limit of [0, 5001, null]) {
+            await assert.rejects(backfill(null, limit), /limit must be between 1 and 5000/);
+        }
+
+        // A freshly ingested URL can have a null key while its tag marks it as computed.
+        const computed = (await addFact(dayIds[7], 'not a URL', 1)).rows[0];
+        const untouchedRows = async () => (await db.query(`
+            select id, page_key, page_gbp_tagged, xmin::text as transaction_id
+            from public.gsc_history_facts where grain <> 'page' or id = $1 order by id
+        `, [computed.id])).rows;
+        const beforeBackfill = await untouchedRows();
+        assert.deepEqual(beforeBackfill.map(({ page_key, page_gbp_tagged }) => [page_key, page_gbp_tagged]), [
+            [null, null], [null, null], [null, false],
+        ]);
+
+        // A cursor above pending IDs leaves those rows for the next pass.
+        assert.deepEqual(await backfill(100000, 2), { updated: 1, last_id: 100001 });
+        const remaining = originalPageIds.slice(0, -1);
+        assert.deepEqual(await pendingPageIds(), remaining);
+        await expectSameResults();
+
+        let lastId: number | null = null;
+        for (let offset = 0; offset < 6; offset += 2) {
+            const batch = await backfill(lastId, 2);
+            assert.deepEqual(batch, { updated: 2, last_id: remaining[offset + 1] });
+            lastId = batch.last_id;
+            assert.deepEqual(await pendingPageIds(), remaining.slice(offset + 2));
+            await expectSameResults();
+        }
+        assert.deepEqual(await backfill(lastId, 5000), { updated: remaining.length - 6, last_id: remaining.at(-1) });
+        assert.deepEqual(await pendingPageIds(), []);
+        assert.deepEqual(await backfill(null, 2), { updated: 0, last_id: null });
+        await expectSameResults();
+        assert.deepEqual(await untouchedRows(), beforeBackfill);
+        assert.deepEqual((await db.query(`
+            select id from public.gsc_history_facts
+            where grain = 'page' and (
+                page_key is distinct from public.seo_change_page_key(page)
+                or page_gbp_tagged is distinct from public.seo_change_page_gbp_tagged(page)
+            )
+        `)).rows, []);
+
+        const retryIds = originalPageIds.slice(0, 5);
+        await db.query(`
+            update public.gsc_history_facts set page_key = null, page_gbp_tagged = null where id = any($1::bigint[])
+        `, [retryIds]);
+        for (const maxBatches of [0, 201, null]) {
+            await assert.rejects(db.query(`${procedure}(null, 2, $1)`, [maxBatches]), /max batches must be between 1 and 200/);
+        }
+        await assert.rejects(db.exec(`${procedure}(null, 0, 1)`), /limit must be between 1 and 5000/);
+        assert.deepEqual(await pendingPageIds(), retryIds);
+
+        const notices: (string | undefined)[] = [];
+        const onNotice = ({ message }: { message: string | undefined }) => { notices.push(message); };
+        await db.exec(`${procedure}(p_batch_size => 2, p_max_batches => 2)`, { onNotice });
+        assert.deepEqual(await pendingPageIds(), retryIds.slice(4));
+        const { rows: batches } = await db.query<{ ids: number[] }>(`
+            select array_agg(id order by id) as ids from public.gsc_history_facts
+            where id = any($1::bigint[]) and page_gbp_tagged is not null
+            group by xmin::text order by min(id)
+        `, [retryIds]);
+        assert.deepEqual(batches.map(row => row.ids), [retryIds.slice(0, 2), retryIds.slice(2, 4)]);
+        await expectSameResults();
+        const resumeAfter = notices[0]?.match(/last id (\d+)$/)?.[1];
+        assert.ok(resumeAfter);
+        // Model a row left pending by SKIP LOCKED below the reported cursor.
+        const skippedId = retryIds[0];
+        await db.query(`
+            update public.gsc_history_facts set page_key = null, page_gbp_tagged = null where id = $1
+        `, [skippedId]);
+        await db.exec(`${procedure}(p_after_id => ${resumeAfter}, p_batch_size => 2)`, { onNotice });
+        assert.deepEqual(await pendingPageIds(), [skippedId]);
+        await db.exec(`${procedure}(p_after_id => null, p_batch_size => 2)`, { onNotice });
+        assert.deepEqual(await pendingPageIds(), []);
+        assert.deepEqual(notices, [
+            `page key backfill: 2 batches, 4 rows, last id ${retryIds[3]}`,
+            `page key backfill: 1 batches, 1 rows, last id ${retryIds[4]}`,
+            `page key backfill: 1 batches, 1 rows, last id ${skippedId}`,
+        ]);
+        await expectSameResults();
+
+        const stored = await db.query(`
+            select public.seo_change_page_key('http://www.example.com/Start/') as page_key,
+                   public.seo_change_page_gbp_tagged('http://www.example.com/Start/?utm_medium=gbp') as page_gbp_tagged
+        `);
+        assert.deepEqual(stored.rows, [{ page_key: 'example.com/start', page_gbp_tagged: true }]);
+        const inserted = await db.query<{ id: number; page_key: string; page_gbp_tagged: boolean }>(`
+            insert into public.gsc_history_facts (day_id, grain, page)
+            values ($1, 'page', 'http://www.example.com/Start/?utm_medium=gbp')
+            returning id, page_key, page_gbp_tagged
+        `, [dayIds[0]]);
+        const { id, page_key, page_gbp_tagged } = inserted.rows[0];
+        assert.deepEqual([{ page_key, page_gbp_tagged }], stored.rows);
+        assert.deepEqual((await db.query(`
+            update public.gsc_history_facts set page = 'https://example.com/Next/' where id = $1
+            returning page_key, page_gbp_tagged
+        `, [id])).rows, [{ page_key: 'example.com/next', page_gbp_tagged: false }]);
+        assert.deepEqual((await db.query(`
+            update public.gsc_history_facts set grain = 'query_page' where id = $1
+            returning page_key, page_gbp_tagged
+        `, [id])).rows, [{ page_key: null, page_gbp_tagged: null }]);
+        assert.deepEqual((await db.query(`
+            insert into public.gsc_history_facts (day_id, grain, page, page_key, page_gbp_tagged)
+            values ($1, 'query_page', 'http://example.com/', 'supplied-key', true)
+            returning page_key, page_gbp_tagged
+        `, [dayIds[0]])).rows, [{ page_key: null, page_gbp_tagged: null }]);
+    } finally {
+        await db.close();
+    }
+});

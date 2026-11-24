@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createAdminClient } from '../../lib/supabase/admin';
-import { phasePlanSteps } from '../../lib/seo-plan/plan-phases';
+import { MARKETING_PLAN_STEPS } from '../../lib/marketing-plan-template';
 import {
     applyImport, buildPreview, parseCsv, parsePreviewCsv, planApply, tabs, toPreviewCsv, uuidPattern,
     type Grids, type ImportDeps, type Manifest,
@@ -79,7 +79,7 @@ function databaseDeps(actor: string | undefined): ImportDeps {
             const existing = await findPlan(clientId);
             if (existing) return existing;
             const { error } = await db.from('marketing_plans').upsert({
-                client_id: clientId, organization_id: await organization(clientId), title, steps: phasePlanSteps(),
+                client_id: clientId, organization_id: await organization(clientId), title, steps: MARKETING_PLAN_STEPS.map(step => ({ ...step })),
             }, { onConflict: 'client_id', ignoreDuplicates: true });
             if (error) throw new Error(`Could not create marketing plan (${error.code})`);
             const id = await findPlan(clientId);

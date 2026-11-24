@@ -49,20 +49,22 @@ const SUMMARY: Array<{
  */
 export function buildGroupSummary(impact: ImpactModel): GroupSummary {
     const ready = impact.headline.ready;
+    const picked = impact.headline.controlMode === 'picked';
+    const control = picked ? impact.headline.pickedControlClicks ?? null : impact.headline.restOfSite;
     return {
         ready,
         days: ready ? impact.headline.days : null,
         rows: SUMMARY.map(spec => {
             const beforeRead = spec.site ? impact.baselineControl : impact.baseline;
             const afterRead = ready
-                ? (spec.site ? impact.headline.restOfSite : impact.headline.page)
+                ? (spec.site ? control : impact.headline.page)
                 : null;
             const before = readMetric(spec, beforeRead);
             const after = readMetric(spec, afterRead);
             return {
                 id: spec.id,
-                label: spec.label,
-                note: spec.note,
+                label: picked && spec.site ? 'Selected control page clicks per day' : spec.label,
+                note: picked && spec.site ? null : spec.note,
                 before,
                 after,
                 change: percentChange(before, after),

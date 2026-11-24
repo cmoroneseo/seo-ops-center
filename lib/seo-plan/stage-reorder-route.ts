@@ -1,5 +1,6 @@
+import { NO_PROJECT_GROUP } from './project-groups';
+import type { PartOfChoice } from '../tasks/part-of';
 import type { SessionOrganization } from '../reports/session-org';
-import { isBoardStage } from './plan-phases';
 import {
     applyStageReorder,
     STAGE_REORDER_NOT_FOUND,
@@ -10,7 +11,6 @@ import { planTaskQualifiesForBasecampPush, type PlanBasecampSyncState } from './
 import type { StageListTask } from './stage-list';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_PATCHES = 500;
 
 export interface StageReorderDependencies {
@@ -19,6 +19,7 @@ export interface StageReorderDependencies {
     enabled: (organizationId: string) => boolean;
     /** Null when the client is not in the session organization. */
     load: (organizationId: string, clientId: string) => Promise<StageListTask[] | null>;
+    loadProjects?: (organizationId: string, clientId: string) => Promise<Pick<PartOfChoice, 'id'>[]>;
     /** One atomic rewrite of the affected rows. */
     rewrite: (
         organizationId: string,
@@ -26,17 +27,7 @@ export interface StageReorderDependencies {
         writes: readonly StageReorderWrite[],
     ) => Promise<StageListTask[]>;
     /**
-     * Write tasks.due_date for the dragged row. Null clears it.
-     */
-    setDue?: (
-        organizationId: string,
-        clientId: string,
-        taskId: string,
-        dueDate: string | null,
-    ) => Promise<void>;
-    /**
-     * Push a task that qualifies after the move. Undated backlog moves are
-     * not passed here. The same function create uses.
+     * Push a moved task when its parent changed or it qualifies for plan sync.
      */
     pushPlanTask?: (
         taskId: string,
@@ -51,13 +42,6 @@ export interface StageReorderDependencies {
 export type StageReorderResult =
     | { status: 200; body: { tasks: StageListTask[] } }
     | { status: 400 | 401 | 403 | 404 | 500; body: { error: string } };
-
-function readDueDate(record: Record<string, unknown>): { ok: true; dueDate?: string | null } | { ok: false } {
-    if (!Object.hasOwn(record, 'dueDate')) return { ok: true };
-    if (record.dueDate === null) return { ok: true, dueDate: null };
-    if (typeof record.dueDate === 'string' && DAY.test(record.dueDate)) return { ok: true, dueDate: record.dueDate };
-    return { ok: false };
-}
 
 /**
  * Parents whose checklist may have changed.
@@ -84,7 +68,6 @@ function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: 
     if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false };
     const record = body as Record<string, unknown>;
     if (typeof record.taskId !== 'string' || !ID.test(record.taskId.trim())) return { ok: false };
-    if (!isBoardStage(record.stage)) return { ok: false };
     if (typeof record.index !== 'number' || !Number.isInteger(record.index) || record.index < 0 || record.index > 10000) {
         return { ok: false };
     }
@@ -93,16 +76,16 @@ function readMove(body: unknown): { ok: true; value: StageReorderMove } | { ok: 
         if (typeof record.parentTaskId !== 'string' || !ID.test(record.parentTaskId.trim())) return { ok: false };
         parentTaskId = record.parentTaskId.trim();
     }
-    const due = readDueDate(record);
-    if (!due.ok) return { ok: false };
+    const projectGroup = record.projectGroup;
+    if (projectGroup !== undefined && (typeof projectGroup !== 'string'
+        || (projectGroup !== NO_PROJECT_GROUP && !ID.test(projectGroup)))) return { ok: false };
     return {
         ok: true,
         value: {
             taskId: record.taskId.trim(),
-            stage: record.stage,
             parentTaskId,
             index: record.index,
-            ...(due.dueDate !== undefined ? { dueDate: due.dueDate } : {}),
+            ...(projectGroup ? { projectGroup } : {}),
         },
     };
 }
@@ -133,6 +116,7 @@ export async function reorderStageTasks(
         const tasks = await dependencies.load(session.organizationId, clientId);
         if (!tasks) return { status: 404, body: { error: 'Not found' } };
 
+        parsed.value.projects = await dependencies.loadProjects?.(session.organizationId, clientId);
         const plan = applyStageReorder(tasks, parsed.value);
         if (!plan.ok) {
             const status = plan.error === STAGE_REORDER_NOT_FOUND ? 404 : 400;
@@ -146,25 +130,10 @@ export async function reorderStageTasks(
             if (updated.length !== plan.writes.length) return { status: 500, body: { error: 'Could not move tasks' } };
         }
         const current = tasks.find(task => task.id === parsed.value.taskId);
-        if (parsed.value.dueDate !== undefined) {
-            if (!dependencies.setDue) return { status: 500, body: { error: 'Could not move tasks' } };
-            await dependencies.setDue(session.organizationId, clientId, parsed.value.taskId, parsed.value.dueDate);
-            const dueDate = parsed.value.dueDate;
-            if (updated.some(task => task.id === parsed.value.taskId)) {
-                updated = updated.map(task => task.id === parsed.value.taskId ? { ...task, dueDate } : task);
-            } else if (current) {
-                updated = [...updated, { ...current, dueDate }];
-            }
-        }
-        const dueDate = parsed.value.dueDate !== undefined
-            ? parsed.value.dueDate
-            : (current?.dueDate ?? null);
-        // A parent change has to relink Basecamp even when the task itself
-        // does not qualify for a push. An undated backlog row would otherwise
-        // keep a flat to-do after Move under.
+        const dueDate = current?.dueDate ?? null;
         const parentChanged = (current?.parentTaskId ?? null) !== parsed.value.parentTaskId;
-        const qualifies = planTaskQualifiesForBasecampPush({ stage: parsed.value.stage, dueDate });
-        if (parentChanged || qualifies) {
+        const qualifies = planTaskQualifiesForBasecampPush({ dueDate, initiativeId: current?.initiativeId });
+        if (plan.writes.length && (parentChanged || qualifies)) {
             try {
                 const sync = await dependencies.pushPlanTask?.(parsed.value.taskId);
                 if (sync && typeof sync === 'object') {

@@ -48,7 +48,7 @@ type ChartTab = 'daily' | 'aligned' | 'indexed';
 const TABS: Array<{ id: ChartTab; label: string }> = [
     { id: 'daily', label: 'Timeline' },
     { id: 'aligned', label: 'Overlay' },
-    { id: 'indexed', label: 'Compared with the rest of the site' },
+    { id: 'indexed', label: 'Comparison' },
 ];
 
 export function ImpactChart({
@@ -161,6 +161,9 @@ export function ImpactChart({
             {tab === 'indexed' && (
                 <div role="tabpanel" id="change-chart-panel-indexed" aria-labelledby="change-chart-tab-indexed" data-live-marker="true" className="mt-3">
                     {caption && <p className="mb-3 text-xs text-muted-foreground" data-chart-caption>{caption}</p>}
+                    {metric === 'avg_position' && !indexed.hasControl && (
+                        <p className="mb-3 text-xs text-muted-foreground">The average position comparison is unavailable.</p>
+                    )}
                     <IndexedView
                         points={indexed.points}
                         liveOn={liveOn}
@@ -168,7 +171,7 @@ export function ImpactChart({
                         controlLabel={controlLabel}
                         hasControl={indexed.hasControl}
                         seriesName={seriesName}
-                        caption={caption ?? 'Compared with the rest of the site.'}
+                        caption={caption ?? `${seriesName} compared with its starting point.`}
                     />
                 </div>
             )}

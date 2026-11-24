@@ -341,7 +341,6 @@ export async function listImportedBasecampTodoIds(
 export interface ImportedBasecampTask {
     id: string;
     title: string;
-    stage: string | null;
     priority: string | null;
 }
 
@@ -361,7 +360,6 @@ export async function findImportedBasecampTask(
     return {
         id: task.id,
         title: task.title,
-        stage: task.stage,
         priority: task.priority,
     };
 }
@@ -370,7 +368,6 @@ export interface ImportedBasecampRecording {
     id: string;
     title: string;
     basecampTodoId: number;
-    stage: string | null;
     priority: string | null;
     parentTaskId: string | null;
 }
@@ -395,7 +392,7 @@ export async function findImportedBasecampRecordings(
         const part = ids.slice(index, index + chunkSize);
         const { data, error } = await admin
             .from('tasks')
-            .select('id, title, basecamp_todo_id, stage, priority, parent_task_id')
+            .select('id, title, basecamp_todo_id, priority, parent_task_id')
             .eq('organization_id', organizationId)
             .eq('client_id', clientId)
             .in('basecamp_todo_id', part);
@@ -407,7 +404,6 @@ export async function findImportedBasecampRecordings(
                 id: row.id,
                 title: row.title ?? '',
                 basecampTodoId: recordingId,
-                stage: typeof row.stage === 'string' ? row.stage : null,
                 priority: typeof row.priority === 'string' ? row.priority : null,
                 parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : null,
             });
@@ -446,16 +442,15 @@ export async function membersByBasecampPersonId(
 /** Insert one already-shaped task row and hand back what it became. */
 export async function insertImportedTask(
     row: Record<string, unknown>,
-): Promise<{ id: string; title: string; stage: string | null }> {
+): Promise<{ id: string; title: string }> {
     const { data, error } = await createAdminClient()
         .from('tasks')
         .insert(row)
-        .select('id, title, stage')
+        .select('id, title')
         .single();
     if (error) throw error;
     return {
         id: data.id,
         title: data.title ?? '',
-        stage: typeof data.stage === 'string' ? data.stage : null,
     };
 }

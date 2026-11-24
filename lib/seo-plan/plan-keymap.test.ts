@@ -26,7 +26,7 @@ function input(overrides: Partial<PlanKeymapInput> = {}): PlanKeymapInput {
 
 test('the sheet lists every shortcut in the map', () => {
     const text = PLAN_KEYMAP.map(item => `${item.keys} ${item.label}`).join('\n');
-    for (const keys of ['c', '↵', 'Tab', 'Esc', 'j', 'k', 'x', 't', 'u', '/', '[', ']', '→', '←', '?']) {
+    for (const keys of ['c', '↵', 'Esc', 'j', 'k', 'x', 't', 'u', '/', 'Alt + ↑ / ↓', '→', '←', '?']) {
         assert.match(text, new RegExp(keys.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     }
 });
@@ -40,8 +40,6 @@ test('checking a row flips done and to do', () => {
 test('c, slash, brackets, and question mark', () => {
     assert.equal(planKeymapAction(input({ key: 'c' })).type, 'focus-add');
     assert.equal(planKeymapAction(input({ key: '/' })).type, 'focus-search');
-    assert.deepEqual(planKeymapAction(input({ key: '[' })), { type: 'shift-month', delta: -1 });
-    assert.deepEqual(planKeymapAction(input({ key: ']' })), { type: 'shift-month', delta: 1 });
     assert.equal(planKeymapAction(input({ key: '?' })).type, 'help');
     assert.equal(planKeymapAction(input({ key: '/', shiftKey: true })).type, 'help');
 });
@@ -109,7 +107,7 @@ test('escape closes the sheet, clears search, and leaves owned fields alone', ()
 });
 
 test('single-key shortcuts stay off inside a text field', () => {
-    const keys = ['c', 'j', 'k', 'x', 'u', 't', '/', '[', ']', 'ArrowRight', 'ArrowLeft', '?', 'Enter', 'C', 'X'];
+    const keys = ['c', 'j', 'k', 'x', 'u', 't', '/', 'Alt + ↑ / ↓', 'ArrowRight', 'ArrowLeft', '?', 'Enter', 'C', 'X'];
     for (const key of keys) {
         assert.equal(planKeymapAction(input({
             key,

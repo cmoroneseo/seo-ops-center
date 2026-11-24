@@ -8,8 +8,6 @@ import {
     playbookAddLabel,
     playbookAddTitles,
     playbookCatalog,
-    playbookChoiceId,
-    playbookChoices,
     playbookItems,
     playbookMatching,
     playbookRowState,
@@ -20,19 +18,17 @@ import {
     type PlaybookRowState,
     type PlaybookScope,
 } from '@/lib/seo-plan/playbook';
-import type { PlanBoard } from '@/lib/seo-plan/plan-phases';
+import type { PartOfChoice } from '@/lib/tasks/part-of';
 import { cn } from '@/lib/utils';
 
 /**
- * Side drawer for adding saved tasks to one stage.
+ * Side drawer for adding saved tasks to a project.
  * Search, groups, and the duplicate marks are decided in lib/seo-plan/playbook.
  * The add button calls the plan's existing task create path.
  */
 export function PlaybookDrawer({
-    board,
-    month,
-    today,
     openedFrom,
+    projects,
     tasks,
     planRows = [],
     orgTasks = [],
@@ -41,10 +37,8 @@ export function PlaybookDrawer({
     onClose,
     onAdd,
 }: {
-    board: PlanBoard;
-    month: string;
-    today: string;
     openedFrom: string | null;
+    projects: readonly PartOfChoice[];
     tasks: readonly { title: string; status?: string; excluded?: boolean }[];
     planRows?: readonly PlaybookExisting[];
     orgTasks?: readonly PlaybookOrgTask[];
@@ -57,7 +51,7 @@ export function PlaybookDrawer({
     const dialogRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState('');
-    const [choiceId, setChoiceId] = useState(() => playbookChoiceId(board, openedFrom));
+    const [projectId, setProjectId] = useState(openedFrom ?? '');
     const [selected, setSelected] = useState<Set<string>>(() => new Set());
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -72,9 +66,7 @@ export function PlaybookDrawer({
         [tasks, planRows],
     );
     const selectedItems = allItems.filter(item => selected.has(item.id));
-    const choices = playbookChoices(board, month, today);
-    const choice = choices.find(item => item.id === choiceId) ?? choices[0];
-    const titles = choice ? playbookAddTitles(selectedItems, existing) : [];
+    const titles = playbookAddTitles(selectedItems, existing);
 
     useEffect(() => {
         const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -128,8 +120,8 @@ export function PlaybookDrawer({
     }
 
     async function add() {
-        if (!choice || titles.length === 0 || busy) return;
-        const calls = playbookAddCalls(titles, choice);
+        if (titles.length === 0 || busy) return;
+        const calls = playbookAddCalls(titles, projects.some(project => project.id === projectId) ? projectId : null);
         setBusy(true);
         setError(null);
         let landed = 0;
@@ -192,34 +184,19 @@ export function PlaybookDrawer({
                         onChange={event => setQuery(event.target.value)}
                         className="w-full rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-3 py-2 text-[13px] outline-none placeholder:text-[#a1a1aa] focus-visible:ring-2 focus-visible:ring-[#ec4899] disabled:opacity-60"
                     />
-                    {choice && (
-                        <fieldset>
-                            <legend className="mb-2 text-[13px] font-medium">{PLAYBOOK_COPY.stage}</legend>
-                            <div className="flex flex-wrap gap-2">
-                                {choices.map(option => (
-                                    <label
-                                        key={option.id}
-                                        className={cn(
-                                            'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[13px]',
-                                            option.id === choice.id ? 'border-[#ec4899] text-[#18181b]' : 'border-[#e4e4e7] text-[#3f3f46]',
-                                        )}
-                                    >
-                                        <input
-                                            type="radio"
-                                            name="playbook-stage"
-                                            value={option.id}
-                                            checked={option.id === choice.id}
-                                            disabled={busy}
-                                            data-playbook-stage={option.id}
-                                            onChange={() => setChoiceId(option.id)}
-                                        />
-                                        {option.label}
-                                    </label>
-                                ))}
-                            </div>
-                            <p className="mt-2 text-[12px] leading-5 text-[#52525b]" data-playbook-stage-detail>{choice.detail}</p>
-                        </fieldset>
-                    )}
+                    <label className="block text-[13px] font-medium">
+                        {PLAYBOOK_COPY.project}
+                        <select
+                            data-playbook-project
+                            value={projects.some(project => project.id === projectId) ? projectId : ''}
+                            disabled={busy}
+                            onChange={event => setProjectId(event.target.value)}
+                            className="mt-1 block w-full rounded-md border border-[#e4e4e7] bg-white px-2 py-1.5"
+                        >
+                            <option value="">No project</option>
+                            {projects.map(project => <option key={project.id} value={project.id}>{project.title}</option>)}
+                        </select>
+                    </label>
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">

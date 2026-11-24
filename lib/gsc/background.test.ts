@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backgroundHistoryDates, backgroundWindowLength, planBackgroundDays, planV2Backfill, retryDelaySeconds, V2_BACKFILL_HISTORY_DAYS, V2_REQUEST_GAP_MS } from './background';
+import { backgroundHistoryDates, backgroundWindowLength, planBackgroundDays, planOlderFinalDay, planV2Backfill, retryDelaySeconds, V2_BACKFILL_HISTORY_DAYS, V2_REQUEST_GAP_MS } from './background';
 import { dateOffset } from './history';
 const now = new Date('2026-10-01T18:00:00Z');
 test('background history spans 480 dates, Pacific dates including today newest first', () => {
@@ -10,13 +10,13 @@ test('background history spans 480 dates, Pacific dates including today newest f
 });
 test('recent revisions cannot starve behind historical backfill; fresh days do not refetch', () => {
  const dates=backgroundHistoryDates(now);
- const old={data_date:dates[0],imported_at:'2026-09-29T00:00:00Z'};
- const fresh={data_date:dates[1],imported_at:now.toISOString()};
+ const old={data_date:dates[0],imported_at:'2026-09-29T00:00:00Z',is_incomplete:true};
+ const fresh={data_date:dates[1],imported_at:now.toISOString(),is_incomplete:true};
  assert.deepEqual(planBackgroundDays(dates,[old,fresh],now),[dates[2],dates[0],dates[3],dates[4]]);
 });
 test('complete fresh coverage is idle; stale recent days rotate without rewriting older history', () => {
  const dates=backgroundHistoryDates(now);
- const all=dates.map(data_date=>({data_date,imported_at:now.toISOString()}));
+ const all=dates.map(data_date=>({data_date,imported_at:now.toISOString(),is_incomplete:false}));
  assert.deepEqual(planBackgroundDays(dates,all,now),[]);
  assert.deepEqual(planBackgroundDays(dates,all.map(day=>({...day,imported_at:'2026-09-29T00:00:00Z'})),now),dates.slice(0,4));
 });
@@ -27,10 +27,85 @@ test('retry delays increase and stay bounded',()=>{
 
 test('preliminary dates refresh hourly without repeatedly fetching fresh snapshots',()=>{
  const dates=backgroundHistoryDates(now);
- const all=dates.map(data_date=>({data_date,imported_at:now.toISOString()}));
+ const all=dates.map((data_date,index)=>({data_date,imported_at:now.toISOString(),is_incomplete:index<3}));
  const previousHour=new Date(now.getTime()-3600001).toISOString();
  all[0].imported_at=previousHour;all[4].imported_at=previousHour;
  assert.deepEqual(planBackgroundDays(dates,all,now),[dates[0]]);
+});
+
+test('mature incomplete days take priority over stale revisions and missing history', () => {
+    const now = new Date('2026-10-02T02:00:00Z'); // Still October 1 in Pacific time.
+    const dates = backgroundHistoryDates(now, 35);
+    const existing = dates.slice(0, 16).filter(date => date !== dates[6]).map(data_date => ({
+        data_date,
+        imported_at: '2026-10-02T00:00:00Z',
+        is_incomplete: [dates[2], dates[3], dates[9], dates[11], dates[12], dates[15]].includes(data_date),
+    }));
+    existing[0].imported_at = '2026-10-01T00:00:00Z';
+
+    const first = planBackgroundDays(dates, existing, now);
+    assert.deepEqual(first, [dates[3], dates[9], dates[11], dates[12]]);
+    for (const day of existing) if (first.includes(day.data_date)) day.is_incomplete = false;
+    assert.deepEqual(planBackgroundDays(dates, existing, now), [dates[15], dates[6], dates[0], dates[16]]);
+});
+
+test('a mature day that remains incomplete after a fetch leaves the worker idle until the hourly retry', () => {
+    const dates = backgroundHistoryDates(now, 10);
+    const hourAgo = new Date(now.getTime() - 3600000).toISOString();
+    const coverage = dates.map((data_date, index) => ({
+        data_date,
+        imported_at: index === 3 ? hourAgo : now.toISOString(),
+        is_incomplete: index === 3,
+    }));
+    assert.deepEqual(planBackgroundDays(dates, coverage, now), [dates[3]]);
+
+    const savedAt = new Date(now.getTime() + 1000);
+    coverage[3].imported_at = savedAt.toISOString();
+    assert.deepEqual(planBackgroundDays(dates, coverage, now), []);
+    const remaining = planBackgroundDays(dates, coverage, now, 1).length > 0;
+    assert.equal(remaining, false);
+    assert.deepEqual(planBackgroundDays(dates, coverage, new Date(savedAt.getTime() + 3600000), 1), [dates[3]]);
+});
+
+test('the newest stale day cannot repeatedly displace older recent revisions', () => {
+    const dates = backgroundHistoryDates(now, 10);
+    const existing = dates.slice(0, 7).map((data_date, index) => ({
+        data_date,
+        imported_at: index === 0 ? '2026-10-01T16:00:00Z' : '2026-09-29T00:00:00Z',
+        is_incomplete: false,
+    }));
+    assert.deepEqual(planBackgroundDays(dates, existing, now, 2), [dates[1], dates[7]]);
+});
+
+test('older final re-check rotates by import age among dates outside the recent window and within 90 days', () => {
+    const dates = backgroundHistoryDates(now);
+    const days = dates.map(data_date => ({ data_date, imported_at: now.toISOString(), is_incomplete: false }));
+    const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+    days[6].imported_at = '2026-09-01T00:00:00Z'; // Recent work only.
+    days[7].imported_at = weekAgo;
+    days[8].imported_at = new Date(Date.parse(weekAgo) + 1).toISOString();
+    days[9].imported_at = '2026-09-01T00:00:00Z';
+    days[9].is_incomplete = true;
+    days[89].imported_at = '2026-09-02T00:00:00Z';
+    days[90].imported_at = '2026-09-01T00:00:00Z';
+
+    assert.deepEqual(planBackgroundDays(dates, days, now), [dates[9], dates[6]]);
+    assert.equal(planOlderFinalDay(dates, days, now), dates[89]);
+    days[89].imported_at = now.toISOString();
+    assert.equal(planOlderFinalDay(dates, days, now), dates[7]);
+    days[7].imported_at = now.toISOString();
+    assert.equal(planOlderFinalDay(dates, days, now), null);
+});
+
+test('older final re-check is separate from the priority work that keeps a claim pending', () => {
+    const dates = backgroundHistoryDates(now, 14);
+    const days = dates.filter((_, index) => index !== 10).map((data_date, index) => ({
+        data_date, imported_at: index === 7 ? '2026-09-01T00:00:00Z' : now.toISOString(), is_incomplete: false,
+    }));
+    assert.deepEqual(planBackgroundDays(dates, days, now, 1), [dates[10]]);
+    days.push({ data_date: dates[10], imported_at: now.toISOString(), is_incomplete: false });
+    assert.deepEqual(planBackgroundDays(dates, days, now, 1), []);
+    assert.equal(planOlderFinalDay(dates, days, now), dates[7]);
 });
 
 test('the 486-day window is separate from the daily 480-day sync', () => {

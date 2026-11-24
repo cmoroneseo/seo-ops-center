@@ -32,9 +32,9 @@ function task(partial: Partial<PartOfTask> & Pick<PartOfTask, 'id' | 'title'>): 
 }
 
 test('linking, unlinking, and a different client are decided before the write', () => {
-    assert.equal(PART_OF_TERM, 'Part of');
-    assert.equal(partOfLine('Rank the service pages', true), 'Part of: Rank the service pages');
-    assert.equal(partOfLine(null, false), 'Part of: None');
+    assert.equal(PART_OF_TERM, 'Project');
+    assert.equal(partOfLine('Rank the service pages', true), 'Project: Rank the service pages');
+    assert.equal(partOfLine(null, false), 'Project: None');
     assert.deepEqual(partOfWrite(owned, goal, rank), { ok: true, initiativeId: rank });
     assert.deepEqual(partOfWrite(owned, goal, null), { ok: true, initiativeId: null });
     assert.deepEqual(partOfWrite({ ...owned, parentTaskId: 'parent' }, goal, rank), {
@@ -73,8 +73,7 @@ test('progress counts top-level tasks and says nothing when none are linked', ()
 
 test('the client roadmap does not gain a public link field', () => {
     const roadmap = projectClientRoadmap({
-        board: 'phases',
-        today: '2026-11-07',
+        projects: [{ id: rank, title: 'Rank the service page', state: 'in_progress' }],
         tasks: [{
             id: 'page',
             title: 'Rewrite the service page',
@@ -91,7 +90,8 @@ test('the client roadmap does not gain a public link field', () => {
     });
     const json = JSON.stringify(roadmap);
     assert.match(json, /Rewrite the service page/);
+    assert.match(json, /Rank the service page/);
     assert.equal(json.includes(rank), false);
     assert.equal(json.includes('initiative'), false);
-    assert.equal(json.includes('Part of'), false);
+    assert.equal(json.includes('Project:'), false);
 });

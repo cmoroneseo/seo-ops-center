@@ -33,7 +33,7 @@ export function seoPlanV2Enabled(
 }
 
 /**
- * Stage-grouped SEO Plan list. Off unless both are set.
+ * Project work board. Off unless both are set.
  *
  * `SEO_PLAN_STAGE_LIST` must be the exact string `true`.
  * `SEO_PLAN_STAGE_LIST_ORG_IDS` is a required comma-separated organization

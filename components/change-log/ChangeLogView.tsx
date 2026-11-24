@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import {
     CHANGE_COLUMNS,
+    COMPARISON_UNAVAILABLE_LABEL,
     DEFAULT_CHANGE_SORT,
     RESULT_STRIP,
     filterChanges,
@@ -72,6 +73,7 @@ export function ChangeLogView({
     onBack,
     onSubmit,
     onRemove,
+    onSaveControlPages,
     onExample,
 }: {
     clientName: string;
@@ -99,6 +101,7 @@ export function ChangeLogView({
     onBack: () => void;
     onSubmit: (input: ChangeInput) => void;
     onRemove: () => void;
+    onSaveControlPages?: (urls: string[]) => Promise<void>;
     onExample?: () => void;
 }) {
     const [pageQuery, setPageQuery] = useState('');
@@ -233,7 +236,7 @@ export function ChangeLogView({
                     <div className="overflow-hidden rounded-lg border border-border bg-card">
                         <Table className="caption-bottom">
                             <TableCaption>
-                                Showing {shown.length} of {narrowed.length}. Went live is the date the change appeared on the website. Results compare each page with pages we didn&apos;t change.
+                                Showing {shown.length} of {narrowed.length}. Went live is the date the change appeared on the website.
                             </TableCaption>
                             <TableHeader>
                                 <TableRow className="hover:bg-transparent">
@@ -273,12 +276,17 @@ export function ChangeLogView({
                                                     {(item.pageCount ?? 0) > 1 ? `${item.pageCount} pages` : pagePath(item.url, item.pageLabel)}
                                                 </span>
                                                 <ProgressMark percent={item.progressPercent} status={item.progressStatus} />
+                                                {item.hasOverlap && <span className="mt-1 block text-xs text-amber-800 dark:text-amber-300">Overlapping changes</span>}
                                             </TableCell>
                                             <TableCell className="whitespace-normal text-sm">{CHANGE_TYPE_LABEL[item.changeType]}</TableCell>
                                             <TableCell className="whitespace-nowrap text-sm">{formatDayWithYear(item.liveOn)}</TableCell>
                                             <TableCell className="whitespace-normal text-sm">{KPI_LABEL[item.kpi]}</TableCell>
                                             <TableCell className="whitespace-normal">
-                                                <VerdictPill verdict={item.verdict} estimate={item.estimate} pct={item.headlinePct} />
+                                                {item.verdict == null ? (
+                                                    <span className="text-sm text-muted-foreground">{COMPARISON_UNAVAILABLE_LABEL}</span>
+                                                ) : (
+                                                    <VerdictPill verdict={item.verdict} estimate={item.estimate} pct={item.headlinePct} />
+                                                )}
                                                 <span className="mt-1 block text-xs text-muted-foreground">{resultDetail(item)}</span>
                                             </TableCell>
                                             <TableCell className="whitespace-normal">
@@ -305,6 +313,7 @@ export function ChangeLogView({
             )}
             {mode === 'detail' && detail && (
                 <ChangeDetail
+                    key={detail.change.id}
                     change={detail.change}
                     impact={detail.impact}
                     confounders={detail.confounders}
@@ -325,6 +334,7 @@ export function ChangeLogView({
                     onBack={onBack}
                     onOpen={onOpen}
                     onRemove={onRemove}
+                    onSaveControlPages={onSaveControlPages}
                 />
             )}
         </div>

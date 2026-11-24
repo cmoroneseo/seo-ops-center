@@ -5,8 +5,7 @@ import { useSuppressPlanToasts } from '@/components/providers/toast-gate';
 import { seoPlanTabHidesToasts } from '@/lib/toasts/plan-tab';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { MissingClient } from '@/components/workspace/MissingClient';
-import { ArrowLeft, Calendar, Clock, Shield, UserCheck } from 'lucide-react';
-import Link from 'next/link';
+import { Calendar, Clock, Shield, UserCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ClientNotesPanel } from '@/components/workspace/ClientNotesPanel';
 import { ActivityFeed } from '@/components/workspace/ActivityFeed';
@@ -60,6 +59,7 @@ import { ClientPortalStaffPanel } from '@/components/portal/ClientPortalStaffPan
 import { VaultHeaderPill } from '@/components/vault/VaultHeaderPill';
 import { VaultPage } from '@/components/vault/VaultPage';
 import { useVaultEnabled } from '@/components/vault/use-vault-enabled';
+import { WorkspaceProjects } from '@/components/projects/WorkspaceProjects';
 import { StagePlanList } from '@/components/seo-plan/StagePlanList';
 import { useSeoPlanStageList } from '@/components/seo-plan/use-seo-plan-stage-list';
 import { useSeoPlanV2 } from '@/components/seo-plan/use-seo-plan-v2';
@@ -85,7 +85,7 @@ import { ChangeLogTab } from '@/components/change-log/ChangeLogTab';
 import { ContentBoard } from '@/components/content/ContentBoard';
 import { canEditContent } from '@/lib/content/access';
 
-type Tab = 'overview' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'changes' | 'rankings' | 'inventory' | 'topical-map' | 'content' | 'approvals' | 'portal' | 'vault' | 'campaign-workspace';
+type Tab = 'overview' | 'projects' | 'campaign' | 'tasks' | 'deliverables' | 'integrations' | 'insights' | 'changes' | 'rankings' | 'inventory' | 'topical-map' | 'content' | 'approvals' | 'portal' | 'vault' | 'campaign-workspace';
 
 export default function ClientDetailPage() {
     const params = useParams();
@@ -177,7 +177,7 @@ export default function ClientDetailPage() {
             }
             return;
         }
-        const knownTabs = ['overview', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'changes', 'inventory', 'topical-map', 'content', 'portal'];
+        const knownTabs = ['overview', 'projects', 'campaign', 'tasks', 'deliverables', 'integrations', 'insights', 'changes', 'inventory', 'topical-map', 'content', 'portal'];
         if (keywordTrackingEnabled()) knownTabs.push('rankings');
         if (campaignWorkspaceEnabled()) knownTabs.push(CAMPAIGN_WORKSPACE_TAB);
         const opportunity = readOpportunityRoute(searchKey, { keywordTracking: keywordTrackingEnabled() });
@@ -383,7 +383,6 @@ export default function ClientDetailPage() {
                 gbp: client.setupScope?.gbp === true,
                 listings: client.setupScope?.listings === true,
             }}
-            onOpenResults={month => setActiveTab('insights', { range: month })}
         />
     ) : (
         <MarketingPlanTab
@@ -431,14 +430,6 @@ export default function ClientDetailPage() {
         <div className="space-y-6">
             {/* Header Section */}
             <div className="flex flex-col space-y-4">
-                <Link
-                    href="/workspace"
-                    className="flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
-                >
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Workspace
-                </Link>
-
                 {atRisk && (
                     <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3 text-red-500">
                         <AlertTriangle className="h-5 w-5" />
@@ -595,6 +586,20 @@ export default function ClientDetailPage() {
                     clientId={client.id}
                     clientName={client.clientName}
                     clientDomain={client.domain ?? null}
+                />
+            )}
+
+            {activeTab === 'projects' && organization?.id === client.organizationId && (
+                <WorkspaceProjects
+                    key={JSON.stringify([client.id, searchParams.get('projectId')])}
+                    clientId={client.id}
+                    clientName={client.clientName}
+                    organizationId={client.organizationId}
+                    projectId={searchParams.get('projectId')}
+                    create={searchParams.get('newProject') === '1'}
+                    stageListOn={stageListOn}
+                    userId={userId ?? undefined}
+                    onCreated={() => setActiveTab('projects', { newProject: null })}
                 />
             )}
 
@@ -774,7 +779,6 @@ export default function ClientDetailPage() {
                     });
                 }}
                 onOpenPlan={() => setActiveTab('campaign', { phase: null })}
-                onOpenPhase={(phase) => setActiveTab('campaign', { phase })}
                 onViewAllTasks={() => setActiveTab('tasks', { phase: null })}
                 onReview={() => { window.location.href = '/approvals'; }}
                 onConnections={() => setActiveTab('integrations')}

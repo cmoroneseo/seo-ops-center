@@ -1,5 +1,4 @@
 import type { SessionOrganization } from '../reports/session-org';
-import type { PlanBoard } from './plan-phases';
 import type { StageListTask } from './stage-list';
 
 const CLIENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,11 +13,6 @@ export interface StageListReadDependencies {
      */
     load: (organizationId: string, clientId: string) => Promise<StageListTask[] | null>;
     /**
-     * Which board this plan uses. Omitted means the month board, so an older
-     * caller keeps the current list.
-     */
-    loadBoard?: (organizationId: string, clientId: string) => Promise<PlanBoard>;
-    /**
      * Account id for a read-only Basecamp link. The list does not call Basecamp.
      * Blank and omitted both mean the panel has no href.
      */
@@ -26,7 +20,7 @@ export interface StageListReadDependencies {
 }
 
 export type StageListReadResult =
-    | { status: 200; body: { tasks: StageListTask[]; basecampAccountId: string | null; board: PlanBoard } }
+    | { status: 200; body: { tasks: StageListTask[]; basecampAccountId: string | null } }
     | { status: 400 | 401 | 403 | 404 | 500; body: { error: string } };
 
 /**
@@ -48,11 +42,8 @@ export async function readClientStageList(
     try {
         const tasks = await dependencies.load(session.organizationId, clientId);
         if (!tasks) return { status: 404, body: { error: 'Not found' } };
-        const board = dependencies.loadBoard
-            ? await dependencies.loadBoard(session.organizationId, clientId)
-            : 'months';
         const accountId = dependencies.basecampAccountId?.trim() || null;
-        return { status: 200, body: { tasks, basecampAccountId: accountId, board } };
+        return { status: 200, body: { tasks, basecampAccountId: accountId } };
     } catch {
         return { status: 500, body: { error: 'Could not load tasks' } };
     }

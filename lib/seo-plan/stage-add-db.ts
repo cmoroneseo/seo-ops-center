@@ -1,16 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { BoardStage } from './plan-phases';
 import { STAGE_LIST_TASK_COLUMNS } from './stage-list-load';
 import { stageListTaskFromRow, type StageListTask } from './stage-list';
 
 export interface StageAddParent {
     title: string;
-    stage: string;
     parentTaskId: string | null;
 }
 
-const PARENT_COLUMNS = 'title, stage, parent_task_id';
+const PARENT_COLUMNS = 'title, parent_task_id';
 
 /**
  * True when the client belongs to the session organization.
@@ -49,7 +47,6 @@ export async function loadStageAddParent(
     if (!parent.data || typeof parent.data.title !== 'string') return null;
     return {
         title: parent.data.title,
-        stage: typeof parent.data.stage === 'string' ? parent.data.stage : '',
         parentTaskId: typeof parent.data.parent_task_id === 'string' && parent.data.parent_task_id
             ? parent.data.parent_task_id
             : null,
@@ -58,25 +55,26 @@ export async function loadStageAddParent(
 
 /**
  * Highest position in the group the new rows join.
- * Top-level rows share a stage. Subtasks share a parent, across stages.
+ * Top-level rows share a project. Subtasks share a parent.
  */
 export async function maxStageAddPosition(
     db: SupabaseClient,
     organizationId: string,
     clientId: string,
-    stage: BoardStage,
     parentTaskId: string | null,
+    initiativeId: string | null = null,
 ): Promise<number | null> {
     let query = db
         .from('tasks')
         .select('position')
         .eq('organization_id', organizationId)
         .eq('client_id', clientId)
-        .order('position', { ascending: false })
+        .order('position', { ascending: false, nullsFirst: false })
         .limit(1);
     query = parentTaskId
         ? query.eq('parent_task_id', parentTaskId)
-        : query.is('parent_task_id', null).eq('stage', stage);
+        : query.is('parent_task_id', null);
+    if (!parentTaskId) query = initiativeId ? query.eq('initiative_id', initiativeId) : query.is('initiative_id', null);
     const result = await query.maybeSingle();
     if (result.error) throw new Error('Unable to place tasks');
     const position = result.data?.position;
@@ -95,7 +93,9 @@ export async function insertStageTasks(
     db: SupabaseClient,
     rows: readonly Record<string, unknown>[],
 ): Promise<StageListTask[]> {
-    const inserted = await db.from('tasks').insert([...rows]).select(STAGE_LIST_TASK_COLUMNS);
+    const columns = rows.some(row => 'initiative_id' in row)
+        ? `${STAGE_LIST_TASK_COLUMNS}, initiative_id` : STAGE_LIST_TASK_COLUMNS;
+    const inserted = await db.from('tasks').insert([...rows]).select(columns);
     if (inserted.error) throw new Error('Unable to create tasks');
     const list = Array.isArray(inserted.data) ? inserted.data : [];
     return list.flatMap(row => {

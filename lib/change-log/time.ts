@@ -131,7 +131,7 @@ export function baselineWindow(liveOn: string): { start: string; end: string } {
 }
 
 export function afterWindow(liveOn: string, days: CheckpointDays): { start: string; end: string } {
-    return { start: liveOn, end: dateOffset(liveOn, days - 1) };
+    return { start: dateOffset(liveOn, 1), end: dateOffset(liveOn, days) };
 }
 
 /** Latest Pacific date Search Console treats as final. Today minus the lag. */

@@ -1,4 +1,5 @@
 import { normalizeResultUrl } from '@/lib/search-reporting/result-url';
+import { proofHost } from '@/lib/search-reporting/proof';
 
 import {
     CHANGE_TYPES,
@@ -31,6 +32,7 @@ export interface ChangeInput {
     /** Template slug. Ignored unless this is a group test. */
     treatment?: string;
     pages: { url: string; label: string; cmsPageId: string; cmsWidgetId: string }[];
+    controlUrls?: string[];
     queries: string[];
 }
 
@@ -50,6 +52,7 @@ export interface NormalizedChange {
     testKind: TestKind;
     treatment: Treatment | '';
     pages: ChangePage[];
+    controlUrls: string[];
     queries: ChangeQuery[];
 }
 
@@ -59,6 +62,32 @@ const TREATMENT_SET = new Set<string>(TREATMENTS);
 
 export const SINGLE_PAGE_LIMIT = 8;
 export const GROUP_PAGE_LIMIT = 40;
+
+/** A string result is a validation message. An empty array selects the default control. */
+export function normalizeControlUrls(value: unknown, testUrls: readonly string[]): string[] | string {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.some(url => typeof url !== 'string')) {
+        return 'Enter control page addresses, one per line.';
+    }
+    const testSites = new Set(testUrls.map(proofHost));
+    const testKeys = new Set(testUrls.map(normalizeResultUrl));
+    const urls = new Map<string, string>();
+    for (const raw of value as string[]) {
+        const url = raw.trim();
+        if (!url) continue;
+        const key = normalizeResultUrl(url);
+        if (!key || !/^https?:\/\//i.test(url) || url.length > 2000) {
+            return 'Enter a valid http:// or https:// address for each control page.';
+        }
+        if (testKeys.has(key)) return 'A control page can\'t be a page in this test.';
+        if (testSites.size !== 1 || !testSites.has(proofHost(url))) {
+            return 'Control pages must be on the same site as the test pages.';
+        }
+        if (!urls.has(key)) urls.set(key, url);
+    }
+    if (urls.size > GROUP_PAGE_LIMIT) return `Add up to ${GROUP_PAGE_LIMIT} control pages.`;
+    return [...urls.values()];
+}
 
 export function normalizeQuery(value: string): string {
     return value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -109,6 +138,8 @@ export function normalizeChange(input: ChangeInput): NormalizedChange | null {
     const pageLimit = testKind === 'group' ? GROUP_PAGE_LIMIT : SINGLE_PAGE_LIMIT;
     const pageMinimum = testKind === 'group' ? 2 : 1;
     if (pages.length < pageMinimum || pages.length > pageLimit) return null;
+    const controlUrls = normalizeControlUrls(input.controlUrls, pages.map(page => page.url));
+    if (typeof controlUrls === 'string') return null;
 
     const queries: ChangeQuery[] = [];
     const seenQueries = new Set<string>();
@@ -138,6 +169,7 @@ export function normalizeChange(input: ChangeInput): NormalizedChange | null {
         testKind,
         treatment: treatment as Treatment | '',
         pages,
+        controlUrls,
         queries,
     };
 }
@@ -173,5 +205,7 @@ function invalidReason(input: ChangeInput): string {
     if (input.testKind === 'group' && pages.length > GROUP_PAGE_LIMIT) return `A group test can include up to ${GROUP_PAGE_LIMIT} pages.`;
     if (input.testKind !== 'group' && pages.length > SINGLE_PAGE_LIMIT) return `A single change can include up to ${SINGLE_PAGE_LIMIT} pages.`;
     if (pages.some(page => !normalizeResultUrl(page.url))) return 'Page addresses need to start with http:// or https://.';
+    const controls = normalizeControlUrls(input.controlUrls, pages.map(page => page.url));
+    if (typeof controls === 'string') return controls;
     return 'Check the form and try again.';
 }

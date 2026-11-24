@@ -1,5 +1,4 @@
 import type { Task, TaskCategory, TaskPriority, TaskStatus } from '../types';
-import { isBoardStage, type BoardStage } from '../seo-plan/plan-phases';
 
 /**
  * Columns written by a direct tasks insert.
@@ -11,6 +10,7 @@ export interface TaskCreateFields {
     organizationId?: string;
     projectId?: string;
     clientId?: string;
+    initiativeId?: string;
     title?: string;
     description?: string;
     assigneeIds?: string[];
@@ -30,7 +30,6 @@ export interface TaskCreateFields {
     templateId?: string;
     recurrence?: Task['recurrence'];
     campaignPhaseId?: string;
-    stage?: BoardStage;
     position?: number;
     /** Set only when a subtask line included a live URL. */
     publishedUrl?: string | null;
@@ -41,6 +40,7 @@ export function taskCreateRow(task: TaskCreateFields): Record<string, unknown> {
         organization_id: task.organizationId,
         project_id: task.projectId,
         client_id: task.clientId,
+        ...(task.initiativeId ? { initiative_id: task.initiativeId } : {}),
         title: task.title,
         description: task.description,
         assignee_ids: task.assigneeIds ?? [],
@@ -60,7 +60,6 @@ export function taskCreateRow(task: TaskCreateFields): Record<string, unknown> {
         template_id: task.templateId,
         recurrence: task.recurrence,
         campaign_phase_id: task.campaignPhaseId ?? null,
-        ...(isBoardStage(task.stage) ? { stage: task.stage } : {}),
         ...(typeof task.position === 'number' && Number.isFinite(task.position) ? { position: task.position } : {}),
         ...(task.publishedUrl ? { published_url: task.publishedUrl } : {}),
     };

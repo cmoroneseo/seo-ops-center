@@ -7,6 +7,7 @@
  * when that id does not match the client.
  */
 
+import { normalizeProjectTitle } from '../projects/project-cards';
 import { createClient } from './client';
 import {
     initiativeItemRow,
@@ -114,20 +115,23 @@ function rows(data: unknown): Record<string, unknown>[] {
     return data.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object');
 }
 
-export async function listCampaignInitiatives(clientId: string): Promise<InitiativeRead> {
+export async function listCampaignInitiatives(
+    clientId: string,
+    { includeItems = true }: { includeItems?: boolean } = {},
+): Promise<InitiativeRead> {
     const supabase = createClient();
     if (!supabase || !clientId) return { initiatives: [], unavailable: true };
     try {
         const [initiativeResult, itemResult] = await Promise.all([
             supabase.from('campaign_initiatives').select('*').eq('client_id', clientId),
-            supabase.from('campaign_initiative_items').select('*').eq('client_id', clientId),
+            includeItems ? supabase.from('campaign_initiative_items').select('*').eq('client_id', clientId) : null,
         ]);
-        if (initiativeResult.error || itemResult.error) {
-            console.error('[campaign-initiatives] list', initiativeResult.error ?? itemResult.error);
+        if (initiativeResult.error || itemResult?.error) {
+            console.error('[campaign-initiatives] list', initiativeResult.error ?? itemResult?.error);
             return { initiatives: [], unavailable: true };
         }
         const itemsByParent = new Map<string, InitiativeItem[]>();
-        for (const row of rows(itemResult.data)) {
+        for (const row of rows(itemResult?.data)) {
             const item = mapItem(row);
             const parentId = text(row.initiative_id);
             if (!parentId) continue;
@@ -257,4 +261,55 @@ export async function saveCampaignInitiative(input: {
         throw new Error('Could not save this initiative.');
     }
     return { id };
+}
+
+/** Update status through the same client scope without rewriting project fields or checklist items. */
+export async function updateCampaignInitiativeStatus(input: {
+    clientId: string;
+    assertedOrganizationId: string;
+    initiativeId: string;
+    state: InitiativeState;
+    verification?: { evidenceUrl: string; verifiedOn: string };
+}): Promise<void> {
+    const supabase = createClient();
+    if (!supabase || !STATES.has(input.state)) throw new Error('Could not update the project status.');
+    const scope = await resolveScope(supabase, input.clientId, input.assertedOrganizationId);
+    if (!scope.ok) throw new Error(scope.error);
+    const evidenceUrl = input.verification && safeHttpUrl(input.verification.evidenceUrl.trim());
+    if (input.verification && (!evidenceUrl || evidenceUrl.length > 500 || !day(input.verification.verifiedOn))) {
+        throw new Error('Enter a valid evidence URL and verification date.');
+    }
+    const { data, error } = await supabase
+        .from('campaign_initiatives')
+        .update({
+            state: input.state,
+            ...(input.verification ? { evidence_url: evidenceUrl, verified_on: input.verification.verifiedOn } : {}),
+        })
+        .eq('id', input.initiativeId)
+        .eq('client_id', scope.clientId)
+        .eq('organization_id', scope.organizationId)
+        .select('id')
+        .maybeSingle();
+    if (error || !data) throw new Error('Could not update the project status.');
+}
+
+export async function updateCampaignInitiativeTitle(input: {
+    clientId: string;
+    assertedOrganizationId: string;
+    initiativeId: string;
+    title: string;
+}, supabase: ReturnType<typeof createClient> | null = createClient()): Promise<void> {
+    if (!supabase) throw new Error('Could not rename the project.');
+    const title = normalizeProjectTitle(input.title);
+    const scope = await resolveScope(supabase, input.clientId, input.assertedOrganizationId);
+    if (!scope.ok) throw new Error(scope.error);
+    const { data, error } = await supabase
+        .from('campaign_initiatives')
+        .update({ title })
+        .eq('id', input.initiativeId)
+        .eq('client_id', scope.clientId)
+        .eq('organization_id', scope.organizationId)
+        .select('id')
+        .maybeSingle();
+    if (error || !data) throw new Error('Could not rename the project.');
 }

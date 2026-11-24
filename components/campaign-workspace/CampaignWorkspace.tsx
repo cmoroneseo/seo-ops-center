@@ -228,12 +228,12 @@ export function CampaignWorkspace({
                     <li aria-hidden="true">/</li>
                     <li className="max-w-[24rem] truncate text-[#52525b]">{name}</li>
                     <li aria-hidden="true">/</li>
-                    <li className="text-[#18181b]">Campaign</li>
+                    <li className="text-[#18181b]">Roadmap</li>
                 </ol>
             </nav>
 
             <header className="mt-4">
-                <h1 className="text-[22px] font-bold leading-tight tracking-tight">Campaign</h1>
+                <h1 className="text-[22px] font-bold leading-tight tracking-tight">Roadmap</h1>
                 <p className="mt-1 max-w-2xl text-[13px] leading-5 text-[#52525b]">{SUBTITLE[view]}</p>
                 <p className="mt-1 text-[12px] text-[#71717a]">
                     {profile.startLabel ? `Start date ${profile.startLabel}` : 'Start date not set'}
@@ -245,7 +245,7 @@ export function CampaignWorkspace({
 
             <div
                 role="tablist"
-                aria-label="Campaign"
+                aria-label="Roadmap"
                 className="mt-4 flex gap-6 border-b border-[#e4e4e7]"
                 onKeyDown={(event) => {
                     const current = VIEWS.findIndex(item => item.id === view);

@@ -10,11 +10,8 @@ import {
     filtersForPreset,
     matchingPlanPreset,
     planFilterCountLabel,
-    planStageOptions,
     type PlanBoardFilters,
-    type PlanFilterBoard,
     type PlanFilterPriority,
-    type PlanFilterStage,
     type PlanFilterStatus,
     type PlanQuickView,
 } from '@/lib/seo-plan/plan-filters';
@@ -24,11 +21,10 @@ import { cn } from '@/lib/utils';
 const SELECT = 'max-w-48 rounded-lg border border-[#e4e4e7] bg-[#ffffff] px-2 py-1.5 text-[13px] text-[#18181b] outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]';
 
 /**
- * Status, priority, assignee, stage, Part of, and title search.
+ * Status, priority, assignee, project, and title search.
  * Quick views set those same filters. Clear removes all of them.
  */
 export function PlanFilterBar({
-    board,
     query,
     filters,
     people,
@@ -38,7 +34,6 @@ export function PlanFilterBar({
     onQueryChange,
     onFiltersChange,
 }: {
-    board: PlanFilterBoard;
     query: string;
     filters: PlanBoardFilters;
     people: readonly { id: string; name: string }[];
@@ -50,14 +45,11 @@ export function PlanFilterBar({
 }) {
     const searchId = useId();
     const partOfValue = partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
-    const stageOptions = planStageOptions(board);
-    const stageValue = stageOptions.some(option => option.value === filters.stage) ? filters.stage : '';
     const count = activePlanFilterCount(
-        { ...filters, query, partOf: partOfValue, stage: stageValue },
-        board,
+        { ...filters, query, partOf: partOfValue },
         true,
     );
-    const preset = matchingPlanPreset({ ...filters, query, partOf: partOfValue, stage: stageValue }, viewerId);
+    const preset = matchingPlanPreset({ ...filters, query, partOf: partOfValue }, viewerId);
     const assigneeKnown = filters.assignee === 'none'
         || people.some(person => person.id === filters.assignee)
         || filters.assignee === viewerId;
@@ -163,38 +155,17 @@ export function PlanFilterBar({
                     ))}
                 </select>
             </label>
-            <label>
-                <span className="sr-only">Stage</span>
-                <select
-                    aria-label="Stage"
-                    data-plan-filter="stage"
-                    value={stageValue}
-                    onChange={event => {
-                        const value = event.target.value;
-                        const stage = stageOptions.some(option => option.value === value)
-                            ? value as PlanFilterStage
-                            : '';
-                        apply({ ...filters, stage });
-                    }}
-                    className={SELECT}
-                >
-                    <option value="">Any stage</option>
-                    {stageOptions.map(option => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                </select>
-            </label>
             {partOfChoices.length > 0 ? (
                 <label>
-                    <span className="sr-only">Part of</span>
+                    <span className="sr-only">Project</span>
                     <select
-                        aria-label="Part of"
+                        aria-label="Project"
                         data-plan-part-of
                         value={partOfValue}
                         onChange={event => apply({ ...filters, partOf: event.target.value })}
                         className={SELECT}
                     >
-                        <option value="">All tasks</option>
+                        <option value="">All projects</option>
                         {partOfChoices.map(choice => (
                             <option key={choice.id} value={choice.id}>{choice.title}</option>
                         ))}

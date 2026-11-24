@@ -26,7 +26,6 @@ export interface TaskRow {
     title: string;
     parent_task_id: string | null;
     category: string | null;
-    stage: string | null;
     status: string | null;
     start_date: string | null;
     due_date: string | null;
@@ -86,7 +85,7 @@ export function buildMirror(data: MirrorData): { tabs: MirrorTab[] } {
             tasks.get(item.task_id ?? '')?.status ?? '', date(item.updated_at), item.id,
         ]));
     const taskRows = parentsFirst(data.tasks, tasks).map(task => [
-        task.title, tasks.get(task.parent_task_id ?? '')?.title ?? '', task.category ?? '', task.stage ?? '',
+        task.title, tasks.get(task.parent_task_id ?? '')?.title ?? '', task.category ?? '',
         task.status ?? '', date(task.start_date), date(task.due_date), date(task.completed_at), task.published_url ?? '',
         basecampTodoHref(data.basecampAccountId, task.basecamp_project_id, task.basecamp_todo_id) ?? '', task.id,
     ]);
@@ -103,7 +102,7 @@ export function buildMirror(data: MirrorData): { tabs: MirrorTab[] } {
             ...roadmapRows,
         ] },
         { title: TASKS_TAB, rows: [
-            ['Title', 'Parent task', 'Category', 'Stage', 'Status', 'Start date', 'Due date', 'Completed date', 'Published URL', 'Basecamp link', 'App ID'],
+            ['Title', 'Parent task', 'Category', 'Status', 'Start date', 'Due date', 'Completed date', 'Published URL', 'Basecamp link', 'App ID'],
             ...taskRows,
         ] },
         { title: INFO_TAB, rows: [['Key', 'Value'], ...infoRows] },

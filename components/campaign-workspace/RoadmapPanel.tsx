@@ -25,6 +25,7 @@ import {
     type TimelineRow,
 } from '@/lib/campaign-workspace/initiatives';
 import { saveCampaignInitiative } from '@/lib/supabase/campaign-initiatives';
+import { notifyProjectsChanged } from '@/lib/nav/sidebar-projects';
 import { linkedTaskProgress, type PartOfProgress, type PartOfTask } from '@/lib/tasks/part-of';
 import { cn } from '@/lib/utils';
 import { InitiativeMark, initiativeBarClass, initiativeToneClass } from './initiative-status';
@@ -599,6 +600,7 @@ function InitiativeForm({
                 initiativeId: form.id,
                 draft: toDraft(form),
             });
+            notifyProjectsChanged(clientId);
             onSaved(saved.id);
         } catch (reason) {
             setError(reason instanceof Error ? reason.message : 'Could not save this initiative.');

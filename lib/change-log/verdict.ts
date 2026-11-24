@@ -1,6 +1,12 @@
 import { VERDICT_THRESHOLDS } from './thresholds';
 import { KPI_LABEL, type ControlMode, type Kpi, type MetricRead, type RateDelta, type Verdict } from './types';
 
+function comparisonName(mode: ControlMode): string {
+    if (mode === 'picked') return 'the selected control pages';
+    if (mode === 'sitewide') return 'the whole site';
+    return 'the rest of the site';
+}
+
 export interface Classified {
     verdict: Verdict;
     note: string;
@@ -53,6 +59,7 @@ export function classifyCheckpoint(input: {
 }): Classified {
     const estimate = input.lowData || input.partial || input.controlUnreliable;
     const name = KPI_LABEL[input.kpi];
+    const comparison = comparisonName(input.controlMode);
 
     if (!input.connected) {
         const note = input.kpi === 'organic_sessions' || input.kpi === 'key_events'
@@ -94,7 +101,7 @@ export function classifyCheckpoint(input: {
         if (input.controlMode !== 'none' && controlRose) {
             return {
                 verdict: 'flat',
-                note: withEstimate('Up from zero, and the rest of the site rose too.', estimate),
+                note: withEstimate(`Up from zero, and ${comparison} rose too.`, estimate),
                 estimate,
                 lowData: input.lowData,
                 lift: null,
@@ -124,8 +131,8 @@ export function classifyCheckpoint(input: {
         const band = VERDICT_THRESHOLDS.pageBand;
         const verdict: Verdict = pageMove >= band ? 'improved' : pageMove <= -band ? 'declined' : 'flat';
         const note = verdict === 'flat'
-            ? `No comparison with the rest of the site. ${name} stayed inside 15%.`
-            : `No comparison with the rest of the site. ${name} ${verdict === 'improved' ? 'rose' : 'fell'} at least 15% on this page alone.`;
+            ? `No comparison with ${comparison}. ${name} stayed inside 15%.`
+            : `No comparison with ${comparison}. ${name} ${verdict === 'improved' ? 'rose' : 'fell'} at least 15% on this page alone.`;
         return { verdict, note: withEstimate(note, estimate), estimate, lowData: input.lowData, lift: null };
     }
 
@@ -136,10 +143,10 @@ export function classifyCheckpoint(input: {
     else if (lift <= -gate && pageMove < 0) verdict = 'declined';
 
     let note: string;
-    if (verdict === 'improved') note = `${name} beat the rest of the site.`;
-    else if (verdict === 'declined') note = `${name} fell more than the rest of the site.`;
-    else if (input.control.helpful > 0 && pageMove > 0) note = 'The rest of the site moved with it.';
-    else note = `${name} stayed close to the rest of the site.`;
+    if (verdict === 'improved') note = `${name} beat ${comparison}.`;
+    else if (verdict === 'declined') note = `${name} fell more than ${comparison}.`;
+    else if (input.control.helpful > 0 && pageMove > 0) note = `${comparison[0].toUpperCase()}${comparison.slice(1)} moved with it.`;
+    else note = `${name} stayed close to ${comparison}.`;
 
     return {
         verdict,
@@ -154,7 +161,7 @@ function lower(value: string): string {
     return value.charAt(0).toLowerCase() + value.slice(1);
 }
 
-export function nextStep(changeType: string, verdict: Verdict): string {
+export function nextStep(changeType: string, verdict: Verdict, controlMode: ControlMode = 'untouched'): string {
     if (verdict === 'too_early') return 'Wait for the 7-day check before changing it again.';
     if (verdict === 'declined') {
         if (changeType === 'h1') return 'Undo the main page heading, then try a smaller wording change.';
@@ -164,7 +171,8 @@ export function nextStep(changeType: string, verdict: Verdict): string {
         if (changeType === 'h1') return 'Leave the main page heading. Next, try the search result title or the line under the heading, one at a time.';
         return 'Leave it. Look again at the next check before making another edit.';
     }
-    if (changeType === 'h1') return 'The main page heading did not stand out from the rest of the site. Next, try the line under the heading, not another heading.';
-    if (changeType === 'title') return 'The search result title did not stand out from the rest of the site. Next, try the main page heading, not another search result title.';
-    return 'It did not stand out from the rest of the site. Next, try one smaller edit, not several at once.';
+    const result = controlMode === 'none' ? 'The test showed no clear change.' : `The test stayed close to ${comparisonName(controlMode)}.`;
+    if (changeType === 'h1') return `${result} Next, try the line under the heading.`;
+    if (changeType === 'title') return `${result} Next, try the main page heading.`;
+    return `${result} Next, try one smaller edit.`;
 }

@@ -129,6 +129,18 @@ export function ClientSwitcherPanel({
     );
 }
 
+export function ClientSwitcherSkeleton({ labelClassName }: { labelClassName?: string }) {
+    return (
+        <span aria-hidden className="flex items-center gap-2 motion-safe:animate-pulse">
+            <span className="h-8 w-8 shrink-0 rounded-lg bg-muted-foreground/20" />
+            <span className={cn('flex h-9 flex-col justify-center gap-1.5', labelClassName)}>
+                <span className="h-2.5 w-16 rounded bg-muted-foreground/20" />
+                <span className="h-2 w-10 rounded bg-muted-foreground/20" />
+            </span>
+        </span>
+    );
+}
+
 export function ClientSwitcher({
     clients,
     selectedId,
@@ -137,6 +149,7 @@ export function ClientSwitcher({
     onClear,
     open,
     onOpenChange,
+    isLoading = false,
 }: {
     clients: SwitcherClient[];
     selectedId: string | null;
@@ -144,6 +157,7 @@ export function ClientSwitcher({
     hrefFor: (clientId: string) => string;
     onClear: () => void;
     open: boolean;
+    isLoading?: boolean;
     onOpenChange: (open: boolean) => void;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
@@ -172,32 +186,41 @@ export function ClientSwitcher({
             <button
                 type="button"
                 aria-haspopup="dialog"
-                aria-expanded={open}
-                title={name}
+                aria-expanded={!isLoading && open}
+                aria-label={isLoading ? 'Loading client' : undefined}
+                aria-busy={isLoading}
+                disabled={isLoading}
+                title={isLoading ? undefined : name}
                 onClick={() => onOpenChange(!open)}
                 className={cn(
                     'flex w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/50 text-left transition-colors hover:bg-sidebar-accent',
                     'h-10 justify-center px-0 xl:h-auto xl:justify-start xl:px-2 xl:py-2',
                 )}
             >
-                {selected ? (
-                    <ClientMark client={selected} />
+                {isLoading ? (
+                    <span className="xl:flex-1"><ClientSwitcherSkeleton labelClassName="hidden xl:flex" /></span>
                 ) : (
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-[11px] font-semibold text-muted-foreground">
-                        {selectedId ? '?' : '—'}
-                    </span>
+                    <>
+                        {selected ? (
+                            <ClientMark client={selected} />
+                        ) : (
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-[11px] font-semibold text-muted-foreground">
+                                {selectedId ? '?' : '—'}
+                            </span>
+                        )}
+                        <span className="hidden min-w-0 flex-1 xl:block">
+                            <span className="block truncate text-sm font-medium text-sidebar-foreground" title={name}>
+                                {name}
+                            </span>
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                                {chip}
+                            </span>
+                        </span>
+                    </>
                 )}
-                <span className="hidden min-w-0 flex-1 xl:block">
-                    <span className="block truncate text-sm font-medium text-sidebar-foreground" title={name}>
-                        {name}
-                    </span>
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                        {chip}
-                    </span>
-                </span>
                 <ChevronsUpDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground xl:block" />
             </button>
-            {open && (
+            {open && !isLoading && (
                 <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg xl:left-0 xl:right-0 xl:w-auto">
                     <ClientSwitcherPanel
                         clients={clients}

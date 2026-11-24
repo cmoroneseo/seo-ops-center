@@ -1,3 +1,5 @@
+import { formatHourAmount } from '../hour-format';
+
 export interface MyTimeLog {
     date: string;
     hours: number;
@@ -31,10 +33,10 @@ export function subscribeMyTimeRefresh(reload: () => void): () => void {
     return () => window.removeEventListener(MY_TIME_REFRESH_EVENT, onRefresh);
 }
 
-/** Em dash until a successful read. A loaded zero stays `0h`. */
+/** Em dash until a successful read. A loaded zero stays `0 h`. */
 export function formatMyTimeHours(hours: number | null): string {
     if (hours == null || !Number.isFinite(hours)) return '—';
-    return `${Math.round(hours * 10) / 10}h`;
+    return `${formatHourAmount(hours)} h`;
 }
 
 /**
@@ -59,8 +61,5 @@ export function summarizeMyTime(
         const logDate = new Date(`${log.date}T00:00:00`);
         if (logDate >= weekStart) week += log.hours;
     }
-    return {
-        week: Math.round(week * 10) / 10,
-        month: Math.round(month * 10) / 10,
-    };
+    return { week, month };
 }

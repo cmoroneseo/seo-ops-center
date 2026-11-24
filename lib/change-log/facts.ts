@@ -1,10 +1,14 @@
+import { normalizeResultUrl } from '@/lib/search-reporting/result-url';
+
+import { isGbpTaggedUrl, pageMatchesChange } from './match';
 import type { DayPoint } from './types';
-import { pageMatchesChange } from './match';
+import { normalizeQuery } from './validate';
 
 export interface HistoryDayRow {
     id: string;
     date: string;
     preliminary: boolean;
+    pageLimited?: boolean;
 }
 
 export interface GscFactRow {
@@ -37,7 +41,7 @@ function finite(value: number): number {
     return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
-function organic(surface: string | null): boolean {
+export function isOrganicSurface(surface: string | null): boolean {
     return surface == null || surface === '' || surface === 'organic';
 }
 
@@ -47,11 +51,49 @@ export function pageDaysFromFacts(
     facts: readonly GscFactRow[],
     loggedUrls: readonly string[],
 ): DayPoint[] {
+    return groupFactDays(days, facts.filter(fact => fact.grain === 'page' && isOrganicSurface(fact.surface)
+        && loggedUrls.some(url => pageMatchesChange(fact.page, url))));
+}
+
+export function pickedDaysFromFacts(
+    days: readonly HistoryDayRow[],
+    facts: readonly GscFactRow[],
+    urls: readonly string[],
+): DayPoint[] {
+    return addCompletePageZeros(days, pageDaysFromFacts(days, facts, urls));
+}
+
+/** Search Console keeps tag variants. GA4 strips the query string and includes GBP in the same landing page. */
+export function gbpDaysFromFacts(
+    days: readonly HistoryDayRow[],
+    facts: readonly GscFactRow[],
+    loggedUrls: readonly string[],
+): DayPoint[] {
+    const keys = new Set(loggedUrls.map(normalizeResultUrl));
+    const dayIds = new Set(days.map(day => day.id));
+    const tagged = facts.filter(fact => dayIds.has(fact.dayId) && fact.grain === 'page' && isGbpTaggedUrl(fact.page)
+        && keys.has(normalizeResultUrl(fact.page)) && !loggedUrls.some(url => pageMatchesChange(fact.page, url)));
+    if (tagged.length === 0) return [];
+    return addCompletePageZeros(days, groupFactDays(days, tagged));
+}
+
+/** A missing page row counts as zero only when the page import is complete. */
+function addCompletePageZeros(days: readonly HistoryDayRow[], measured: DayPoint[]): DayPoint[] {
+    const seen = new Set(measured.map(day => day.date));
+    for (const day of days) {
+        if (day.preliminary || day.pageLimited !== false || seen.has(day.date)) continue;
+        measured.push({
+            date: day.date, clicks: 0, impressions: 0, position: 0,
+            organicSessions: null, keyEvents: null, preliminary: false,
+        });
+    }
+    return measured;
+}
+
+function groupFactDays(days: readonly HistoryDayRow[], facts: readonly GscFactRow[]): DayPoint[] {
     const byId = new Map(days.map(day => [day.id, day]));
     const grouped = new Map<string, { clicks: number; impressions: number; weighted: number; preliminary: boolean }>();
     for (const fact of facts) {
-        if (fact.grain !== 'page' || !organic(fact.surface)) continue;
-        if (!loggedUrls.some(url => pageMatchesChange(fact.page, url))) continue;
         const day = byId.get(fact.dayId);
         if (!day) continue;
         const current = grouped.get(day.date) ?? { clicks: 0, impressions: 0, weighted: 0, preliminary: day.preliminary };
@@ -78,7 +120,7 @@ export function propertyDaysFromFacts(days: readonly HistoryDayRow[], facts: rea
     const byId = new Map(days.map(day => [day.id, day]));
     const grouped = new Map<string, DayPoint>();
     for (const fact of facts) {
-        if (fact.grain !== 'property' || !organic(fact.surface)) continue;
+        if (fact.grain !== 'property' || !isOrganicSurface(fact.surface)) continue;
         const day = byId.get(fact.dayId);
         if (!day) continue;
         const current = grouped.get(day.date) ?? {
@@ -107,30 +149,9 @@ export function queryDaysFromFacts(
     loggedUrls: readonly string[],
     query: string,
 ): DayPoint[] {
-    const needle = query.trim().toLowerCase();
-    const byId = new Map(days.map(day => [day.id, day]));
-    const grouped = new Map<string, { clicks: number; impressions: number; weighted: number; preliminary: boolean }>();
-    for (const fact of facts) {
-        if (fact.grain !== 'query_page' || !organic(fact.surface)) continue;
-        if (fact.query.trim().toLowerCase() !== needle) continue;
-        if (!loggedUrls.some(url => pageMatchesChange(fact.page, url))) continue;
-        const day = byId.get(fact.dayId);
-        if (!day) continue;
-        const current = grouped.get(day.date) ?? { clicks: 0, impressions: 0, weighted: 0, preliminary: day.preliminary };
-        current.clicks += finite(fact.clicks);
-        current.impressions += finite(fact.impressions);
-        current.weighted += finite(fact.position) * finite(fact.impressions);
-        grouped.set(day.date, current);
-    }
-    return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, row]) => ({
-        date,
-        clicks: row.clicks,
-        impressions: row.impressions,
-        position: row.impressions > 0 ? row.weighted / row.impressions : 0,
-        organicSessions: null,
-        keyEvents: null,
-        preliminary: row.preliminary,
-    }));
+    const needle = normalizeQuery(query);
+    return groupFactDays(days, facts.filter(fact => fact.grain === 'query_page' && isOrganicSurface(fact.surface)
+        && normalizeQuery(fact.query) === needle && loggedUrls.some(url => pageMatchesChange(fact.page, url))));
 }
 
 /** Fold GA4 landing-page rows onto GSC days. A GA4-only day is still kept. */
@@ -186,7 +207,8 @@ export function isMissingRelation(error: { code?: string; message?: string } | n
     if (!error) return false;
     if (error.code === '42P01' || error.code === 'PGRST205') return true;
     const message = error.message ?? '';
-    return /seo_change/i.test(message) && /does not exist|schema cache/i.test(message) && !/test_kind|treatment/i.test(message);
+    return /seo_change/i.test(message) && /does not exist|schema cache/i.test(message)
+        && !/test_kind|treatment|control_urls/i.test(message);
 }
 
 /** Migration 129 has not been applied, so test_kind / treatment are not columns yet. */

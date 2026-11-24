@@ -48,8 +48,8 @@ export interface PlanPushTask {
     title: string;
     description: string | null;
     dueDate: string | null;
+    initiativeId?: string | null;
     status: string;
-    stage: string | null;
     parentTaskId: string | null;
     basecampTodoId: string | null;
     /** Set when a replacement was saved and the old recording still needs to be trashed. */
@@ -77,7 +77,7 @@ export interface PlanPushSnapshot {
      * Set when this row sits under a pillar. The runner pushes that pillar
      * instead of creating a second to-do for the child.
      */
-    parent: { id: string; stage: string | null; dueDate: string | null } | null;
+    parent: { id: string; dueDate: string | null; initiativeId?: string | null } | null;
 }
 
 export type PlanProviderResult =
@@ -536,29 +536,23 @@ export async function syncPlanTask(
     if (
         parent
         && !seen.has(parent.id)
-        && planTaskQualifiesForBasecampPush({ stage: parent.stage, dueDate: parent.dueDate })
+        && planTaskQualifiesForBasecampPush(parent)
     ) {
         return syncPlanTask(parent.id, dependencies, new Set([...seen, snapshot.task.id]));
     }
 
-    if (parent && !planTaskQualifiesForBasecampPush({ stage: parent.stage, dueDate: parent.dueDate })) {
+    if (parent && !planTaskQualifiesForBasecampPush(parent)) {
         const nested = await nestUnderUnqualifiedParent(dependencies, snapshot, projectId, seen);
         if ('failed' in nested) return nested.failed;
         if (nested.settled) {
-            if (!planTaskQualifiesForBasecampPush({
-                stage: snapshot.task.stage,
-                dueDate: snapshot.task.dueDate,
-            })) {
+            if (!planTaskQualifiesForBasecampPush(snapshot.task)) {
                 return { status: 'skipped', reason: 'not-qualified' };
             }
             return rememberOk(dependencies, snapshot, snapshot.task.basecampTodoId ?? '', seen);
         }
     }
 
-    if (!planTaskQualifiesForBasecampPush({
-        stage: snapshot.task.stage,
-        dueDate: snapshot.task.dueDate,
-    })) {
+    if (!planTaskQualifiesForBasecampPush(snapshot.task)) {
         return { status: 'skipped', reason: 'not-qualified' };
     }
 

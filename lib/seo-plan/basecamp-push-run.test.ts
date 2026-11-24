@@ -22,7 +22,7 @@ function task(overrides: Partial<PlanPushTask> = {}): PlanPushTask {
         description: 'Draft the outline',
         dueDate: null,
         status: 'todo',
-        stage: 'backlog',
+
         parentTaskId: null,
         basecampTodoId: null,
         assigneePersonIds: [],
@@ -126,9 +126,9 @@ test('adding a due date creates one to-do', async () => {
     assert.equal(recorded[0]?.error, null);
 });
 
-test('leaving backlog creates a to-do even without a due date', async () => {
+test('assigning a project creates a to-do even without a due date', async () => {
     const { dependencies, calls } = harness({
-        task: task({ stage: 'onboarding' }),
+        task: task({ initiativeId: 'initiative' }),
         client: client(),
         parent: null,
     });
@@ -137,11 +137,11 @@ test('leaving backlog creates a to-do even without a due date', async () => {
     assert.deepEqual(calls, ['create']);
 });
 
-test('an imported onboarding task updates its existing to-do and does not create another', async () => {
+test('an imported task assigned to a project updates its existing to-do and does not create another', async () => {
     const { dependencies, calls, links } = harness({
         task: task({
             title: 'SEO Set Up',
-            stage: 'onboarding',
+            initiativeId: 'initiative',
             dueDate: null,
             basecampTodoId: '10425524627',
             children: [{
@@ -273,7 +273,7 @@ test('a revoked connection is one client-wide failure', async () => {
 
 test('a client with no Basecamp project does nothing visible', async () => {
     const { dependencies, calls, recorded } = harness({
-        task: task({ dueDate: '2026-10-31', stage: 'onboarding' }),
+        task: task({ dueDate: '2026-10-31', initiativeId: 'initiative' }),
         client: client({ syncEnabled: false, projectId: null }),
         parent: null,
     });
@@ -284,14 +284,14 @@ test('a client with no Basecamp project does nothing visible', async () => {
 });
 
 test('a qualifying child pushes the parent to-do instead of a second to-do', async () => {
-    const parent = task({ id: 'parent-1', stage: 'onboarding', title: 'Citations' });
+    const parent = task({ id: 'parent-1', initiativeId: 'initiative', title: 'Citations' });
     const child = task({ id: 'child-1', parentTaskId: 'parent-1', dueDate: '2026-10-31', title: 'Houzz' });
     const calls: string[] = [];
     const dependencies: PlanPushDependencies = {
         now: () => at,
         store: {
             async load(id) {
-                if (id === 'child-1') return { task: child, client: client(), parent: { id: parent.id, stage: parent.stage, dueDate: parent.dueDate } };
+                if (id === 'child-1') return { task: child, client: client(), parent: { id: parent.id, initiativeId: parent.initiativeId, dueDate: parent.dueDate } };
                 if (id === 'parent-1') return { task: parent, client: client(), parent: null };
                 return null;
             },
@@ -322,7 +322,7 @@ test('new subtasks are steps on the parent to-do and never their own to-dos', as
     const parent = task({
         id: 'parent-1',
         title: 'Citations cleanup',
-        stage: 'onboarding',
+        initiativeId: 'initiative',
         basecampTodoId: '77',
         children: [
             { id: 'houzz', title: 'Houzz photos', basecampTodoId: null },
@@ -371,12 +371,12 @@ test('new subtasks are steps on the parent to-do and never their own to-dos', as
 });
 
 test('a child of an unqualified parent becomes its own to-do when that child is pushed', async () => {
-    const parent = task({ id: 'parent-1', title: 'Later', stage: 'backlog', dueDate: null });
+    const parent = task({ id: 'parent-1', title: 'Later', dueDate: null });
     const child = task({
         id: 'child-1',
         title: 'Houzz photos',
         parentTaskId: parent.id,
-        stage: 'onboarding',
+        initiativeId: 'initiative',
         dueDate: null,
     });
     const created: string[] = [];
@@ -389,7 +389,7 @@ test('a child of an unqualified parent becomes its own to-do when that child is 
                     return {
                         task: child,
                         client: client(),
-                        parent: { id: parent.id, stage: parent.stage, dueDate: parent.dueDate },
+                        parent: { id: parent.id, initiativeId: parent.initiativeId, dueDate: parent.dueDate },
                     };
                 }
                 return null;
@@ -445,7 +445,7 @@ test('a child push records the result on the child, and a later success clears i
                     return {
                         task: child,
                         client: client(),
-                        parent: { id: parent.id, stage: parent.stage, dueDate: parent.dueDate },
+                        parent: { id: parent.id, initiativeId: parent.initiativeId, dueDate: parent.dueDate },
                     };
                 }
                 if (id === 'parent-1') return { task: parent, client: client(), parent: null };
@@ -516,7 +516,7 @@ test('a parent push turns a flat child to-do into a subtask and trashes it only 
     const child = { id: 'child-1', title: 'Houzz', basecampTodoId: '100', pendingTrashId: null as string | null };
     const parent = task({
         id: 'parent-1',
-        stage: 'onboarding',
+        initiativeId: 'initiative',
         title: 'Citations',
         basecampTodoId: '77',
         children: [child],
@@ -529,7 +529,7 @@ test('a parent push turns a flat child to-do into a subtask and trashes it only 
                     return {
                         task: task({ id: 'child-1', title: 'Houzz', parentTaskId: 'parent-1', basecampTodoId: child.basecampTodoId }),
                         client: client(),
-                        parent: { id: 'parent-1', stage: 'onboarding', dueDate: null },
+                        parent: { id: 'parent-1', initiativeId: 'initiative', dueDate: null },
                     };
                 }
                 if (id === 'parent-1') return { task: parent, client: client(), parent: null };
@@ -596,7 +596,7 @@ test('a done parent push completes a done child step and then completes the pare
     };
     const parent = task({
         id: 'parent-1',
-        stage: 'onboarding',
+        initiativeId: 'initiative',
         status: 'done',
         title: 'Citations',
         basecampTodoId: '77',
@@ -616,7 +616,7 @@ test('a done parent push completes a done child step and then completes the pare
                             basecampTodoId: child.basecampTodoId,
                         }),
                         client: client(),
-                        parent: { id: 'parent-1', stage: 'onboarding', dueDate: null },
+                        parent: { id: 'parent-1', initiativeId: 'initiative', dueDate: null },
                     };
                 }
                 if (id === 'parent-1') return { task: parent, client: client(), parent: null };
@@ -679,7 +679,7 @@ test('a child under a parent that does not qualify is nested instead of updated 
     const parent = task({
         id: 'parent-1',
         title: 'Citations',
-        stage: 'backlog',
+
         dueDate: null,
         basecampTodoId: '77',
         children: [],
@@ -689,7 +689,7 @@ test('a child under a parent that does not qualify is nested instead of updated 
         store: {
             async load(id) {
                 if (id === 'child-1') {
-                    return { task: childTask, client: client(), parent: { id: parent.id, stage: parent.stage, dueDate: parent.dueDate } };
+                    return { task: childTask, client: client(), parent: { id: parent.id, initiativeId: parent.initiativeId, dueDate: parent.dueDate } };
                 }
                 if (id === 'parent-1') return { task: parent, client: client(), parent: null };
                 return null;
@@ -727,7 +727,7 @@ test('a child under a parent that does not qualify is nested instead of updated 
 test('an undated backlog task is not lifted out of a subtask', async () => {
     const calls: string[] = [];
     const { dependencies } = harness({
-        task: task({ stage: 'backlog', dueDate: null, basecampTodoId: '100' }),
+        task: task({ dueDate: null, basecampTodoId: '100' }),
         client: client(),
         parent: null,
     }, {
@@ -743,7 +743,7 @@ test('an undated backlog task is not lifted out of a subtask', async () => {
 
 test('a qualifying top-level task that is still a subtask becomes a to-do before it is updated', async () => {
     const calls: string[] = [];
-    const row = task({ stage: 'onboarding', basecampTodoId: '100', title: 'Houzz' });
+    const row = task({ initiativeId: 'initiative', basecampTodoId: '100', title: 'Houzz' });
     const { dependencies } = harness({ task: row, client: client(), parent: null }, {
         async inspectRecording() {
             calls.push('inspect');
@@ -784,7 +784,7 @@ test('new subtasks are created in plan order and repositioned only when Basecamp
     const parent = task({
         id: 'parent-1',
         title: 'Indexing + bloat triage',
-        stage: 'onboarding',
+        initiativeId: 'initiative',
         basecampTodoId: '10429396134',
         children: [
             { id: 'clean', title: 'Clean the sitemap', basecampTodoId: null, position: 4, createdAt: '2026-10-04T00:00:00.000Z' },
@@ -841,7 +841,7 @@ test('reordering children of an unqualified parent still moves the steps', async
     const parent = task({
         id: 'parent-1',
         title: 'Indexing + bloat triage',
-        stage: 'backlog',
+
         dueDate: null,
         basecampTodoId: '10429396134',
         children: [

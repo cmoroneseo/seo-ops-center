@@ -2,9 +2,10 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { isUuid } from '@/lib/portal/access-policy';
-import { ROADMAP_COPY, projectClientRoadmap, todayForRoadmap } from '@/lib/reports/roadmap';
+import { ROADMAP_COPY, projectClientRoadmap } from '@/lib/reports/roadmap';
+import { loadRoadmapProjects } from '@/lib/reports/roadmap-projects';
 import { resolveSessionOrganization } from '@/lib/reports/session-org';
-import { loadClientPlanBoard, loadClientStageTasks } from '@/lib/seo-plan/stage-list-load';
+import { loadClientStageTasks } from '@/lib/seo-plan/stage-list-load';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,10 +39,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cli
     );
 
     try {
-        const tasks = await loadClientStageTasks(db, session.organizationId, clientId);
+        const [tasks, projects] = await Promise.all([
+            loadClientStageTasks(db, session.organizationId, clientId),
+            loadRoadmapProjects(db, session.organizationId, clientId).catch(() => []),
+        ]);
         if (!tasks) return NextResponse.json({ error: ROADMAP_COPY.error }, { status: 404, headers: NO_STORE });
-        const board = await loadClientPlanBoard(db, session.organizationId, clientId);
-        const roadmap = projectClientRoadmap({ board, tasks, today: todayForRoadmap() });
+        const roadmap = projectClientRoadmap({ projects, tasks });
         return NextResponse.json({ roadmap }, { headers: NO_STORE });
     } catch {
         return NextResponse.json({ error: ROADMAP_COPY.error }, { status: 500, headers: NO_STORE });

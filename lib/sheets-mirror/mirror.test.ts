@@ -11,7 +11,7 @@ const id = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
 const client = { id, organization_id: 'org', roadmap_sheet_id: 'sheet', sheet_mirror_enabled: true };
 const task: TaskRow = {
-    id: 'parent', title: '=2+2', parent_task_id: null, category: 'seo', stage: 'draft', status: 'done',
+    id: 'parent', title: '=2+2', parent_task_id: null, category: 'seo', status: 'done',
     start_date: '2026-11-18T18:00:00Z', due_date: '2026-11-19', completed_at: now.toISOString(),
     published_url: 'https://example.test', basecamp_project_id: 20, basecamp_todo_id: 30,
 };
@@ -51,12 +51,12 @@ test('mirror columns, roadmap phase and sort order, parent-first tasks, PT dates
     assert.deepEqual(tabs[0].rows.slice(1).map(row => row[1]), ['Setup', 'Earlier', 'Audit', 'Later']);
     assert.deepEqual(tabs[0].rows[3], ['Month 1', 'Audit', 'Technical SEO', 'todo', 'high',
         '2026-11-19', 'done', '2026-11-19', 'one']);
-    assert.deepEqual(tabs[1].rows[0], ['Title', 'Parent task', 'Category', 'Stage', 'Status', 'Start date',
+    assert.deepEqual(tabs[1].rows[0], ['Title', 'Parent task', 'Category', 'Status', 'Start date',
         'Due date', 'Completed date', 'Published URL', 'Basecamp link', 'App ID']);
-    assert.deepEqual(tabs[1].rows[1], ['=2+2', '', 'seo', 'draft', 'done', '2026-11-18',
+    assert.deepEqual(tabs[1].rows[1], ['=2+2', '', 'seo', 'done', '2026-11-18',
         '2026-11-19', '2026-11-19', 'https://example.test', 'https://3.basecamp.com/10/buckets/20/todos/30', 'parent']);
     assert.equal(tabs[1].rows[2][1], '=2+2');
-    assert.equal(tabs[1].rows[2][9], '');
+    assert.equal(tabs[1].rows[2][8], '');
     assert.match(tabs[2].rows[1][1], /Nov 19, 2026.*6:30:00 PM PT/);
     assert.deepEqual(tabs[2].rows.slice(2, 5).map(row => row[1]), ['4', '2', '5']);
     assert.match(tabs[2].rows.at(-1)![1], /Edit in the app, not here/);
@@ -138,9 +138,9 @@ test('snapshot and resize app tabs, hide App IDs on existing and new tabs, then 
             range: { sheetId: 3, dimension: 'COLUMNS', startIndex: 8, endIndex: 9 },
             properties: { hiddenByUser: true }, fields: 'hiddenByUser',
         } },
-        { addSheet: { properties: { sheetId: 9, title: TASKS_TAB, gridProperties: { rowCount: 2, columnCount: 11, frozenRowCount: 1 } } } },
+        { addSheet: { properties: { sheetId: 9, title: TASKS_TAB, gridProperties: { rowCount: 2, columnCount: 10, frozenRowCount: 1 } } } },
         { updateDimensionProperties: {
-            range: { sheetId: 9, dimension: 'COLUMNS', startIndex: 10, endIndex: 11 },
+            range: { sheetId: 9, dimension: 'COLUMNS', startIndex: 9, endIndex: 10 },
             properties: { hiddenByUser: true }, fields: 'hiddenByUser',
         } },
         { duplicateSheet: { sourceSheetId: 7, newSheetId: 10, newSheetName: `${INFO_TAB} (prev)` } },

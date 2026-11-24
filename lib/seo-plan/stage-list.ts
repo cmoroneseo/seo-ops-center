@@ -1,18 +1,15 @@
 import type { PlanBasecampSyncState } from './basecamp-push';
 import { nestingParentId, progressOf, taskExcluded, type ProgressTask } from '../tasks/subtask-progress';
-import { isTaskStage } from '../tasks/stage';
-import { TASK_STAGES, type TaskPriority, type TaskStage } from '../types';
+import { type TaskPriority } from '../types';
 
 /**
- * One client task in the stage list.
- * `recurring` marks a successor that keeps its own row. Stage and position are
- * display fields only; this module never writes them.
+ * One task displayed on the work plan.
+ * A recurring successor keeps its own row.
  */
 export interface StageListTask {
     id: string;
     title: string;
     status: string;
-    stage: string | null;
     position: number | null;
     parentTaskId: string | null;
     /**
@@ -42,7 +39,6 @@ export interface StageListTask {
     estimatedHours?: number | null;
     /**
      * Deleted, archived, or hidden. These rows are not live subtasks.
-     * A month filter or the "Show done" fold is not this flag.
      */
     excluded?: boolean;
     /**
@@ -63,19 +59,6 @@ export interface StageListGroup {
     /** Set when a subtask cannot be nested because its parent task is not loaded. */
     parentBreadcrumb?: string;
 }
-
-export interface StageListSection {
-    stage: TaskStage;
-    label: string;
-    /** Top-level rows in this stage. Nested subtasks are counted on the pillar. */
-    count: number;
-    groups: StageListGroup[];
-}
-
-export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
-    onboarding: 'Onboarding',
-    backlog: 'Backlog',
-};
 
 function finitePosition(value: number | null): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -102,10 +85,6 @@ function titleMatches(task: StageListTask, words: readonly string[]): boolean {
     if (words.length === 0) return false;
     const title = task.title.toLocaleLowerCase();
     return words.every(word => title.includes(word));
-}
-
-function stageOf(task: StageListTask): TaskStage {
-    return isTaskStage(task.stage) ? task.stage : 'backlog';
 }
 
 /**
@@ -137,12 +116,11 @@ function uniqueTasks(tasks: readonly StageListTask[]): StageListTask[] {
 }
 
 /**
- * Group a client's tasks into the roadmap sections.
- * Empty sections are always returned, in TASK_STAGES order.
+ * Gather a client’s tasks and their displayed subtasks.
  * Subtasks render under their pillar. Search matches pillar titles and
  * subtask titles; a subtask-only hit keeps the parent and opens the matches.
  */
-export function groupTasksByStage(tasks: readonly StageListTask[], query: string): StageListSection[] {
+export function groupTaskTrees(tasks: readonly StageListTask[], query: string): StageListGroup[] {
     const unique = uniqueTasks(tasks);
     const byId = new Map(unique.map(task => [task.id, task]));
     const words = searchWords(query);
@@ -196,18 +174,7 @@ export function groupTasksByStage(tasks: readonly StageListTask[], query: string
         });
     }
 
-    const byStage = new Map<TaskStage, StageListGroup[]>(TASK_STAGES.map(stage => [stage, []]));
-    for (const group of groups) byStage.get(stageOf(group.task))!.push(group);
-
-    return TASK_STAGES.map(stage => {
-        const sectionGroups = byStage.get(stage) ?? [];
-        return {
-            stage,
-            label: TASK_STAGE_LABELS[stage],
-            count: sectionGroups.length,
-            groups: sectionGroups,
-        };
-    });
+    return groups;
 }
 
 export function stageListTitleParts(title: string, query: string): { text: string; match: boolean }[] {
@@ -254,7 +221,6 @@ export function stageListTaskFromRow(row: unknown): StageListTask | null {
         id: record.id,
         title: record.title,
         status: typeof record.status === 'string' && record.status ? record.status : 'todo',
-        stage: typeof record.stage === 'string' ? record.stage : null,
         position,
         parentTaskId: typeof record.parent_task_id === 'string' && record.parent_task_id ? record.parent_task_id : null,
         ...('initiative_id' in record ? {
@@ -350,7 +316,6 @@ export function parseStageListTasks(value: unknown): StageListTask[] {
             id: record.id,
             title: record.title,
             status: typeof record.status === 'string' && record.status ? record.status : 'todo',
-            stage: typeof record.stage === 'string' ? record.stage : null,
             position: typeof record.position === 'number' && Number.isFinite(record.position) ? record.position : null,
             parentTaskId: typeof record.parentTaskId === 'string' && record.parentTaskId ? record.parentTaskId : null,
             ...('initiativeId' in record ? {

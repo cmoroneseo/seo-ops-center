@@ -1,62 +1,41 @@
 'use client';
 
+import Link from 'next/link';
+import { projectsHref } from '@/lib/projects/project-links';
+
 import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { Check, ChevronRight, GripVertical, Play } from 'lucide-react';
 import { isPendingStageTaskId } from '@/lib/seo-plan/stage-add';
-import { hrefWithOverviewMonth, readOverviewMonth } from '@/lib/seo-plan/plan-month-url';
 import {
     EMPTY_PLAN_FILTERS,
-    describeFilteredSections,
     filterPlanTasks,
-    hideSectionsOutsideStage,
     hrefWithPlanFilters,
-    knownStage,
     planFilterEmptyCopy,
     readPlanFilters,
     type PlanBoardFilters,
 } from '@/lib/seo-plan/plan-filters';
 import { isChecklistTaskId } from '@/lib/seo-plan/plan-work';
-import { effectOfPlanDrop } from '@/lib/seo-plan/plan-drag';
-import {
-    groupTasksByPhase,
-    PHASE_ADD_PLACEHOLDER,
-    PHASE_BOARD_EMPTY,
-    phaseAddLabel,
-    type BoardStage,
-    type PlanBoard,
-    type PlanPhase,
-} from '@/lib/seo-plan/plan-phases';
+import { groupTasksByProject, NO_PROJECT_GROUP, projectGroupId } from '@/lib/seo-plan/project-groups';
 import {
     formatPlanDue,
     formatPlanHours,
-    groupTasksByPlanMonth,
     isPlanDone,
-    isPlanMonth,
-    monthKeyFromDay,
     planHourRollup,
-    PLAN_LOOKBACK_NOTE,
-    shiftPlanMonth,
     type PlanGroup,
-    type PlanSectionId,
-    type PlanSectionModel,
 } from '@/lib/seo-plan/plan-sections';
-import type { DoneThisMonthLog } from '@/lib/seo-plan/done-this-month';
 import { type PlanPanelField } from '@/lib/seo-plan/plan-panel';
-import { stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
+import { compareStageListTasks, stageListTitleParts, type StageListTask } from '@/lib/seo-plan/stage-list';
 import type { PartOfChoice } from '@/lib/tasks/part-of';
-import { calendarDay, STAGE_LIST_TIME_ZONE } from '@/lib/seo-plan/this-month';
-import type { StageReorderMove } from '@/lib/seo-plan/stage-reorder';
+import { calendarDay } from '@/lib/seo-plan/this-month';
+import { stageMoveBy, type StageReorderMove } from '@/lib/seo-plan/stage-reorder';
 import { cn } from '@/lib/utils';
 import { LiveUrlResultLine } from '@/components/search-reporting/LiveUrlResultLine';
 import { CompletionDatePrompt } from '@/components/tasks/CompletionDatePrompt';
 import { LiveUrlControl } from '@/components/tasks/LiveUrlControl';
 import { aggregateUrlResults, type UrlResultReadout } from '@/lib/search-reporting/url-results';
 import { planRowTimeText, planRowTimerLabel, planTimerTask, type PlanRowTimerView } from '@/lib/seo-plan/row-timer';
-import { DoneThisMonthFooter } from './DoneThisMonthFooter';
-import { PlanAddLine, type PlanAddSubmission } from './PlanAddLine';
 import { StageAddBar } from './StageAddBar';
-import { EMPTY_PLAN_ADD_TASKS, EMPTY_PLAN_BODY, EMPTY_PLAN_TITLE } from '@/lib/seo-plan/empty-plan';
-import { PLAYBOOK_COPY, playbookStageButtonLabel, type PlaybookExisting, type PlaybookOrgTask, type PlaybookScope } from '@/lib/seo-plan/playbook';
+import { PLAYBOOK_COPY, playbookProjectButtonLabel, type PlaybookExisting, type PlaybookOrgTask, type PlaybookScope } from '@/lib/seo-plan/playbook';
 import { PlanSyncBanner, PlanSyncDot } from './PlanSyncFailure';
 import type { PlanBasecampBanner, PlanBasecampSyncState } from '@/lib/seo-plan/basecamp-push';
 import { PlanShortcutSheet } from './PlanShortcutSheet';
@@ -68,13 +47,13 @@ const NO_ORG_TASKS: readonly PlaybookOrgTask[] = [];
 const NO_PLAN_ROWS: readonly PlaybookExisting[] = [];
 
 export interface StageAddRequest {
-    stage: BoardStage;
+    initiativeId?: string | null;
     titles: string[];
     parentTaskId?: string;
-    /** Set by the plan add line. Null is Backlog or Onboarding. */
+    /** Set by the plan add line. Null leaves the task undated. */
     dueDate?: string | null;
     /** Mixed parents. Depth 1 belongs to the nearest depth-0 line above it. */
-    items?: PlanAddSubmission['items'];
+    items?: { title: string; depth: 0 | 1 }[];
 }
 
 export interface PlanAssignee {
@@ -217,7 +196,7 @@ function pointerFraction(event: DragEvent<HTMLElement>): number {
 }
 
 interface DropHint {
-    section: PlanSectionId | PlanPhase;
+    section: string;
     beforeTaskId: string | null;
     parentTaskId: string | null;
 }
@@ -226,7 +205,6 @@ function samePlanFilters(left: PlanBoardFilters, right: PlanBoardFilters): boole
     return left.status === right.status
         && left.priority === right.priority
         && left.assignee === right.assignee
-        && left.stage === right.stage
         && left.partOf === right.partOf;
 }
 
@@ -235,13 +213,6 @@ function hintKey(hint: DropHint | null): string {
     return `${hint.section}:${hint.parentTaskId ?? ''}:${hint.beforeTaskId ?? ''}`;
 }
 
-/**
- * One plan list.
- * A phase plan uses Foundation, Growth, and Scale.
- * An older plan keeps Onboarding, This month, and Backlog.
- * Rows stay in manual position order and can be dragged.
- * Dropping a row into another section changes the field that places it there.
- */
 export function StagePlanListView({
     tasks,
     query,
@@ -253,15 +224,9 @@ export function StagePlanListView({
     onToggleCheck,
     resultsByTaskId,
     today,
-    initialMonth,
     people = [],
     loggedHours = {},
-    monthLogs,
-    monthLogsFor,
-    onMonthChange,
-    timeZone = STAGE_LIST_TIME_ZONE,
     clientId,
-    onOpenResults,
     clientName,
     timerByTaskId,
     pendingTimerTaskId = null,
@@ -275,7 +240,6 @@ export function StagePlanListView({
     integrationsHref = '/settings',
     onRetrySync,
     doneHoldMs = 4000,
-    board = 'months',
     orgTasks = NO_ORG_TASKS,
     orgTasksReady = true,
     planRows = NO_PLAN_ROWS,
@@ -283,7 +247,9 @@ export function StagePlanListView({
     partOfChoices = [],
     partOfReady = false,
     viewerId = null,
+    project,
 }: {
+    project?: PartOfChoice;
     tasks: readonly StageListTask[];
     query: string;
     onQueryChange: (query: string) => void;
@@ -297,8 +263,6 @@ export function StagePlanListView({
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     /** Calendar day YYYY-MM-DD in the org timezone. Defaults to today in Pacific time. */
     today?: string;
-    /** Selected month YYYY-MM. Defaults to the month of `today`. */
-    initialMonth?: string;
     people?: readonly PlanAssignee[];
     /** Logged hours by task id. All-time, finalized logs only. */
     loggedHours?: Readonly<Record<string, number>>;
@@ -313,19 +277,10 @@ export function StagePlanListView({
     /** After a confirmed stop-and-complete, open the live URL field on this task. */
     urlPromptTaskId?: string | null;
     /**
-     * Finalized time logs for the selected month. Null while that query is in flight.
      * Omit it when the caller has no logs to load; the footer then shows zeros.
      */
-    monthLogs?: readonly DoneThisMonthLog[] | null;
-    /** Month the `monthLogs` array was loaded for. A mismatch keeps hours pending. */
-    monthLogsFor?: string | null;
-    /** Tells the parent which month the footer hours should cover. */
-    onMonthChange?: (month: string) => void;
     /** Org timezone for completion and log boundaries. Defaults to Pacific. */
-    timeZone?: string;
     clientId?: string;
-    /** Opens this client's Results view for the selected month. */
-    onOpenResults?: (month: string) => void;
     /** Kept for callers. The plan header does not repeat the client name. */
     clientName?: string;
     /** Beside the list. No scrim, and the list stays clickable. */
@@ -336,13 +291,8 @@ export function StagePlanListView({
     basecamp?: PlanBasecampBanner | null;
     integrationsHref?: string;
     onRetrySync?: (taskId: string) => Promise<PlanBasecampSyncState | null>;
-    /** How long a just-completed onboarding row stays visible, with Undo, before Show done hides it. */
+    /** How long Undo is available after completing a task. */
     doneHoldMs?: number;
-    /**
-     * `phases` shows Foundation, Growth, and Scale.
-     * `months` keeps the existing month board. Defaults to months.
-     */
-    board?: PlanBoard;
     /** Tasks the organization already saved. Loaded by the plan, not by this view. */
     orgTasks?: readonly PlaybookOrgTask[];
     orgTasksReady?: boolean;
@@ -350,9 +300,9 @@ export function StagePlanListView({
     planRows?: readonly PlaybookExisting[];
     /** Google Business Profile and directory listings follow the client's saved scope. */
     checklistScope?: PlaybookScope;
-    /** Roadmap rows this client can filter by. Empty hides the control. */
+    /** Projects in the order returned for this client. */
     partOfChoices?: readonly PartOfChoice[];
-    /** True once the Part of list has loaded. A link to a missing row is then dropped. */
+    /** True once the projects have loaded. A filter for a missing project is then dropped. */
     partOfReady?: boolean;
     /** Signed-in person. My tasks uses this id. */
     viewerId?: string | null;
@@ -368,33 +318,17 @@ export function StagePlanListView({
     const onQueryChangeRef = useRef(onQueryChange);
     onQueryChangeRef.current = onQueryChange;
     const day = today ?? calendarDay(new Date());
-    const [month, setMonth] = useState(() => (initialMonth && isPlanMonth(initialMonth) ? initialMonth : monthKeyFromDay(day)));
-    const urlMonth = useRef<string | null | undefined>(undefined);
-    const phaseBoard = board === 'phases';
-    const partOfActive = partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
-    const boardKind = phaseBoard ? 'phases' : 'months';
-    const stageActive = filters.stage && knownStage(filters.stage, boardKind) ? filters.stage : '';
-    const appliedFilters: PlanBoardFilters = {
-        ...filters,
-        partOf: partOfActive,
-        stage: stageActive,
-    };
+    const boardProjects = project ? [project] : partOfChoices;
+    const partOfActive = !project && partOfChoices.some(choice => choice.id === filters.partOf) ? filters.partOf : '';
+    const appliedFilters: PlanBoardFilters = { ...filters, partOf: partOfActive };
     const listed = filterPlanTasks(tasks, appliedFilters);
-    const attributeCount = [appliedFilters.status, appliedFilters.priority, appliedFilters.assignee, appliedFilters.stage, appliedFilters.partOf]
+    const attributeCount = [appliedFilters.status, appliedFilters.priority, appliedFilters.assignee, appliedFilters.partOf]
         .filter(Boolean).length;
-    const sections = phaseBoard
-        ? describeFilteredSections(
-            hideSectionsOutsideStage(groupTasksByPhase(listed, query, day), appliedFilters.stage, 'phases', day),
-            attributeCount > 0,
-        )
-        : describeFilteredSections(
-            hideSectionsOutsideStage(groupTasksByPlanMonth(listed, { month, today: day, query }), appliedFilters.stage, 'months', day),
-            attributeCount > 0,
-        );
+    const sections = groupTasksByProject(listed, boardProjects, query)
+        .filter(section => !project || section.id === project.id);
     const searching = query.trim().length > 0;
     const filterState = { ...appliedFilters, query };
     const nothingMatches = (searching || attributeCount > 0) && sections.every(section => section.groups.length === 0);
-    const current = month === monthKeyFromDay(day);
     const clientFailure = Boolean(basecamp?.connected && basecamp.failure);
     void clientName;
 
@@ -408,31 +342,33 @@ export function StagePlanListView({
         onOpenTask(taskId, field);
     }, [onOpenTask]);
 
-    const shiftMonth = useCallback((delta: -1 | 1) => {
-        setMonth(currentMonth => shiftPlanMonth(currentMonth, delta));
-    }, []);
     const [playbook, setPlaybook] = useState<{ from: string | null } | null>(null);
-    const [finishPrompt, setFinishPrompt] = useState<{ taskId: string; foldDone: boolean } | null>(null);
+    const [finishPrompt, setFinishPrompt] = useState<string | null>(null);
     const [holdSeed, setHoldSeed] = useState<{ taskId: string; token: number } | null>(null);
-    const beginFinish = useCallback((taskId: string, foldDone: boolean) => {
+    const beginFinish = useCallback((taskId: string) => {
         const task = tasks.find(item => item.id === taskId);
         if (!task || !onToggleCheck) return;
         if (isPlanDone(task.status)) {
             void onToggleCheck(taskId);
             return;
         }
-        setFinishPrompt({ taskId, foldDone });
+        setFinishPrompt(taskId);
     }, [onToggleCheck, tasks]);
     const confirmFinish = useCallback((completedAt: string) => {
         const current = finishPrompt;
         if (!current || !onToggleCheck) return;
         setFinishPrompt(null);
-        if (current.foldDone) setHoldSeed({ taskId: current.taskId, token: Date.now() });
-        void onToggleCheck(current.taskId, completedAt);
+        setHoldSeed({ taskId: current, token: Date.now() });
+        void onToggleCheck(current, completedAt);
     }, [finishPrompt, onToggleCheck]);
     const checkFromKeyboard = useCallback((taskId: string) => {
-        beginFinish(taskId, false);
+        beginFinish(taskId);
     }, [beginFinish]);
+    const moveFromKeyboard = (taskId: string, direction: 'up' | 'down') => {
+        const requested = stageMoveBy(tasks.filter(task => !isChecklistTaskId(task.id)), taskId, direction, boardProjects);
+        if (requested) void onReorder(requested).catch(() => setKeyboardMoveError(true));
+    };
+    const [keyboardMoveError, setKeyboardMoveError] = useState(false);
     const { helpOpen, closeHelp } = usePlanKeymap({
         rootRef: listRef,
         searchRef,
@@ -445,29 +381,8 @@ export function StagePlanListView({
         onClosePanel,
         onToggleCheck: onToggleCheck ? checkFromKeyboard : undefined,
         onRowTimer,
-        onShiftMonth: phaseBoard ? () => undefined : shiftMonth,
+        onMoveTask: moveFromKeyboard,
     });
-
-    useEffect(() => {
-        const requested = readOverviewMonth(window.location.search);
-        urlMonth.current = requested;
-        if (requested) setMonth(requested);
-    }, []);
-
-    useEffect(() => {
-        if (phaseBoard) return;
-        if (urlMonth.current === undefined) return;
-        if (typeof urlMonth.current === 'string' && month !== urlMonth.current) return;
-        urlMonth.current = null;
-        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        const next = hrefWithOverviewMonth(current, month);
-        if (next !== current) window.history.replaceState(window.history.state, '', next);
-    }, [month, phaseBoard]);
-
-    useEffect(() => {
-        if (phaseBoard) return;
-        onMonthChange?.(month);
-    }, [month, onMonthChange, phaseBoard]);
 
     useEffect(() => {
         const read = readPlanFilters(window.location.search);
@@ -495,40 +410,9 @@ export function StagePlanListView({
     }, [filters.partOf, partOfChoices, partOfReady]);
 
     const list = (
-        <div ref={listRef} data-seo-plan-stage-list data-plan-board={board} data-plan-month={phaseBoard ? undefined : month} className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                {phaseBoard ? <span className="text-sm font-medium">Work plan</span> : (
-                <div className="flex items-center gap-2" data-plan-month-control>
-                    <button
-                        type="button"
-                        aria-label="Previous month"
-                        onClick={() => setMonth(currentMonth => shiftPlanMonth(currentMonth, -1))}
-                        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3f3f46] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                    >
-                        ‹
-                    </button>
-                    {current ? (
-                        <span className="rounded-full bg-[#ec4899]/15 px-2 py-0.5 text-[11px] font-medium text-[#ec4899]">This month</span>
-                    ) : (
-                        <button
-                            type="button"
-                            onClick={() => setMonth(monthKeyFromDay(day))}
-                            className="rounded-full border border-[#d4d4d8] px-2 py-0.5 text-[11px] text-[#3f3f46] hover:text-[#18181b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                        >
-                            This month
-                        </button>
-                    )}
-                    <span className="text-sm font-medium" data-plan-month-label>{monthLabel(month)}</span>
-                    <button
-                        type="button"
-                        aria-label="Next month"
-                        onClick={() => setMonth(currentMonth => shiftPlanMonth(currentMonth, 1))}
-                        className="flex h-8 w-8 items-center justify-center rounded-md text-[#3f3f46] hover:bg-[#f4f4f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                    >
-                        ›
-                    </button>
-                </div>
-                )}
+        <div ref={listRef} data-seo-plan-stage-list className="min-w-0 flex-1 space-y-3 text-[13px] text-[#18181b]">
+            {!project && <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="text-sm font-medium">Work plan</span>
                 <button
                     type="button"
                     data-playbook-open="plan"
@@ -537,30 +421,19 @@ export function StagePlanListView({
                 >
                     {PLAYBOOK_COPY.button}
                 </button>
-            </div>
+            </div>}
             <PlanFilterBar
-                board={phaseBoard ? 'phases' : 'months'}
                 query={query}
                 filters={filters}
                 people={people}
                 viewerId={viewerId}
-                partOfChoices={partOfChoices}
+                partOfChoices={project ? [] : partOfChoices}
                 searchRef={searchRef}
                 onQueryChange={onQueryChange}
                 onFiltersChange={setFilters}
             />
 
-            {phaseBoard ? null : (
-            <PlanAddLine
-                month={month}
-                onAdd={submission => onAddTasks({
-                    stage: submission.stage,
-                    titles: submission.items.map(item => item.title),
-                    dueDate: submission.dueDate,
-                    items: submission.items,
-                })}
-            />
-            )}
+            {keyboardMoveError && <p role="alert">Could not move that task.</p>}
 
             {clientFailure && <PlanSyncBanner href={integrationsHref} />}
 
@@ -587,29 +460,15 @@ export function StagePlanListView({
                 </p>
             )}
 
-            {phaseBoard && tasks.length === 0 && !searching && attributeCount === 0 && (
-                <div data-plan-phase-empty className="text-[13px] leading-relaxed text-[#3f3f46]">
-                    <p>{PHASE_BOARD_EMPTY}</p>
-                    <p className="mt-1">{PLAYBOOK_COPY.emptyHint}</p>
-                </div>
-            )}
-
-            {!phaseBoard && tasks.length === 0 && !searching && attributeCount === 0 ? (
-                <div data-plan-empty className="rounded-[10px] border border-[#e4e4e7] bg-[#ffffff] px-4 py-6">
-                    <h3 className="text-[13px] font-semibold text-[#18181b]">{EMPTY_PLAN_TITLE}</h3>
-                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_BODY}</p>
-                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{EMPTY_PLAN_ADD_TASKS}</p>
-                    <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-[#3f3f46]">{PLAYBOOK_COPY.emptyHint}</p>
-                </div>
-            ) : (
-                <PlanSections
-                key={`${query}:${appliedFilters.status}:${appliedFilters.priority}:${appliedFilters.assignee}:${appliedFilters.stage}:${appliedFilters.partOf}`}
+            <PlanSections
+                key={`${query}:${appliedFilters.status}:${appliedFilters.priority}:${appliedFilters.assignee}:${appliedFilters.partOf}`}
                 tasks={tasks}
                 sections={sections}
                 query={query}
-                searching={searching}
                 nothingMatches={nothingMatches}
-                month={month}
+                projects={boardProjects}
+                clientId={project ? undefined : clientId}
+                projectPage={Boolean(project)}
                 today={day}
                 people={people}
                 loggedHours={loggedHours}
@@ -630,23 +489,9 @@ export function StagePlanListView({
                 holdSeed={holdSeed}
                 resultsByTaskId={resultsByTaskId}
                 doneHoldMs={doneHoldMs}
-                onAddInSection={phaseBoard
-                    ? (stage, titles) => onAddTasks({ stage: stage as PlanPhase, titles })
-                    : undefined}
-                onOpenPlaybook={stage => setPlaybook({ from: stage })}
+                onAddInSection={onAddTasks}
+                onOpenPlaybook={id => setPlaybook({ from: id === NO_PROJECT_GROUP ? null : id })}
             />
-            )}
-            {phaseBoard ? null : (
-            <DoneThisMonthFooter
-                tasks={tasks}
-                logs={monthLogs}
-                hoursPending={monthLogs === null || (monthLogsFor != null && monthLogsFor !== month)}
-                month={month}
-                timeZone={timeZone}
-                clientId={clientId}
-                onOpenResults={onOpenResults}
-            />
-            )}
         </div>
     );
     const body = (
@@ -661,10 +506,8 @@ export function StagePlanListView({
             {helpOpen && <PlanShortcutSheet onClose={closeHelp} />}
             {playbook && (
                 <PlaybookDrawer
-                    board={board}
-                    month={month}
-                    today={day}
                     openedFrom={playbook.from}
+                    projects={partOfChoices}
                     tasks={tasks}
                     planRows={planRows}
                     orgTasks={orgTasks}
@@ -678,22 +521,14 @@ export function StagePlanListView({
     );
 }
 
-function monthLabel(month: string): string {
-    const [year, monthIndex] = month.split('-').map(Number);
-    return new Date(Date.UTC(year, monthIndex - 1, 1)).toLocaleString('en-US', {
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'UTC',
-    });
-}
-
 function PlanSections({
     tasks,
     sections,
     query,
-    searching,
     nothingMatches,
-    month,
+    projects,
+    clientId,
+    projectPage,
     today,
     people,
     loggedHours,
@@ -718,11 +553,12 @@ function PlanSections({
     onOpenPlaybook,
 }: {
     tasks: readonly StageListTask[];
-    sections: Array<Omit<PlanSectionModel, 'id'> & { id: string; description?: string }>;
+    sections: ReturnType<typeof groupTasksByProject>;
+    projects: readonly PartOfChoice[];
+    clientId?: string;
+    projectPage: boolean;
     query: string;
-    searching: boolean;
     nothingMatches: boolean;
-    month: string;
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
@@ -740,16 +576,15 @@ function PlanSections({
     onSetLiveUrl?: (taskId: string, raw: string) => Promise<string | null>;
     onToggleCheck?: (taskId: string, completedAt?: string) => void | Promise<void>;
     /** Marking a row done asks for the day before the status changes. */
-    onBeginDone?: (taskId: string, foldDone: boolean) => void;
+    onBeginDone?: (taskId: string) => void;
     /** After the day is confirmed, hold a folded row so Undo can show. */
     holdSeed?: { taskId: string; token: number } | null;
     resultsByTaskId?: Readonly<Record<string, UrlResultReadout>>;
     doneHoldMs: number;
-    onAddInSection?: (stage: string, titles: string[]) => Promise<void>;
-    onOpenPlaybook: (stage: string) => void;
+    onAddInSection: (input: StageAddRequest) => Promise<void>;
+    onOpenPlaybook: (projectId: string) => void;
 }) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-    const [showDone, setShowDone] = useState(false);
     const [heldDone, setHeldDone] = useState<Record<string, true>>({});
     const heldTimers = useRef<Record<string, number>>({});
     const seenHold = useRef(0);
@@ -792,14 +627,14 @@ function PlanSections({
         seenHold.current = holdSeed.token;
         holdDoneRef.current(holdSeed.taskId);
     }, [holdSeed]);
-    const markTask = (task: StageListTask, foldDone: boolean) => {
+    const markTask = (task: StageListTask) => {
         if (!onToggleCheck && !onBeginDone) return;
         if (!isPlanDone(task.status)) {
             if (onBeginDone) {
-                onBeginDone(task.id, foldDone);
+                onBeginDone(task.id);
                 return;
             }
-            if (foldDone) holdDone(task.id);
+            holdDone(task.id);
             void onToggleCheck?.(task.id);
             return;
         }
@@ -816,6 +651,7 @@ function PlanSections({
         setDragId(id);
     };
     const showHint = (next: DropHint | null) => {
+        if (next && !canDrop(next.section, next.parentTaskId)) next = null;
         const key = hintKey(next);
         if (key === seenHint.current) return;
         seenHint.current = key;
@@ -825,35 +661,32 @@ function PlanSections({
         rememberDrag(null);
         showHint(null);
     };
-    const isCollapsed = (section: { id: string; defaultCollapsed: boolean }) => (
-        section.id in collapsed ? collapsed[section.id] : section.defaultCollapsed
-    );
+    const canDrop = (section: string, parentTaskId: string | null) => {
+        const dragged = tasksById.get(dragIdRef.current ?? '');
+        if (!dragged || (dragged.parentTaskId ?? null) !== parentTaskId) return false;
+        const top = parentTaskId ? tasksById.get(parentTaskId) : dragged;
+        return Boolean(top && projectGroupId(top, projects) === section);
+    };
 
-    const commit = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
-        const activeId = dragIdRef.current;
-        if (!activeId) {
-            clearDrag();
-            return;
-        }
-        const effect = effectOfPlanDrop({
-            tasks,
-            dragId: activeId,
-            section,
-            beforeTaskId,
-            parentTaskId,
-            month,
-            today,
-        });
+    const commit = (section: string, beforeTaskId: string | null, parentTaskId: string | null) => {
+        const dragged = tasksById.get(dragIdRef.current ?? '');
+        const allowed = canDrop(section, parentTaskId);
         clearDrag();
-        if (!effect) return;
+        if (!dragged || !allowed || beforeTaskId === dragged.id) return;
+        const siblings = tasks.filter(task => (task.parentTaskId ?? null) === parentTaskId
+            && !task.excluded && !isPendingStageTaskId(task.id) && !isChecklistTaskId(task.id) && task.id !== dragged.id
+            && (parentTaskId != null || projectGroupId(task, projects) === section))
+            .sort(compareStageListTasks);
+        const index = beforeTaskId ? siblings.findIndex(task => task.id === beforeTaskId) : siblings.length;
+        if (index < 0) return;
         setMoveError(null);
-        const requested: StageReorderMove = effect.dueDate === undefined
-            ? effect.move
-            : { ...effect.move, dueDate: effect.dueDate };
+        const requested: StageReorderMove = {
+            taskId: dragged.id, parentTaskId, index, projectGroup: section, projects,
+        };
         void onReorder(requested).catch(() => setMoveError('Could not move that task.'));
     };
 
-    const dropLine = (section: PlanSectionId | PlanPhase, beforeTaskId: string | null, parentTaskId: string | null) => {
+    const dropLine = (section: string, beforeTaskId: string | null, parentTaskId: string | null) => {
         if (!hint || hint.section !== section || hint.beforeTaskId !== beforeTaskId || hint.parentTaskId !== parentTaskId) return null;
         return <div data-stage-drop-line className="mx-3 h-0.5 bg-[#ec4899]" />;
     };
@@ -863,9 +696,8 @@ function PlanSections({
             {moveError && <p role="alert" className="text-sm text-red-400">{moveError}</p>}
             {sections.map(section => {
                 const headingId = `${baseId}-${section.id}`;
-                const closed = isCollapsed(section);
-                const lookback = section.id === 'this_month' && month < monthKeyFromDay(today);
-                const foldDone = section.id === 'onboarding' && !showDone && !searching && !section.collapsedComplete;
+                const closed = Boolean(collapsed[section.id]);
+                const initiativeId = section.id === NO_PROJECT_GROUP ? null : section.id;
                 return (
                     <section
                         key={section.id}
@@ -876,61 +708,57 @@ function PlanSections({
                         aria-labelledby={headingId}
                         className="overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-[#ffffff]"
                         onDragOver={event => {
-                            if (!dragIdRef.current) return;
+                            if (!canDrop(section.id, null)) return;
                             event.preventDefault();
-                            showHint({ section: section.id as PlanSectionId | PlanPhase, beforeTaskId: null, parentTaskId: null });
+                            showHint({ section: section.id, beforeTaskId: null, parentTaskId: null });
                         }}
                         onDrop={event => {
-                            if (!dragIdRef.current) return;
+                            if (!canDrop(section.id, null)) return;
                             event.preventDefault();
-                            commit(section.id as PlanSectionId | PlanPhase, null, null);
+                            commit(section.id, null, null);
                         }}
                     >
                         <div className="flex min-h-9 items-center gap-2 px-3 py-1.5">
-                            <h3 id={headingId} className="min-w-0 flex-1">
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
                                 <button
                                     type="button"
+                                    aria-label={`${closed ? 'Expand' : 'Collapse'} ${section.title}`}
                                     aria-expanded={!closed}
                                     onClick={() => setCollapsed(current => ({ ...current, [section.id]: !closed }))}
-                                    className="flex w-full min-w-0 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
+                                    className="shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                                 >
                                     <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-[#71717a] transition-transform', !closed && 'rotate-90')} />
-                                    <span className="min-w-0">
-                                        <span className={cn('block text-[13px] font-semibold', section.collapsedComplete && 'text-[#71717a]')}>{section.title}</span>
-                                        {section.description && (
-                                            <span data-phase-description={section.id} className="mt-0.5 block text-[12px] font-normal leading-5 text-[#52525b]">{section.description}</span>
-                                        )}
-                                    </span>
-                                    <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>
-                                        <Meta meta={section.meta} late={section.late} />
-                                    </span>
                                 </button>
-                            </h3>
-                            <button
+                                <h3 id={headingId} className="min-w-0 break-words text-[13px] font-semibold">
+                                    {initiativeId && clientId ? (
+                                        <Link className="hover:underline" href={projectsHref(clientId, { projectId: initiativeId })}>{section.title}</Link>
+                                    ) : section.title}
+                                </h3>
+                                <span className="text-[11px] font-normal text-[#71717a]" data-count={section.count}>{section.meta}</span>
+                            </div>
+                            {!projectPage && <button
                                 type="button"
                                 data-playbook-open={section.id}
-                                aria-label={playbookStageButtonLabel(section.title)}
+                                aria-label={playbookProjectButtonLabel(section.title)}
                                 onClick={() => onOpenPlaybook(section.id)}
                                 className="shrink-0 text-[12px] font-medium text-[#ec4899] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
                             >
                                 {PLAYBOOK_COPY.button}
-                            </button>
-                            {lookback && <span className="shrink-0 text-[11px] text-[#71717a]">{PLAN_LOOKBACK_NOTE}</span>}
+                            </button>}
                         </div>
                         <div hidden={closed || undefined}>
                             {section.groups.length === 0 && !nothingMatches ? (
-                                <p className="border-t border-[#e4e4e7] px-3 py-3 text-[13px] text-[#71717a]">{section.empty}</p>
+                                <p className="border-t border-[#e4e4e7] px-3 py-3 text-[13px] text-[#71717a]">No tasks yet.</p>
                             ) : section.groups.map((group, index) => {
                                 const nextTop = section.groups[index + 1]?.task.id ?? null;
-                                const hideGroup = foldDone && isPlanDone(group.task.status) && !heldDone[group.task.id];
                                 return (
-                                    <div key={group.task.id} hidden={hideGroup || undefined}>
-                                        {dropLine(section.id as PlanSectionId | PlanPhase, group.task.id, null)}
+                                    <div key={group.task.id}>
+                                        {dropLine(section.id, group.task.id, null)}
                                         <PlanRow
                                             group={group}
-                                            section={section.id as PlanSectionId | PlanPhase}
+                                            section={section.id}
                                             query={query}
-                                            searching={searching}
+                                            searching={query.trim().length > 0}
                                             today={today}
                                             people={people}
                                             loggedHours={loggedHours}
@@ -940,8 +768,7 @@ function PlanSections({
                                             onRowTimer={onRowTimer}
                                             onCheckRunning={onCheckRunning}
                                             urlPromptTaskId={urlPromptTaskId}
-                                            dragId={dragId}
-                                            foldDone={foldDone}
+                                            dragId={canDrop(section.id, null) || canDrop(section.id, group.task.id) ? dragId : null}
                                             heldDone={heldDone}
                                             onUndoDone={onToggleCheck ? undoDone : undefined}
                                             baseId={baseId}
@@ -952,56 +779,31 @@ function PlanSections({
                                             onOpenTask={onOpenTask}
                                             onSetLiveUrl={onSetLiveUrl}
                                             onToggleCheck={onToggleCheck}
-                                            onMark={onToggleCheck ? task => markTask(task, foldDone) : undefined}
+                                            onMark={onToggleCheck ? markTask : undefined}
                                             resultsByTaskId={resultsByTaskId}
                                             onDragStart={rememberDrag}
                                             onDragEnd={clearDrag}
                                             onHint={showHint}
-                                            onDropRow={(beforeTaskId, parentTaskId) => commit(section.id as PlanSectionId | PlanPhase, beforeTaskId, parentTaskId)}
+                                            onDropRow={(beforeTaskId, parentTaskId) => commit(section.id, beforeTaskId, parentTaskId)}
                                             nextTopId={nextTop}
                                         />
                                     </div>
                                 );
                             })}
-                            {dropLine(section.id as PlanSectionId | PlanPhase, null, null)}
-                            {onAddInSection && (
-                                <div className="border-t border-[#e4e4e7] px-3 py-2">
+                            {dropLine(section.id, null, null)}
+                            <div className="border-t border-[#e4e4e7] px-3 py-2">
                                     <StageAddBar
-                                        label={phaseAddLabel(section.id as PlanPhase)}
-                                        placeholder={PHASE_ADD_PLACEHOLDER}
-                                        stage={section.id}
-                                        onAdd={titles => onAddInSection(section.id, titles)}
+                                        label={`Add a task to ${section.title}`}
+                                        placeholder="Add a task"
+                                        groupId={section.id}
+                                        onAdd={titles => onAddInSection({ initiativeId, titles })}
                                     />
-                                </div>
-                            )}
-                            {section.id === 'onboarding' && section.done > 0 && section.open > 0 && !searching && (
-                                <button
-                                    type="button"
-                                    onClick={() => setShowDone(value => !value)}
-                                    className="border-t border-[#e4e4e7] px-3 py-2 text-left text-[12px] text-[#71717a] hover:text-[#18181b]"
-                                >
-                                    {showDone ? `Hide ${section.done} done` : `Show ${section.done} done`}
-                                </button>
-                            )}
+                            </div>
                         </div>
                     </section>
                 );
             })}
         </div>
-    );
-}
-
-function Meta({ meta, late }: { meta: string; late: number }) {
-    if (late <= 0) return <>{meta}</>;
-    const needle = `${late} late`;
-    const at = meta.indexOf(needle);
-    if (at < 0) return <>{meta}</>;
-    return (
-        <>
-            {meta.slice(0, at)}
-            <span className="text-[#dc2626]">{needle}</span>
-            {meta.slice(at + needle.length)}
-        </>
     );
 }
 
@@ -1020,7 +822,6 @@ function PlanRow({
     onCheckRunning,
     urlPromptTaskId,
     dragId,
-    foldDone,
     heldDone,
     onUndoDone,
     onMark,
@@ -1040,9 +841,9 @@ function PlanRow({
     nextTopId,
 }: {
     group: PlanGroup;
-    section: PlanSectionId | PlanPhase;
-    query: string;
     searching: boolean;
+    section: string;
+    query: string;
     today: string;
     people: readonly PlanAssignee[];
     loggedHours: Readonly<Record<string, number>>;
@@ -1053,7 +854,6 @@ function PlanRow({
     onCheckRunning?: (taskId: string) => void;
     urlPromptTaskId?: string | null;
     dragId: string | null;
-    foldDone: boolean;
     heldDone?: Readonly<Record<string, true>>;
     onUndoDone?: (taskId: string) => void;
     onMark?: (task: StageListTask) => void;
@@ -1076,7 +876,7 @@ function PlanRow({
     const open = openOverride ?? (searching ? group.expandChildren : group.childCount > 0);
     const panelId = `${baseId}-children-${group.task.id}`;
     const pillar = group.childCount > 0;
-    const visibleChildren = group.children.filter(child => !(foldDone && isPlanDone(child.status) && !heldDone?.[child.id]));
+    const visibleChildren = group.children;
     const childIds = group.children.map(child => child.id);
 
     const renderTask = (task: StageListTask, options: {
@@ -1087,7 +887,6 @@ function PlanRow({
         leading?: ReactNode;
         pillar?: boolean;
         childIds?: string[];
-        hiddenChildren?: number;
         urlCount?: number;
         childDone?: number;
         childCount?: number;
@@ -1161,7 +960,7 @@ function PlanRow({
                     });
                 }}
                 onDrop={event => {
-                    if (locked) return;
+                    if (!dragId || locked) return;
                     event.preventDefault();
                     event.stopPropagation();
                     const before = pointerFraction(event) < 0.5;
@@ -1282,11 +1081,6 @@ function PlanRow({
                             {options.urlCount} URLs
                         </button>
                     )}
-                    {(options.hiddenChildren ?? 0) > 0 && (
-                        <span className="shrink-0 text-[11px] text-[#71717a]" data-other-months={options.hiddenChildren}>
-                            +{options.hiddenChildren} other months
-                        </span>
-                    )}
                     <LiveUrlControl
                         url={task.publishedUrl}
                         category={task.category}
@@ -1379,7 +1173,6 @@ function PlanRow({
                 nextId: nextTopId,
                 pillar,
                 childIds,
-                hiddenChildren: group.hiddenChildren,
                 urlCount: group.urlCount,
                 childDone: group.childDone,
                 childCount: group.childCount,
@@ -1407,6 +1200,7 @@ function PlanRow({
                         onHint({ section, beforeTaskId: null, parentTaskId: group.task.id });
                     }}
                     onDrop={event => {
+                        if (!dragId) return;
                         event.preventDefault();
                         event.stopPropagation();
                         onDropRow(null, group.task.id);

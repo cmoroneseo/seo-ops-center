@@ -1,4 +1,5 @@
 import { normalizeGa4LandingPage } from '@/lib/ga4/sync';
+import { parseHttpUrl } from '@/lib/search-reporting/proof';
 import { normalizeResultUrl } from '@/lib/search-reporting/result-url';
 
 /** A logged URL with no query does not claim a different query-string row, such as a GBP tag. */
@@ -16,6 +17,16 @@ export function pageMatchesChange(factPage: string, loggedUrl: string): boolean 
     }
     if (logged.search === '' && fact.search !== '') return false;
     return true;
+}
+
+export function isGbpTaggedUrl(raw: string): boolean {
+    // The history writer also recognizes utm_medium=gbp. Older rows may still be marked organic.
+    const page = parseHttpUrl(raw);
+    if (!page?.search) return false;
+    const tags = new URLSearchParams(page.search.toLowerCase());
+    return tags.get('utm_campaign') === 'gbp_listing'
+        || tags.get('utm_medium') === 'gbp'
+        || (tags.get('utm_source') === 'google' && tags.get('utm_medium') === 'organic');
 }
 
 export function ga4PathFor(url: string): string | null {

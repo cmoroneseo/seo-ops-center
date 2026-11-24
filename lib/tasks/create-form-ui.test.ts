@@ -78,7 +78,7 @@ function task(): Task {
     };
 }
 
-test('a new task defaults to backlog and saves the stage that was chosen', async () => {
+test('a new task has no stage field and submits a draft without stage', async () => {
     const created: TaskInsert[] = [];
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -96,19 +96,18 @@ test('a new task defaults to backlog and saves the stage that was chosen', async
         }));
     });
 
-    const stage = container.querySelector<HTMLSelectElement>('#create-task-stage');
-    assert.equal(stage?.value, 'backlog');
+    assert.equal(container.querySelector('#create-task-stage'), null);
     const title = container.querySelector<HTMLInputElement>('input[placeholder="Task title…"]');
     assert.ok(title);
     await act(async () => {
         setValue(title, 'Write the brief');
-        setValue(stage!, 'onboarding');
     });
     await act(async () => {
         container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
     });
     assert.equal(created[0]?.title, 'Write the brief');
-    assert.equal(created[0]?.stage, 'onboarding');
+    assert.ok(created[0]);
+    assert.equal(Object.hasOwn(created[0], 'stage'), false);
 
     act(() => root.unmount());
     container.remove();

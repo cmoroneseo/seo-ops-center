@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { groupTasksByStage, type StageListTask } from './stage-list.ts';
+import { groupTaskTrees, type StageListTask } from './stage-list.ts';
 import {
     calendarDay,
     formatDueDay,
@@ -14,7 +14,7 @@ import {
 function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'title'>): StageListTask {
     return {
         status: 'todo',
-        stage: 'backlog',
+
         position: 1,
         parentTaskId: null,
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -93,7 +93,7 @@ test('overdue work from an earlier month stays in the view and is marked', () =>
 });
 
 test('a not-done subtask due this month stays under its pillar', () => {
-    const pillar = task({ id: 'setup', title: 'SEO Setup', stage: 'onboarding', position: 1 });
+    const pillar = task({ id: 'setup', title: 'SEO Setup', position: 1 });
     const due = task({
         id: 'keywords',
         title: 'Add keywords',
@@ -118,7 +118,7 @@ test('a not-done subtask due this month stays under its pillar', () => {
         status: 'todo',
     });
     const selected = selectThisMonthTasks([pillar, later, overdue, due], octoberEnd);
-    const section = groupTasksByStage(selected, '').find(item => item.stage === 'onboarding');
+    const section = { groups: groupTaskTrees(selected, '') };
     assert.deepEqual(section?.groups.map(group => group.task.id), ['setup']);
     assert.deepEqual(section?.groups[0].children.map(child => child.id), ['keywords', 'robots']);
     assert.equal(isThisMonthTask(pillar, octoberEnd), false);
@@ -130,7 +130,7 @@ test('a done pillar still holds an overdue subtask, and a recurring row does not
     const donePillar = task({
         id: 'setup',
         title: 'SEO Setup',
-        stage: 'onboarding',
+
         status: 'done',
         dueDate: '2026-09-01',
         position: 1,
@@ -138,7 +138,7 @@ test('a done pillar still holds an overdue subtask, and a recurring row does not
     const child = task({
         id: 'keywords',
         title: 'Add keywords',
-        stage: 'onboarding',
+
         parentTaskId: 'setup',
         dueDate: '2026-10-04',
         position: 1,
@@ -146,15 +146,14 @@ test('a done pillar still holds an overdue subtask, and a recurring row does not
     const successor = task({
         id: 'next-setup',
         title: 'SEO Setup',
-        stage: 'onboarding',
+
         parentTaskId: 'setup',
         recurring: true,
         dueDate: '2026-10-20',
         position: 2,
     });
     const selected = selectThisMonthTasks([donePillar, successor, child], octoberEnd);
-    const sections = groupTasksByStage(selected, '');
-    const onboarding = sections.find(item => item.stage === 'onboarding');
+    const onboarding = { groups: groupTaskTrees(selected, '') };
     assert.deepEqual(onboarding?.groups.map(group => group.task.id), ['setup', 'next-setup']);
     assert.deepEqual(onboarding?.groups[0].children.map(child => child.id), ['keywords']);
     assert.equal(isThisMonthTask(donePillar, octoberEnd), false);

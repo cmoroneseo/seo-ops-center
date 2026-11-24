@@ -4,6 +4,7 @@ import {
     mergeGa4,
     mergeGa4Site,
     pageDaysFromFacts,
+    pickedDaysFromFacts,
     propertyDaysFromFacts,
     queryDaysFromFacts,
     type Ga4PageRow,
@@ -12,7 +13,7 @@ import {
     type HistoryDayRow,
 } from './facts';
 import { ga4PathFor } from './match';
-import type { ImpactModel, SeoChange } from './types';
+import type { DayPoint, ImpactModel, SeoChange } from './types';
 
 export function impactsFromRows(input: {
     changes: readonly SeoChange[];
@@ -21,6 +22,7 @@ export function impactsFromRows(input: {
     ga4Connected: boolean;
     historyDays: readonly HistoryDayRow[];
     pageFacts: readonly GscFactRow[];
+    restPositionDays?: ReadonlyMap<string, readonly DayPoint[]>;
     propertyFacts: readonly GscFactRow[];
     queryFacts: readonly GscFactRow[];
     ga4Pages: readonly Ga4PageRow[];
@@ -34,7 +36,10 @@ export function impactsFromRows(input: {
             const path = ga4PathFor(page.url);
             return path ? [path] : [];
         });
-        const pageDays = mergeGa4(pageDaysFromFacts(input.historyDays, input.pageFacts, urls), input.ga4Pages, paths);
+        const gscPageDays = pageDaysFromFacts(input.historyDays, input.pageFacts, urls);
+        const pageDays = mergeGa4(gscPageDays, input.ga4Pages, paths);
+        const controls = change.controlUrls ?? [];
+        const picked = controls.length > 0;
         const impact = buildImpact({
             liveOn: change.liveOn,
             kpi: change.kpi,
@@ -43,7 +48,11 @@ export function impactsFromRows(input: {
             gscConnected: input.gscConnected,
             ga4Connected: input.ga4Connected,
             pageDays,
+            gscPageDays,
             sitewideDays: sitewide,
+            restPositionDays: input.restPositionDays?.get(change.id),
+            pickedControlDays: picked ? pickedDaysFromFacts(input.historyDays, input.pageFacts, controls) : undefined,
+            pickedGa4Days: picked ? mergeGa4([], input.ga4Pages, controls.flatMap(url => ga4PathFor(url) ?? [])) : undefined,
             yoyPageDays: pageDays,
             yoySitewideDays: sitewide,
             queries: change.queries.map(query => ({

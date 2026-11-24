@@ -77,7 +77,7 @@ export const POST = createBasecampWebhookPost({
         async getTaskByTodoId(todoId) {
             const { data, error } = await createAdminClient()
                 .from('tasks')
-                .select('id, status, status_history, organization_id, client_id, title, stage, basecamp_sync_state, basecamp_todo_id, basecamp_project_id')
+                .select('id, status, status_history, organization_id, client_id, title, basecamp_sync_state, basecamp_todo_id, basecamp_project_id')
                 .eq('basecamp_todo_id', todoId)
                 .maybeSingle();
             if (error) throw error;
@@ -89,7 +89,6 @@ export const POST = createBasecampWebhookPost({
                 organizationId: data.organization_id,
                 clientId: data.client_id,
                 title: data.title,
-                stage: typeof data.stage === 'string' ? data.stage : null,
                 basecampSyncState: typeof data.basecamp_sync_state === 'string' ? data.basecamp_sync_state : null,
                 basecampTodoId: String(data.basecamp_todo_id),
                 basecampProjectId: String(data.basecamp_project_id),

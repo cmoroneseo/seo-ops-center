@@ -4,13 +4,13 @@
  * before the result can be passed to a browser component.
  */
 
-import type { PlanBoard } from '../seo-plan/plan-phases';
 import type { StageListTask } from '../seo-plan/stage-list';
 import {
     presentRoadmap,
     projectClientRoadmap,
     readRoadmapBlockOptions,
     type ClientRoadmap,
+    type RoadmapProject,
 } from './roadmap';
 
 export type ShareRead = 'ok' | 'missing' | 'error';
@@ -30,27 +30,26 @@ export interface SharedReportRoadmapInput {
  * Permission is that share, not a review record. Block settings come from
  * the shared sections. A failed share lookup, a missing share, a missing
  * block, or a failed task read returns null and does not leak another client's work.
- * Hidden stages and hidden descriptions are removed here.
+ * Task descriptions follow the shared block settings.
  */
 export async function readSharedReportRoadmap(
     report: SharedReportRoadmapInput,
     deps: {
-        today: string;
         loadTasks: (organizationId: string, clientId: string) => Promise<StageListTask[] | null>;
-        loadBoard: (organizationId: string, clientId: string) => Promise<PlanBoard>;
+        loadProjects: (organizationId: string, clientId: string) => Promise<RoadmapProject[]>;
     },
 ): Promise<ClientRoadmap | null> {
     try {
         if (report.share !== 'ok') return null;
         const props = blockPropsFromSections(report.sections);
         if (props == null) return null;
-        const [tasks, board] = await Promise.all([
+        const [tasks, projects] = await Promise.all([
             deps.loadTasks(report.organizationId, report.clientId),
-            deps.loadBoard(report.organizationId, report.clientId),
+            deps.loadProjects(report.organizationId, report.clientId).catch(() => []),
         ]);
         if (tasks == null) return null;
         return presentRoadmap(
-            projectClientRoadmap({ board, tasks, today: deps.today }),
+            projectClientRoadmap({ projects, tasks }),
             readRoadmapBlockOptions(props),
         );
     } catch {

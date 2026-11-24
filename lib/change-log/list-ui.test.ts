@@ -80,6 +80,47 @@ function bucketCount(container: HTMLElement, bucket: string): string {
     return container.querySelector<HTMLElement>(`[data-bucket="${bucket}"]`)?.dataset.count ?? '';
 }
 
+test('an unavailable position comparison displays no verdict and stays out of result filters', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+        await act(async () => {
+            root.render(createElement(ChangeLogView, {
+                clientName: 'Summit Dental',
+                mode: 'list',
+                example: false,
+                items: [...items, row({
+                    id: 'position',
+                    title: 'Position test',
+                    liveOn: '2026-10-12',
+                    kpi: 'avg_position',
+                    verdict: null,
+                    headlineDays: 7,
+                })],
+                onLog: () => undefined,
+                onOpen: () => undefined,
+                onBack: () => undefined,
+                onSubmit: () => undefined,
+                onRemove: () => undefined,
+            }));
+        });
+
+        const positionRow = container.querySelector('[data-change-id="position"]');
+        assert.match(positionRow?.textContent ?? '', /Comparison unavailable/);
+        assert.equal(positionRow?.querySelector('[data-result]'), null);
+        assert.equal(bucketCount(container, 'flat'), '0');
+        assert.equal(bucketCount(container, 'too_early'), '1');
+        await act(async () => {
+            container.querySelector<HTMLButtonElement>('[data-bucket="too_early"]')?.click();
+        });
+        assert.deepEqual(ids(container), ['zebra']);
+    } finally {
+        await act(async () => { root.unmount(); });
+        container.remove();
+    }
+});
+
 test('column headers sort and a result count filters the same rows it counted', async () => {
     const opened: string[] = [];
     const container = document.createElement('div');

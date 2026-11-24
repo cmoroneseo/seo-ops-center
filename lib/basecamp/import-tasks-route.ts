@@ -1,12 +1,4 @@
-import { isTaskStage } from '../tasks/stage.ts';
 import { isBasecampRecordingConflict } from './task-recording-conflict.ts';
-import {
-    assignOnboardingPositions,
-    EMPTY_ONBOARDING_SCOPE,
-    importedTodoLandsInOnboarding,
-    providerParentListId,
-    type OnboardingListScope,
-} from './import-stage.ts';
 import {
     authorizeBasecampProject,
     type BasecampProjectAccessSource,
@@ -54,8 +46,7 @@ export interface ProviderTodo {
 
 /**
  * A Basecamp step, shaped as a task row but not yet linked to its parent.
- * `parent_task_id` and `stage` are applied once the parent task exists, so
- * the child lands in the same stage and time rolls up to that parent.
+ * The parent link is applied after the parent task exists so time rolls up.
  */
 export interface ImportedStepDraft {
     parentBasecampTodoId: number;
@@ -67,7 +58,6 @@ export interface ImportedStepDraft {
 export interface ImportedRecording {
     id: string;
     basecampTodoId: number;
-    stage: string | null;
     parentTaskId: string | null;
 }
 
@@ -99,11 +89,6 @@ export interface BasecampImportOptions {
      * is omitted rather than guessed at.
      */
     resolveAssignees?(personIds: number[]): Promise<Map<number, string>>;
-    /**
-     * Client's configured onboarding list, plus groups that belong to it.
-     * Absent, or empty, leaves every new row on the backlog default.
-     */
-    onboarding?: OnboardingListScope;
 }
 
 type ClientAuthorization =
@@ -168,16 +153,6 @@ interface Dependencies {
      * from authorizeClient, never the organizationId on the request body.
      */
     resolveAssignees(organizationId: string, personIds: number[]): Promise<Map<number, string>>;
-    /**
-     * Configured onboarding list for this client. A failure is the caller's
-     * to swallow: import still inserts, and those rows stay in Backlog.
-     */
-    loadOnboardingScope?(organizationId: string, clientId: string): Promise<OnboardingListScope>;
-    /**
-     * Highest position among top-level Onboarding tasks. Null means the
-     * column has no positioned row yet, so the next import starts at 1.
-     */
-    maxOnboardingPosition?(organizationId: string, clientId: string): Promise<number | null>;
     now(): string;
 }
 
@@ -305,7 +280,7 @@ function draftImportedStep(input: {
         now: input.now,
     });
     // Basecamp's position when it has one, otherwise the merged order.
-    // sort_order is what the task list reads; position is the stage-column order.
+    // sort_order is what the task list reads; position is the sibling order.
     const order = input.step.position ?? input.index;
     return {
         parentBasecampTodoId: input.parentBasecampTodoId,
@@ -385,12 +360,12 @@ export async function draftsForSteps(input: {
 /**
  * Attach step drafts to the parent task that now exists.
  * Already-imported recording ids are skipped. The child takes the parent's
- * stage. It has no start date and no recurrence, so it is a pillar subtask:
+ * It has no start date or recurrence, so it renders under its parent:
  * time logged on it rolls up to the parent instead of becoming its own block.
  */
 export function linkImportedSteps(input: {
     drafts: ReadonlyArray<ImportedStepDraft>;
-    parents: ReadonlyArray<{ basecampTodoId: number; taskId: string; stage: string | null }>;
+    parents: ReadonlyArray<{ basecampTodoId: number; taskId: string }>;
     alreadyImportedStepIds: ReadonlySet<number>;
 }): Array<Record<string, unknown>> {
     const parentByTodo = new Map(input.parents.map(parent => [parent.basecampTodoId, parent]));
@@ -405,7 +380,6 @@ export function linkImportedSteps(input: {
         rows.push({
             ...draft.row,
             parent_task_id: parent.taskId,
-            stage: isTaskStage(parent.stage) ? parent.stage : 'backlog',
         });
     }
     return rows;
@@ -503,12 +477,6 @@ export async function buildBasecampTaskRows(input: {
         const sourceListId = sourceTodolistId(task.basecampTodolistId);
         const priority = task.priority ?? 'medium';
         const category = task.category || null;
-        const onboarding = input.options?.onboarding;
-        const landsInOnboarding = !!onboarding && importedTodoLandsInOnboarding({
-            requestedListId: sourceListId && sourceListId !== 'invalid' ? sourceListId : null,
-            providerParentId: providerParentListId(providerTodo),
-            scope: onboarding,
-        });
 
         for (const [index, step] of (stepsByKey.get(`${projectId}:${todoId}`) ?? []).entries()) {
             steps.push(draftImportedStep({
@@ -539,9 +507,6 @@ export async function buildBasecampTaskRows(input: {
             tags: [],
             assignee_ids: assigneeIds,
             sort_order: 0,
-            // Omitted on every other list so the backlog default stays in place.
-            // Position is applied later, only to rows this import actually inserts.
-            ...(landsInOnboarding ? { stage: 'onboarding' as const } : {}),
             basecamp_todo_id: Number(todoId),
             basecamp_project_id: Number(projectId),
             last_synced_at: input.now,
@@ -621,18 +586,6 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 return json({ error: 'Basecamp not configured', configured: false }, 503);
             }
 
-            let onboarding = EMPTY_ONBOARDING_SCOPE;
-            if (dependencies.loadOnboardingScope) {
-                try {
-                    onboarding = await dependencies.loadOnboardingScope(
-                        authorization.organizationId,
-                        authorization.clientId,
-                    );
-                } catch {
-                    onboarding = EMPTY_ONBOARDING_SCOPE;
-                }
-            }
-
             const built = await buildBasecampTaskRows({
                 tasks,
                 organizationId: authorization.organizationId,
@@ -652,7 +605,6 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                         authorization.organizationId,
                         personIds,
                     ),
-                    onboarding,
                 },
             });
             if (!built.ok) return json({ error: built.error }, built.status);
@@ -676,24 +628,9 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
             );
 
             // Already-imported to-dos are left out of this list, so a second
-            // import cannot move a task someone already dragged to another stage.
+            // import preserves the order of existing tasks.
             const newParentRows = built.rows.filter(row => !parentsByTodo.has(Number(row.basecamp_todo_id)));
-            let rowsToInsert = newParentRows;
-            if (newParentRows.some(row => row.stage === 'onboarding')) {
-                let maxPosition: number | null = null;
-                if (dependencies.maxOnboardingPosition) {
-                    try {
-                        maxPosition = await dependencies.maxOnboardingPosition(
-                            authorization.organizationId,
-                            authorization.clientId,
-                        );
-                    } catch {
-                        maxPosition = null;
-                    }
-                }
-                rowsToInsert = assignOnboardingPositions(newParentRows, maxPosition);
-            }
-            const parentImport = await insertImportRows(writer, rowsToInsert);
+            const parentImport = await insertImportRows(writer, newParentRows);
 
             // A concurrent winner in this client can still receive any unclaimed steps.
             const parentIdsToLoad = [
@@ -716,7 +653,6 @@ export function createBasecampImportTasksPost(dependencies: Dependencies) {
                 parents: [...parentsByTodo.entries()].map(([basecampTodoId, record]) => ({
                     basecampTodoId,
                     taskId: record.id,
-                    stage: record.stage,
                 })),
                 alreadyImportedStepIds,
             });

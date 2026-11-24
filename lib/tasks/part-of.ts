@@ -1,11 +1,11 @@
 /**
- * A work-plan task can belong to one roadmap row for the same client.
- * The screen calls that link "Part of". Do not label it initiative or pillar.
+ * A work-plan task can belong to one project for the same client.
+ * Projects are stored as campaign initiatives.
  */
 
-export const PART_OF_TERM = 'Part of';
+export const PART_OF_TERM = 'Project';
 
-export const PART_OF_MAIN_TASK_ERROR = 'Part of applies to the main task.';
+export const PART_OF_MAIN_TASK_ERROR = 'Project applies to the main task.';
 export const PART_OF_OTHER_CLIENT_ERROR = 'That work is for a different client.';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -52,7 +52,7 @@ export function partOfWrite(
     return { ok: true, initiativeId: id };
 }
 
-/** Top-level tasks linked to one roadmap row. None linked returns null so the row stays as it was. */
+/** Top-level tasks linked to one project. None linked returns null so the row stays as it was. */
 export function linkedTaskProgress(initiativeId: string, tasks: readonly PartOfTask[]): PartOfProgress | null {
     const linked = tasks.filter(task => task.initiativeId === initiativeId && !task.parentTaskId && task.id);
     if (linked.length === 0) return null;

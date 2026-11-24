@@ -7,7 +7,6 @@ export interface BasecampLinkedTask {
     organizationId: string;
     clientId: string;
     title: string;
-    stage?: string | null;
     category: string | null;
     priority?: string | null;
     parentTaskId: string | null;
@@ -118,7 +117,7 @@ export async function importBasecampTodoSteps<T extends BasecampLinkedTask>(inpu
     });
     const rows = linkImportedSteps({
         drafts,
-        parents: [{ basecampTodoId: Number(todoId), taskId: root.id, stage: root.stage ?? null }],
+        parents: [{ basecampTodoId: Number(todoId), taskId: root.id }],
         alreadyImportedStepIds: claimedIds,
     });
     let imported: T[] = [];

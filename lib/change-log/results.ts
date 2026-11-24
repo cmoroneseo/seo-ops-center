@@ -123,7 +123,9 @@ export function notReadyCopy(notReady: ResultsNotReady | null): string | null {
 export function chartCaption(controlLabel: string, subject: 'page' | 'group' = 'page'): string | null {
     if (controlLabel === 'No comparison') return null;
     const noun = subject === 'group' ? 'group' : 'page';
-    return `Compared with the rest of the site. 100 = the ${noun}'s normal level before the change.`;
+    const label = controlLabel.toLowerCase();
+    const comparison = label === 'selected control pages' ? label : `the ${label}`;
+    return `Compared with ${comparison}. 100 = the ${noun}'s normal level before the change.`;
 }
 
 export const TERM_NOT_REPORTED = '— not reported yet';
@@ -185,16 +187,18 @@ export function answerLine(
     if (pct == null) return head.note;
     const name = KPI_LABEL[kpi];
     const amount = absPercent(pct);
+    const comparison = head.controlMode === 'picked' ? 'the selected control pages'
+        : head.controlMode === 'sitewide' ? 'the whole site' : 'the rest of the site';
     let sentence: string;
     if (pct === 0) {
-        sentence = `${name} matches pages we didn't change, ${head.days} days after going live.`;
+        sentence = `${name} matches ${comparison}, ${head.days} days after going live.`;
     } else if (kpi === 'avg_position') {
         sentence = pct > 0
-            ? `${name} is ahead of pages we didn't change by ${amount}%, ${head.days} days after going live.`
-            : `${name} is behind pages we didn't change by ${amount}%, ${head.days} days after going live.`;
+            ? `${name} is ahead of ${comparison} by ${amount}%, ${head.days} days after going live.`
+            : `${name} is behind ${comparison} by ${amount}%, ${head.days} days after going live.`;
     } else {
         const verb = kpi === 'ctr' ? 'is' : 'are';
-        sentence = `${name} ${verb} ${pct > 0 ? 'up' : 'down'} ${amount}% compared with pages we didn't change, ${head.days} days after going live.`;
+        sentence = `${name} ${verb} ${pct > 0 ? 'up' : 'down'} ${amount}% compared with ${comparison}, ${head.days} days after going live.`;
     }
     if (head.estimate || head.days < 28) return `${sentence} It's an early sign.`;
     return sentence;
@@ -213,6 +217,7 @@ function absPercent(pct: number): string {
 export function buildResultsTable(impact: ImpactModel): ResultsTableModel {
     const head = impact.headline;
     const ready = head.ready;
+    const picked = head.controlMode === 'picked';
     const notReady = ready ? null : unfinished(impact);
     return {
         ready,
@@ -222,11 +227,11 @@ export function buildResultsTable(impact: ImpactModel): ResultsTableModel {
         rows: ROWS.map(spec => {
             const before = readSide(spec.id, spec.id === 'rest_clicks' ? impact.baselineControl : impact.baseline);
             const after = ready
-                ? readSide(spec.id, spec.id === 'rest_clicks' ? head.restOfSite : head.page)
+                ? readSide(spec.id, spec.id === 'rest_clicks' ? (picked ? head.pickedControlClicks ?? null : head.restOfSite) : head.page)
                 : null;
             return {
                 id: spec.id,
-                label: spec.label,
+                label: picked && spec.id === 'rest_clicks' ? 'Selected control page clicks' : spec.label,
                 note: spec.note,
                 watched: spec.kpi != null && spec.kpi === impact.kpi,
                 before,

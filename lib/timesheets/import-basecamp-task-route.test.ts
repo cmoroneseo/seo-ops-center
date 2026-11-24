@@ -376,8 +376,8 @@ test('Basecamp steps import as pillar subtasks, and a second pick does not dupli
     assert.equal(approval.parent_task_id, 'task-faqs');
     assert.equal(publish.client_id, 'client-a');
     assert.equal(approval.client_id, 'client-a');
-    assert.equal(publish.stage, 'onboarding');
-    assert.equal(approval.stage, 'onboarding');
+    assert.equal(Object.hasOwn(publish, 'stage'), false);
+    assert.equal(Object.hasOwn(approval, 'stage'), false);
     assert.equal(publish.status, 'todo');
     assert.equal(publish.due_date, '2026-10-30');
     assert.equal(publish.completed_at, null);
@@ -433,7 +433,7 @@ test('a newly imported to-do brings its steps along as children', async () => {
     assert.ok(parent && publish);
     assert.equal(parent.parent_task_id, undefined);
     assert.equal(publish.parent_task_id, 'task-new');
-    assert.equal(publish.stage, 'backlog');
+    assert.equal(Object.hasOwn(publish, 'stage'), false);
     assert.equal(publish.due_date, '2026-10-30');
     assert.equal(publish.client_id, 'client-a');
 

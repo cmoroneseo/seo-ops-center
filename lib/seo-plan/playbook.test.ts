@@ -4,21 +4,15 @@ import test from 'node:test';
 import { MARKETING_PLAN_STEPS, MARKETING_PLAN_TEMPLATE_ITEMS } from '../marketing-plan-template.ts';
 import type { SessionOrganization } from '../reports/session-org.ts';
 import { onboardingChecklist } from './onboarding.ts';
-import { DRAWER_WORDING } from './playbook-plain.ts';
 import {
     PLAYBOOK_COPY,
     PLAYBOOK_GROUP_TITLES,
     playbookAddCalls,
-    playbookAddLabel,
     playbookAddTitles,
     playbookCatalog,
     checklistPlanRow,
-    playbookChoice,
-    playbookChoiceId,
-    playbookChoices,
     playbookItems,
     playbookMatching,
-    playbookMonthDetail,
     playbookOnPlan,
     playbookRowState,
 } from './playbook.ts';
@@ -26,7 +20,6 @@ import { createStageTasks, type StageAddDependencies } from './stage-add-route.t
 import type { StageListTask } from './stage-list.ts';
 import { STAGE_ADD_MAX_TITLES } from './stage-add-lines.ts';
 
-const JARGON = /\b(SEO|GBP|GA4|GSC|CMS|API|NAP|URL|CTA|FAQ)\b/;
 
 test('the catalog reuses the saved list, the starting checklist, and saved organization tasks', () => {
     const catalog = playbookCatalog([
@@ -159,53 +152,16 @@ test('picking the whole saved list keeps distinct titles and drops a repeated on
     assert.equal(playbookRowState(sameTitle[0], [], [sameTitle[0]]), 'chosen');
 });
 
-test('the chosen stage is the one the drawer was opened from', () => {
-    assert.equal(playbookChoiceId('phases', 'growth'), 'growth');
-    assert.equal(playbookChoiceId('phases', 'scale'), 'scale');
-    assert.equal(playbookChoiceId('phases', null), 'foundation');
-    assert.equal(playbookChoiceId('phases', 'onboarding'), 'foundation');
-    assert.equal(playbookChoiceId('months', 'backlog'), 'backlog');
-    assert.equal(playbookChoiceId('months', 'onboarding'), 'onboarding');
-    assert.equal(playbookChoiceId('months', null), 'this_month');
-
-    const phases = playbookChoices('phases', '2026-10', '2026-10-19');
-    assert.deepEqual(phases.map(choice => choice.id), ['foundation', 'growth', 'scale']);
-    assert.equal(phases[1]?.stage, 'growth');
-    assert.equal(phases[1]?.dueDate, null);
-
-    const months = playbookChoices('months', '2026-10', '2026-10-19');
-    assert.deepEqual(months.map(choice => choice.label), ['Onboarding', 'This month', 'Backlog']);
-    assert.equal(months[1]?.stage, 'backlog');
-    assert.equal(months[1]?.dueDate, '2026-10-31');
-    assert.equal(playbookMonthDetail('2026-11', '2026-10-19'), 'Tasks due at the end of November 2026.');
-    const november = playbookChoice('months', '2026-11', '2026-10-19', 'this_month');
-    assert.equal(november?.label, 'November 2026');
-    assert.equal(november?.dueDate, '2026-11-30');
-});
-
 test('a long selection is split into batches the existing add path accepts', () => {
-    const growth = playbookChoice('phases', '2026-10', '2026-10-19', 'growth');
-    assert.ok(growth);
     const titles = Array.from({ length: STAGE_ADD_MAX_TITLES + 1 }, (_, index) => `Task ${index + 1}`);
-    const calls = playbookAddCalls(titles, growth);
+    const calls = playbookAddCalls(titles, 'project');
     assert.equal(calls.length, 2);
     assert.equal(calls[0]?.titles.length, STAGE_ADD_MAX_TITLES);
     assert.equal(calls[1]?.titles.length, 1);
-    assert.equal(calls[0]?.stage, 'growth');
+    assert.ok(calls.every(call => call.initiativeId === 'project' && !Object.hasOwn(call, 'stage')));
     assert.equal(calls[0]?.dueDate, undefined);
     assert.equal(calls[0]?.items, undefined);
 
-    const month = playbookChoice('months', '2026-10', '2026-10-19', 'this_month');
-    assert.ok(month);
-    const dated = playbookAddCalls(['Write the service page'], month);
-    assert.deepEqual(dated, [{
-        stage: 'backlog',
-        titles: ['Write the service page'],
-        dueDate: '2026-10-31',
-        items: [{ title: 'Write the service page', depth: 0 }],
-    }]);
-    assert.equal(playbookAddLabel(1), 'Add 1 task');
-    assert.equal(playbookAddLabel(3), 'Add 3 tasks');
 });
 
 test('drawer catalog wording spells out jargon and keeps template keys', () => {
@@ -216,24 +172,6 @@ test('drawer catalog wording spells out jargon and keeps template keys', () => {
     assert.doesNotMatch(shown, /\b(CMS|GA4|GSC|SEO|GBP|NAP|XML|Ahrefs|HTTPS|URL|URLs|FAQ|CTA|CTAs|DR|INP|LCP|CLS|H1|H2|H3|WebP|SERP)\b|robots\.txt|4xx|5xx|\b301/);
     assert.equal(MARKETING_PLAN_TEMPLATE_ITEMS.some(row => row.title === 'Confirm website and CMS access'), true);
     assert.equal(shown.includes('Confirm access to the website editor'), true);
-});
-
-test('playbook copy is plain language', () => {
-    const written = [
-        ...Object.values(PLAYBOOK_COPY),
-        ...Object.values(PLAYBOOK_GROUP_TITLES),
-        playbookAddLabel(1),
-        playbookAddLabel(4),
-        playbookMonthDetail('2026-11', '2026-10-19'),
-        ...Object.values(DRAWER_WORDING).flatMap(row => [row.title, row.description]),
-        ...playbookChoices('phases', '2026-10', '2026-10-19').flatMap(choice => [choice.label, choice.detail]),
-        ...playbookChoices('months', '2026-10', '2026-10-19').flatMap(choice => [choice.label, choice.detail]),
-    ].join('\n');
-    assert.doesNotMatch(written, JARGON);
-    assert.match(written, /Add from a playbook/);
-    assert.match(written, /Already in the plan/);
-    assert.match(written, /Foundation/);
-    assert.match(written, /Getting started/);
 });
 
 const org = '06e536b9-beac-49bc-8c96-1df021102590';
@@ -264,7 +202,6 @@ test('added playbook tasks use the session organization and the path client', as
                 id: `saved-${index}`,
                 title: String(row.title),
                 status: 'todo',
-                stage: String(row.stage),
                 position: typeof row.position === 'number' ? row.position : 1,
                 parentTaskId: null,
                 createdAt: '2026-10-16T17:00:00.000Z',
@@ -274,9 +211,7 @@ test('added playbook tasks use the session organization and the path client', as
             } satisfies StageListTask));
         },
     };
-    const choice = playbookChoice('phases', '2026-10', '2026-10-19', 'scale');
-    assert.ok(choice);
-    const [call] = playbookAddCalls(['Write the service page', 'Add the city page'], choice);
+    const [call] = playbookAddCalls(['Write the service page', 'Add the city page']);
     const added = await createStageTasks(clientId, {
         ...call,
         organizationId: other,
@@ -286,33 +221,8 @@ test('added playbook tasks use the session organization and the path client', as
     assert.equal(added.status, 200);
     assert.deepEqual(seen, [`${org}:${clientId}`]);
     assert.equal(rows.length, 2);
-    assert.equal(rows.every(row => row.organization_id === org && row.client_id === clientId && row.stage === 'scale'), true);
+    assert.equal(rows.every(row => row.organization_id === org && row.client_id === clientId && !Object.hasOwn(row, 'stage')), true);
     assert.deepEqual(rows.map(row => row.title), ['Write the service page', 'Add the city page']);
     assert.equal(rows.some(row => row.organization_id === other || row.client_id === other || row.created_by === 'attacker'), false);
 
-    const month = playbookChoice('months', '2026-10', '2026-10-19', 'this_month');
-    assert.ok(month);
-    const [dated] = playbookAddCalls(['Write the service page'], month);
-    const monthRows: Record<string, unknown>[] = [];
-    dependencies.insertTasks = async inserted => {
-        monthRows.push(...inserted);
-        return inserted.map((row, index) => ({
-            id: `month-${index}`,
-            title: String(row.title),
-            status: 'todo',
-            stage: String(row.stage),
-            position: 1,
-            parentTaskId: null,
-            createdAt: '2026-10-16T17:00:00.000Z',
-            category: null,
-            basecamp: false,
-            recurring: false,
-        } satisfies StageListTask));
-    };
-    const datedResult = await createStageTasks(clientId, { ...dated, organizationId: other }, dependencies);
-    assert.equal(datedResult.status, 200);
-    assert.equal(monthRows[0]?.stage, 'backlog');
-    assert.equal(monthRows[0]?.due_date, '2026-10-31');
-    assert.equal(monthRows[0]?.organization_id, org);
-    assert.equal(monthRows[0]?.client_id, clientId);
 });

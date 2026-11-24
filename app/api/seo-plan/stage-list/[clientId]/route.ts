@@ -11,10 +11,10 @@ import {
     maxStageAddPosition,
 } from '@/lib/seo-plan/stage-add-db';
 import { createStageTasks } from '@/lib/seo-plan/stage-add-route';
-import { rewriteStageTasks, setStageTaskDueDate } from '@/lib/seo-plan/stage-reorder-db';
+import { rewriteStageTasks } from '@/lib/seo-plan/stage-reorder-db';
 import { reorderStageTasks } from '@/lib/seo-plan/stage-reorder-route';
 import { syncStoredParentStepOrder, syncStoredPlanTask } from '@/lib/seo-plan/basecamp-push-server';
-import { loadClientPlanBoard, loadClientStageTasks, loadPlanBasecampBanner } from '@/lib/seo-plan/stage-list-load';
+import { loadClientStageTasks, loadPlanBasecampBanner } from '@/lib/seo-plan/stage-list-load';
 import { readClientStageList } from '@/lib/seo-plan/stage-list-route';
 import { logClientActivity } from '@/lib/supabase/client-activity';
 
@@ -45,7 +45,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cli
         session: resolveSessionOrganization,
         enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
         load: (organizationId, id) => loadClientStageTasks(db, organizationId, id),
-        loadBoard: (organizationId, id) => loadClientPlanBoard(db, organizationId, id),
         basecampAccountId: process.env.BASECAMP_ACCOUNT_ID ?? null,
     });
     if (result.status !== 200) return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
@@ -63,11 +62,7 @@ function actorLabel(user: { email?: string; user_metadata?: Record<string, unkno
     return fullName || user?.email || undefined;
 }
 
-/**
- * Create tasks in one stage. The client id is the path key. Organization and
- * the acting user come from the session. A task pushes once it has a due date
- * or leaves Backlog. An undated backlog task does not.
- */
+/** Create tasks using the path client and the session organization. */
 export async function POST(request: Request, { params }: { params: Promise<{ clientId: string }> }) {
     const { clientId } = await params;
     let body: unknown = null;
@@ -86,9 +81,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
             return outcome.status === 'skipped' ? null : outcome.sync;
         },
         loadClient: (organizationId, id) => clientBelongsToOrganization(db, organizationId, id),
+        loadProject: async (organizationId, id, initiativeId) => {
+            const project = await db.from('campaign_initiatives').select('id')
+                .eq('organization_id', organizationId).eq('client_id', id).eq('id', initiativeId).maybeSingle();
+            if (project.error) throw project.error;
+            return Boolean(project.data);
+        },
         loadParent: (organizationId, id, parentTaskId) => loadStageAddParent(db, organizationId, id, parentTaskId),
-        maxPosition: (organizationId, id, stage, parentTaskId) => (
-            maxStageAddPosition(db, organizationId, id, stage, parentTaskId)
+        maxPosition: (organizationId, id, parentTaskId, initiativeId) => (
+            maxStageAddPosition(db, organizationId, id, parentTaskId, initiativeId)
         ),
         insertTasks: rows => insertStageTasks(db, rows),
         deleteTasks: ids => deleteStageTasks(db, ids),
@@ -117,11 +118,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
     return NextResponse.json({ ...result.body, basecamp }, { status: 200, headers: NO_STORE });
 }
 
-/**
- * Move one task within or between stages. The client id is the path key.
- * Organization and role come from the session. One database call rewrites
- * stage, position, and parent for the affected rows.
- */
+/** Persist task positions and parent changes for the session organization. */
 export async function PATCH(request: Request, { params }: { params: Promise<{ clientId: string }> }) {
     const { clientId } = await params;
     let body: unknown = null;
@@ -135,8 +132,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ cl
         session: resolveSessionOrganization,
         enabled: organizationId => seoPlanStageListEnabled(process.env, organizationId),
         load: (organizationId, id) => loadClientStageTasks(db, organizationId, id),
+        loadProjects: async (organizationId, id) => {
+            const projects = await db.from('campaign_initiatives').select('id')
+                .eq('organization_id', organizationId).eq('client_id', id);
+            if (projects.error) throw projects.error;
+            return projects.data ?? [];
+        },
         rewrite: (organizationId, id, writes) => rewriteStageTasks(db, organizationId, id, writes),
-        setDue: (organizationId, id, taskId, dueDate) => setStageTaskDueDate(db, organizationId, id, taskId, dueDate),
         pushPlanTask: async taskId => {
             const outcome = await syncStoredPlanTask(taskId);
             return outcome.status === 'skipped' ? null : outcome.sync;

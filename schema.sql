@@ -20629,3 +20629,517 @@ alter table public.clients
 create unique index if not exists tasks_basecamp_recording_unique
     on public.tasks (basecamp_todo_id)
     where basecamp_todo_id is not null;
+
+-- Migration 138: retire task stages while retaining stored data.
+-- NOT APPLIED. Do not run this against the production Supabase project. The owner reviews and applies it separately.
+
+alter table public.tasks drop constraint if exists tasks_stage_check;
+alter table public.tasks alter column stage drop not null;
+alter table public.tasks alter column stage drop default;
+drop index if exists public.tasks_client_stage_position_idx;
+create index if not exists tasks_client_project_parent_position_idx
+  on public.tasks (client_id, initiative_id, parent_task_id, position);
+
+create or replace function public.reorder_stage_tasks(
+  p_organization_id uuid,
+  p_client_id uuid,
+  p_patches jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  actor_id uuid := auth.uid();
+  patch_count integer;
+  locked_count integer;
+  updated_count integer;
+begin
+  if actor_id is null then
+    raise exception 'Authentication is required to move tasks.'
+      using errcode = '42501';
+  end if;
+
+  if p_organization_id is null or p_client_id is null or p_patches is null or jsonb_typeof(p_patches) <> 'array' then
+    raise exception 'Choose a task to move.'
+      using errcode = '22023';
+  end if;
+
+  patch_count := jsonb_array_length(p_patches);
+  if patch_count < 1 or patch_count > 500 then
+    raise exception 'Choose a task to move.'
+      using errcode = '22023';
+  end if;
+
+  if not exists (
+    select 1
+    from public.organization_members as member
+    where member.organization_id = p_organization_id
+      and member.user_id = actor_id
+      and member.role in ('owner', 'admin', 'member')
+  ) then
+    raise exception 'Forbidden'
+      using errcode = '42501';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_patches) as patch(
+      id uuid,
+      position double precision,
+      parent_task_id uuid
+    )
+    where patch.id is null
+      or patch.position is null
+      or patch.position < 0
+      or patch.position >= 'Infinity'::float8
+  ) or (
+    select count(distinct patch.id)
+    from jsonb_to_recordset(p_patches) as patch(id uuid)
+  ) <> patch_count then
+    raise exception 'Choose a task to move.'
+      using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_client_id::text, 0));
+
+  perform task.id
+  from public.tasks as task
+  where task.organization_id = p_organization_id
+    and task.client_id = p_client_id
+    and task.id in (
+      select patch.id
+      from jsonb_to_recordset(p_patches) as patch(id uuid)
+    )
+  for update;
+
+  get diagnostics locked_count = row_count;
+  if locked_count <> patch_count then
+    raise exception 'Not found'
+      using errcode = '42501';
+  end if;
+
+  update public.tasks as task
+     set position = patch.position,
+         parent_task_id = patch.parent_task_id
+    from jsonb_to_recordset(p_patches) as patch(
+      id uuid,
+      position double precision,
+      parent_task_id uuid
+    )
+   where task.id = patch.id
+     and task.organization_id = p_organization_id
+     and task.client_id = p_client_id;
+
+  get diagnostics updated_count = row_count;
+  if updated_count <> patch_count then
+    raise exception 'Not found'
+      using errcode = '42501';
+  end if;
+
+  -- One level only. A subtask's parent is a top-level task, and a task that
+  -- still has subtasks cannot itself sit under a parent.
+  if exists (
+    select 1
+    from public.tasks as child
+    join public.tasks as parent on parent.id = child.parent_task_id
+    where child.organization_id = p_organization_id
+      and child.client_id = p_client_id
+      and child.id in (
+        select patch.id
+        from jsonb_to_recordset(p_patches) as patch(id uuid)
+      )
+      and (
+        parent.organization_id is distinct from p_organization_id
+        or parent.client_id is distinct from p_client_id
+        or parent.parent_task_id is not null
+        or parent.id = child.id
+        or exists (
+          select 1
+          from public.tasks as grandchild
+          where grandchild.parent_task_id = child.id
+            and grandchild.id is distinct from child.id
+            and grandchild.recurrence is null
+            and grandchild.title is distinct from child.title
+        )
+      )
+  ) then
+    raise exception 'Tasks can only nest one level deep'
+      using errcode = '22023';
+  end if;
+
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'id', task.id,
+      'title', task.title,
+      'status', task.status,
+      'position', task.position,
+      'parent_task_id', task.parent_task_id,
+      'created_at', task.created_at,
+      'category', task.category,
+      'basecamp_todo_id', task.basecamp_todo_id,
+      'recurrence', task.recurrence
+    )), '[]'::jsonb)
+    from public.tasks as task
+    where task.organization_id = p_organization_id
+      and task.client_id = p_client_id
+      and task.id in (
+        select patch.id
+        from jsonb_to_recordset(p_patches) as patch(id uuid)
+      )
+  );
+end;
+$$;
+
+revoke all on function public.reorder_stage_tasks(uuid, uuid, jsonb) from public, anon;
+grant execute on function public.reorder_stage_tasks(uuid, uuid, jsonb) to authenticated;
+
+-- ROLLBACK
+-- Pause writes and review/backfill any NULL stages created after migration 138
+-- before restoring NOT NULL. Restore the RPC and grants from migration 123.
+-- alter table public.tasks alter column stage set default 'backlog';
+-- update public.tasks set stage = 'backlog' where stage is null;
+-- alter table public.tasks alter column stage set not null;
+-- alter table public.tasks add constraint tasks_stage_check check (stage in
+--   ('onboarding','month_1','month_2','month_3','backlog','foundation','growth','scale'));
+-- drop index if exists public.tasks_client_project_parent_position_idx;
+-- create index if not exists tasks_client_stage_position_idx
+--   on public.tasks (client_id, stage, parent_task_id, position);
+
+-- Migration 139: Optional control pages for SEO changes.
+-- NOT APPLIED. The owner reviews and applies this migration separately.
+-- Not applied in this change.
+
+alter table public.seo_changes
+  add column if not exists control_urls text[] not null default '{}';
+
+comment on column public.seo_changes.control_urls is
+  'Same-site comparison page URLs. An empty array uses the rest of the site.';
+
+-- Migration 140: Daily rest-of-site position for SEO changes.
+-- NOT APPLIED — needs owner approval.
+
+-- Decode URL components used by normalizeResultUrl and isGbpTaggedUrl.
+create or replace function public.seo_change_decode_url_component(p_value text)
+returns text
+language plpgsql
+immutable
+strict
+parallel safe
+security invoker
+set search_path = pg_catalog
+as $function$
+declare
+  v_hex text;
+begin
+  if strpos(p_value, '%') = 0 or p_value ~ '%(?![0-9a-fA-F]{2})' then
+    return p_value;
+  end if;
+  select string_agg(coalesce(parts[1], encode(convert_to(parts[2], 'UTF8'), 'hex')), '' order by ordinal)
+    into v_hex
+  from regexp_matches(p_value, '%([0-9a-fA-F]{2})|([^%]+)', 'g') with ordinality as m(parts, ordinal);
+  begin
+    return convert_from(decode(v_hex, 'hex'), 'UTF8');
+  exception
+    when character_not_in_repertoire or untranslatable_character then
+      return p_value;
+  end;
+end;
+$function$;
+
+create or replace function public.seo_change_rest_position(
+  p_organization_id uuid,
+  p_client_id uuid,
+  p_property text,
+  p_day_ids uuid[],
+  p_excluded_page_keys text[]
+) returns table (
+  data_date date,
+  clicks double precision,
+  impressions double precision,
+  position_weight double precision
+)
+language sql
+stable
+security invoker
+set search_path = pg_catalog
+as $function$
+  select
+    d.data_date,
+    sum(f.clicks)::double precision,
+    sum(f.impressions)::double precision,
+    sum(f.position * f.impressions)
+  from public.gsc_history_days d
+  join public.gsc_history_facts f on f.day_id = d.id and f.grain = 'page'
+  cross join lateral regexp_match(
+    f.page, '^https?://(?:[^/?#]*@)?([a-z0-9.-]+)(?::[0-9]+)?(/[^?#]*)?(?:[?]([^#]*))?(?:#.*)?$', 'i'
+  ) as parsed(url)
+  where cardinality(p_day_ids) between 1 and 84
+    and d.id = any(p_day_ids)
+    and d.organization_id = p_organization_id
+    and d.client_id = p_client_id
+    and d.property = p_property
+    and d.search_type = 'web'
+    and not d.is_incomplete
+    and coalesce(nullif(f.surface, ''), 'organic') = 'organic'
+    -- Match the normalized test keys across scheme, www, slash, case and query variants.
+    and (
+      regexp_replace(lower(url[1]), '^www[.]', '')
+      || coalesce(nullif(lower(public.seo_change_decode_url_component(rtrim(url[2], '/'))), ''), '/')
+      = any(p_excluded_page_keys)
+    ) is not true
+    -- Legacy organic rows can carry GBP tags. URLSearchParams.get uses the first value.
+    and not case when strpos(url[3], '=') > 0 then (
+      select coalesce(
+        max(value) filter (where name = 'utm_campaign') = 'gbp_listing'
+        or max(value) filter (where name = 'utm_medium') = 'gbp'
+        or (max(value) filter (where name = 'utm_source') = 'google'
+            and max(value) filter (where name = 'utm_medium') = 'organic'),
+        false
+      )
+      from (
+        select distinct on (name) name, value
+        from (
+          select public.seo_change_decode_url_component(split_part(param, '=', 1)) as name,
+                 public.seo_change_decode_url_component(coalesce(substring(param from '=(.*)$'), '')) as value,
+                 ordinal
+          from string_to_table(lower(url[3]), '&') with ordinality as split(param, ordinal)
+        ) params
+        where name in ('utm_campaign', 'utm_medium', 'utm_source')
+        order by name, ordinal
+      ) tags
+    ) else false end
+  group by d.data_date
+  order by d.data_date;
+$function$;
+
+revoke all on function public.seo_change_decode_url_component(text) from public, anon, authenticated;
+grant execute on function public.seo_change_decode_url_component(text) to service_role;
+revoke all on function public.seo_change_rest_position(uuid, uuid, text, uuid[], text[]) from public, anon, authenticated;
+grant execute on function public.seo_change_rest_position(uuid, uuid, text, uuid[], text[]) to service_role;
+
+-- Migration 141: Stored page key for seo_change_rest_position.
+-- NOT APPLIED — needs owner approval.
+-- This migration rewrites no data. Build the index and run the batched backfill
+-- separately (see docs/seo-change-rest-position-page-key.md). The RPC fallback
+-- keeps results correct before, during, and after the backfill.
+
+-- Fail fast instead of queueing behind live traffic. ALTER TABLE and CREATE
+-- TRIGGER need short ACCESS EXCLUSIVE and SHARE ROW EXCLUSIVE locks, respectively.
+-- On timeout, re-run the migration: ADD COLUMN IF NOT EXISTS, CREATE OR REPLACE,
+-- and DROP TRIGGER IF EXISTS make it idempotent.
+set local lock_timeout = '5s';
+
+create or replace function public.seo_change_page_key(p_page text)
+returns text
+language sql
+immutable
+parallel safe
+security invoker
+set search_path = pg_catalog
+as $function$
+  select regexp_replace(lower(url[1]), '^www[.]', '')
+    || coalesce(nullif(lower(public.seo_change_decode_url_component(rtrim(url[2], '/'))), ''), '/')
+  from regexp_match(
+    p_page, '^https?://(?:[^/?#]*@)?([a-z0-9.-]+)(?::[0-9]+)?(/[^?#]*)?(?:[?]([^#]*))?(?:#.*)?$', 'i'
+  ) as parsed(url);
+$function$;
+
+create or replace function public.seo_change_page_gbp_tagged(p_page text)
+returns boolean
+language sql
+immutable
+parallel safe
+security invoker
+set search_path = pg_catalog
+as $function$
+  -- Lowercase before decoding and keep the first value for each decoded name.
+  select case when strpos(url[3], '=') > 0 then (
+    select coalesce(
+      max(value) filter (where name = 'utm_campaign') = 'gbp_listing'
+      or max(value) filter (where name = 'utm_medium') = 'gbp'
+      or (max(value) filter (where name = 'utm_source') = 'google'
+          and max(value) filter (where name = 'utm_medium') = 'organic'),
+      false
+    )
+    from (
+      select distinct on (name) name, value
+      from (
+        select public.seo_change_decode_url_component(split_part(param, '=', 1)) as name,
+               public.seo_change_decode_url_component(coalesce(substring(param from '=(.*)$'), '')) as value,
+               ordinal
+        from string_to_table(lower(url[3]), '&') with ordinality as split(param, ordinal)
+      ) params
+      where name in ('utm_campaign', 'utm_medium', 'utm_source')
+      order by name, ordinal
+    ) tags
+  ) else false end
+  from regexp_match(
+    p_page, '^https?://(?:[^/?#]*@)?([a-z0-9.-]+)(?::[0-9]+)?(/[^?#]*)?(?:[?]([^#]*))?(?:#.*)?$', 'i'
+  ) as parsed(url);
+$function$;
+
+revoke all on function public.seo_change_page_key(text) from public, anon, authenticated;
+grant execute on function public.seo_change_page_key(text) to service_role;
+revoke all on function public.seo_change_page_gbp_tagged(text) from public, anon, authenticated;
+grant execute on function public.seo_change_page_gbp_tagged(text) to service_role;
+
+alter table public.gsc_history_facts
+  add column if not exists page_key text,
+  add column if not exists page_gbp_tagged boolean;
+
+create or replace function public.set_gsc_history_page_key()
+returns trigger
+language plpgsql
+security invoker
+set search_path = pg_catalog
+as $function$
+begin
+  if new.grain = 'page' then
+    new.page_key := public.seo_change_page_key(new.page);
+    new.page_gbp_tagged := public.seo_change_page_gbp_tagged(new.page);
+  else
+    new.page_key := null;
+    new.page_gbp_tagged := null;
+  end if;
+  return new;
+end;
+$function$;
+
+revoke all on function public.set_gsc_history_page_key() from public, anon, authenticated;
+
+drop trigger if exists gsc_history_facts_set_page_key on public.gsc_history_facts;
+create trigger gsc_history_facts_set_page_key
+  before insert or update of page, grain on public.gsc_history_facts
+  for each row execute function public.set_gsc_history_page_key();
+
+create or replace function public.backfill_gsc_history_page_key_batch(
+  p_after_id bigint,
+  p_limit integer default 2000
+) returns table (updated integer, last_id bigint)
+language plpgsql
+security invoker
+set search_path = pg_catalog
+as $function$
+begin
+  if p_limit is null or p_limit not between 1 and 5000 then
+    raise exception 'page key backfill limit must be between 1 and 5000';
+  end if;
+  perform set_config('lock_timeout', '2s', true);
+
+  return query
+  with batch as (
+    select f.id
+    from public.gsc_history_facts f
+    where f.grain = 'page'
+      and f.page_gbp_tagged is null
+      and f.id > coalesce(p_after_id, 0)
+    order by f.id
+    limit p_limit
+    for update skip locked
+  ), changed as (
+    update public.gsc_history_facts f
+    set page_key = public.seo_change_page_key(f.page),
+        page_gbp_tagged = public.seo_change_page_gbp_tagged(f.page)
+    from batch
+    where f.id = batch.id
+    returning f.id
+  )
+  select count(*)::integer, max(changed.id) from changed;
+end;
+$function$;
+
+revoke all on function public.backfill_gsc_history_page_key_batch(bigint, integer) from public, anon, authenticated;
+grant execute on function public.backfill_gsc_history_page_key_batch(bigint, integer) to service_role;
+
+-- Invoke with a standalone CALL outside an explicit transaction block so the
+-- procedure can commit each batch. Pass the last reported ID to resume, or
+-- NULL to start from the beginning and sweep rows skipped by SKIP LOCKED.
+create or replace procedure public.run_gsc_history_page_key_backfill(
+  p_after_id bigint default null,
+  p_batch_size integer default 2000,
+  p_max_batches integer default 25
+)
+language plpgsql
+security invoker
+as $procedure$
+declare
+  v_batches integer := 0;
+  v_rows integer := 0;
+  v_updated integer;
+  v_last_id bigint := p_after_id;
+  v_batch_last_id bigint;
+begin
+  if p_max_batches is null or p_max_batches not between 1 and 200 then
+    raise exception 'page key backfill max batches must be between 1 and 200';
+  end if;
+
+  while v_batches < p_max_batches loop
+    select b.updated, b.last_id into v_updated, v_batch_last_id
+    from public.backfill_gsc_history_page_key_batch(v_last_id, p_batch_size) b;
+    commit;
+    exit when v_updated = 0;
+
+    v_batches := v_batches + 1;
+    v_rows := v_rows + v_updated;
+    v_last_id := v_batch_last_id;
+  end loop;
+
+  raise notice 'page key backfill: % batches, % rows, last id %', v_batches, v_rows, v_last_id;
+end;
+$procedure$;
+
+revoke all on procedure public.run_gsc_history_page_key_backfill(bigint, integer, integer) from public, anon, authenticated;
+grant execute on procedure public.run_gsc_history_page_key_backfill(bigint, integer, integer) to service_role;
+
+create or replace function public.seo_change_rest_position(
+  p_organization_id uuid,
+  p_client_id uuid,
+  p_property text,
+  p_day_ids uuid[],
+  p_excluded_page_keys text[]
+) returns table (
+  data_date date,
+  clicks double precision,
+  impressions double precision,
+  position_weight double precision
+)
+language sql
+stable
+security invoker
+set search_path = pg_catalog
+as $function$
+  select
+    d.data_date,
+    sum(f.clicks)::double precision,
+    sum(f.impressions)::double precision,
+    sum(f.position * f.impressions)
+  from public.gsc_history_days d
+  join public.gsc_history_facts f on f.day_id = d.id and f.grain = 'page'
+  where cardinality(p_day_ids) between 1 and 84
+    and d.id = any(p_day_ids)
+    and d.organization_id = p_organization_id
+    and d.client_id = p_client_id
+    and d.property = p_property
+    and d.search_type = 'web'
+    and not d.is_incomplete
+    and coalesce(nullif(f.surface, ''), 'organic') = 'organic'
+    -- The flag marks computed rows, including URLs whose normalized key is NULL.
+    and (
+      case when f.page_gbp_tagged is null then coalesce(f.page_key, public.seo_change_page_key(f.page))
+           else f.page_key
+      end = any(p_excluded_page_keys)
+    ) is not true
+    and not coalesce(f.page_gbp_tagged, public.seo_change_page_gbp_tagged(f.page))
+  group by d.data_date
+  order by d.data_date;
+$function$;
+
+revoke all on function public.seo_change_rest_position(uuid, uuid, text, uuid[], text[]) from public, anon, authenticated;
+grant execute on function public.seo_change_rest_position(uuid, uuid, text, uuid[], text[]) to service_role;
+
+-- Migration 142: Transaction-compatible schema mirror. Use the standalone
+-- concurrent statement in migration 142 when building on a live database.
+create index if not exists gsc_history_facts_page_key_day_idx
+  on public.gsc_history_facts (day_id) where grain = 'page';

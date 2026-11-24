@@ -3,22 +3,18 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASE_STAGE_COPY } from '../seo-plan/plan-phases.ts';
 import type { StageListTask } from '../seo-plan/stage-list.ts';
 import {
     CLIENT_ROADMAP_KEYS,
-    CLIENT_ROADMAP_STAGE_KEYS,
+    CLIENT_ROADMAP_GROUP_KEYS,
     CLIENT_ROADMAP_TASK_KEYS,
-    CLIENT_STATUS_WORDS,
-    ROADMAP_COPY,
     clientSafeDescription,
     presentRoadmap,
     projectClientRoadmap,
     readRoadmapBlockOptions,
-    roadmapHasClientDescriptions,
+    type ClientRoadmap,
 } from './roadmap.ts';
 
-const TODAY = '2026-11-10';
 const EMAIL = 'abel@marketingempiregroup.com';
 const SUBTASK = 'Subtask secret zebra';
 const HOURS = '7.5';
@@ -48,147 +44,99 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
     };
 }
 
-function assertAllowlist(roadmap: { stages: Array<Record<string, unknown> & { tasks: Array<Record<string, unknown>> }> }) {
+function assertAllowlist(roadmap: ClientRoadmap) {
     for (const key of Object.keys(roadmap)) {
         assert.ok((CLIENT_ROADMAP_KEYS as readonly string[]).includes(key), key);
     }
-    for (const stage of roadmap.stages) {
-        for (const key of Object.keys(stage)) {
-            assert.ok((CLIENT_ROADMAP_STAGE_KEYS as readonly string[]).includes(key), key);
+    for (const group of roadmap.groups) {
+        for (const key of Object.keys(group)) {
+            assert.ok((CLIENT_ROADMAP_GROUP_KEYS as readonly string[]).includes(key), key);
         }
-        for (const row of stage.tasks) {
+        for (const row of group.tasks) {
             for (const key of Object.keys(row)) {
                 assert.ok((CLIENT_ROADMAP_TASK_KEYS as readonly string[]).includes(key), key);
             }
-            assert.ok(Object.values(CLIENT_STATUS_WORDS).includes(row.status as typeof CLIENT_STATUS_WORDS.done), String(row.status));
         }
     }
 }
 
-test('a phase plan lists Foundation, Growth, and Scale and drops anything a client should not see', () => {
+test('projects keep their order and show client-friendly status and task progress', () => {
+    const site = { id: 'site-secret-id', title: 'Website updates', state: 'in_progress', purpose: NOTE } as const;
     const roadmap = projectClientRoadmap({
-        board: 'phases',
-        today: TODAY,
+        projects: [
+            { id: 'pages-secret-id', title: 'New pages', state: 'awaiting_approval' },
+            site,
+            { id: 'planned-id', title: 'Search research', state: 'planned' },
+            { id: 'blocked-id', title: 'Site access', state: 'blocked' },
+            { id: 'hold-id', title: 'Redirects', state: 'on_hold' },
+            { id: 'completed-id', title: 'Site launch', state: 'completed_verified' },
+        ],
         tasks: [
             task({
                 id: 'fix',
+                initiativeId: site.id,
                 title: `Fix the sitemap for ${EMAIL}`,
-                stage: 'foundation',
                 status: 'done',
-                position: 1,
                 completedAt: '2026-11-02T20:00:00.000Z',
                 description: 'Make the sitemap so Google can read every page.',
             }),
-            task({
-                id: 'child',
-                title: SUBTASK,
-                stage: 'foundation',
-                parentTaskId: 'fix',
-                position: 2,
-                description: `Ask ${EMAIL} about the ${HOURS} hours`,
-            }),
-            task({
-                id: 'pages',
-                title: 'Write the service page',
-                stage: 'growth',
-                status: 'in_progress',
-                position: 1,
-                description: `Email ${EMAIL} about the 4 hours`,
-            }),
-            task({
-                id: 'more',
-                title: 'Add another city page',
-                stage: 'scale',
-                status: 'review',
-                position: 1,
-                description: '   ',
-            }),
-            task({
-                id: 'archived',
-                title: 'Archived secret task',
-                stage: 'growth',
-                excluded: true,
-            }),
-            task({
-                id: 'stray',
-                title: 'Old month row',
-                stage: 'month_1',
-                position: 9,
-                description: 'Keep this under Foundation.',
-            }),
+            task({ id: 'review', title: 'Review the sitemap', initiativeId: site.id, status: 'review', position: 2 }),
+            task({ id: 'child', title: SUBTASK, parentTaskId: 'fix' }),
+            task({ id: 'orphan', title: 'Orphan secret task', parentTaskId: 'missing-parent' }),
+            task({ id: 'archived', title: 'Archived secret task', excluded: true }),
+            task({ id: 'pages', title: 'Write the service page', initiativeId: 'pages-secret-id', status: 'in_progress' }),
         ],
     });
 
-    assert.deepEqual(roadmap.stages.map(stage => stage.id), ['foundation', 'growth', 'scale']);
-    assert.equal(roadmap.stages[0]?.title, 'Foundation');
-    assert.equal(roadmap.stages[0]?.description, PHASE_STAGE_COPY.foundation.description);
-    assert.equal(roadmap.stages[1]?.description, PHASE_STAGE_COPY.growth.description);
-    assert.equal(roadmap.stages[2]?.description, PHASE_STAGE_COPY.scale.description);
-    assert.equal(roadmap.stages[0]?.progress, '1 of 2 done');
-    assert.equal(roadmap.stages[0]?.done, 1);
-    assert.equal(roadmap.stages[0]?.total, 2);
-    assert.deepEqual(roadmap.stages[0]?.tasks.map(row => row.title), ['Fix the sitemap for', 'Old month row']);
-    assert.equal(roadmap.stages[0]?.tasks[0]?.status, 'Done');
-    assert.equal(roadmap.stages[0]?.tasks[0]?.doneOn, 'Nov 2');
-    assert.equal(roadmap.stages[0]?.tasks[0]?.description, 'Make the sitemap so Google can read every page.');
-    assert.equal(roadmap.stages[1]?.tasks[0]?.status, 'In progress');
-    assert.equal(roadmap.stages[1]?.tasks[0]?.description, undefined);
-    assert.equal(roadmap.stages[2]?.tasks[0]?.status, 'In review');
-    assertAllowlist(roadmap as unknown as { stages: Array<Record<string, unknown> & { tasks: Array<Record<string, unknown>> }> });
-
+    assert.deepEqual(roadmap.groups.map(({ title, status, progress }) => [title, status, progress]), [
+        ['New pages', 'Waiting on your approval', '0 of 1 done'],
+        ['Website updates', 'In progress', '1 of 2 done'],
+        ['Search research', 'Planned', 'Nothing here yet'],
+        ['Site access', 'Delayed', 'Nothing here yet'],
+        ['Redirects', 'On hold', 'Nothing here yet'],
+        ['Site launch', 'Done', 'Nothing here yet'],
+    ]);
+    assert.equal(roadmap.groups[1]?.done, 1);
+    assert.equal(roadmap.groups[1]?.total, 2);
+    assert.deepEqual(roadmap.groups[1]?.tasks, [
+        {
+            title: 'Fix the sitemap for',
+            status: 'Done',
+            doneOn: 'Nov 2',
+            description: 'Make the sitemap so Google can read every page.',
+        },
+        { title: 'Review the sitemap', status: 'In review' },
+    ]);
+    assertAllowlist(roadmap);
     const serialized = JSON.stringify(roadmap);
-    for (const secret of [EMAIL, SUBTASK, HOURS, ASSIGNEE, BLOCKED, NOTE, 'Archived secret', 'estimatedHours', 'assigneeIds', 'blockedReason', 'basecamp', 'parentTaskId', 'https://staff.example']) {
+    for (const secret of [EMAIL, SUBTASK, HOURS, ASSIGNEE, BLOCKED, NOTE, 'Archived secret', 'Orphan secret', 'secret-id', 'https://staff.example']) {
         assert.equal(serialized.includes(secret), false, secret);
     }
 });
 
-test('a month plan lists Onboarding, This month, and Later', () => {
+test('client-facing roadmaps say Delayed, not Blocked, for a blocked project', () => {
     const roadmap = projectClientRoadmap({
-        board: 'months',
-        today: TODAY,
-        tasks: [
-            task({ id: 'kickoff', title: 'Kickoff call', stage: 'onboarding', status: 'done', completedAt: '2026-11-01T20:00:00.000Z', description: 'Walk through the first month together.' }),
-            task({ id: 'crawl', title: 'Crawl the site', stage: 'month_1', dueDate: '2026-11-18', description: 'Check the pages we already know about.' }),
-            task({ id: 'later', title: 'City pages', stage: 'backlog', dueDate: null, description: '' }),
-            task({ id: 'child', title: SUBTASK, stage: 'backlog', parentTaskId: 'later' }),
-        ],
+        projects: [{ id: 'access', title: 'Site access', state: 'blocked' }],
+        tasks: [task({ id: 'login', title: 'Get site access', initiativeId: 'access' })],
     });
-    assert.deepEqual(roadmap.stages.map(stage => stage.title), ['Onboarding', 'This month', 'Later']);
-    assert.equal(roadmap.stages[2]?.id, 'backlog');
-    assert.equal(roadmap.stages[0]?.description, ROADMAP_COPY.monthOnboarding);
-    assert.equal(roadmap.stages[1]?.description, ROADMAP_COPY.monthThisMonth);
-    assert.equal(roadmap.stages[2]?.description, ROADMAP_COPY.monthBacklog);
-    assert.deepEqual(roadmap.stages[0]?.tasks.map(row => row.title), ['Kickoff call']);
-    assert.deepEqual(roadmap.stages[1]?.tasks.map(row => row.title), ['Crawl the site']);
-    assert.deepEqual(roadmap.stages[2]?.tasks.map(row => row.title), ['City pages']);
-    assert.equal(JSON.stringify(roadmap).includes(SUBTASK), false);
-    assert.equal(JSON.stringify(roadmap).includes('Backlog'), false);
-    assert.equal(roadmap.stages[1]?.progress, '0 of 1 done');
+    assert.equal(roadmap.groups[0]?.status, 'Delayed');
+    assert.equal(JSON.stringify(roadmap).includes('Blocked'), false);
 });
 
-test('a subtask whose parent is not on the plan stays off the client list', () => {
+test('unassigned tasks and tasks with unknown projects share a final Other work group', () => {
     const roadmap = projectClientRoadmap({
-        board: 'phases',
-        today: TODAY,
+        projects: [{ id: 'site', title: 'Website updates', state: 'planned' }],
         tasks: [
-            task({ id: 'fix', title: 'Fix the sitemap', stage: 'foundation', description: 'Make the sitemap so Google can read every page.' }),
-            task({ id: 'orphan', title: 'Orphan secret task', stage: 'growth', parentTaskId: 'missing-parent' }),
+            task({ id: 'a', title: 'Fix titles', initiativeId: 'site' }),
+            task({ id: 'b', title: 'Check links', position: 1 }),
+            task({ id: 'c', title: 'Check indexing', initiativeId: 'unknown-project', position: 2 }),
         ],
     });
-    const serialized = JSON.stringify(roadmap);
-    assert.equal(serialized.includes('Fix the sitemap'), true);
-    assert.equal(serialized.includes('Orphan secret task'), false);
-    assert.equal(roadmap.stages.find(stage => stage.id === 'growth')?.total, 0);
-});
-
-test('an empty plan has the three stages and no tasks', () => {
-    const roadmap = projectClientRoadmap({ board: 'phases', tasks: [], today: TODAY });
-    assert.equal(roadmap.stages.every(stage => stage.total === 0), true);
-    assert.deepEqual(roadmap.stages.map(stage => stage.progress), [
-        ROADMAP_COPY.nothingHere,
-        ROADMAP_COPY.nothingHere,
-        ROADMAP_COPY.nothingHere,
-    ]);
+    assert.deepEqual(roadmap.groups.map(group => group.title), ['Website updates', 'Other work']);
+    assert.deepEqual(roadmap.groups[1]?.tasks.map(row => row.title), ['Check links', 'Check indexing']);
+    assert.equal(roadmap.groups[1]?.progress, '0 of 2 done');
+    assert.equal(roadmap.groups[1]?.status, undefined);
+    assertAllowlist(roadmap);
 });
 
 test('descriptions with an email or an hour estimate are not client-safe', () => {
@@ -201,27 +149,22 @@ test('descriptions with an email or an hour estimate are not client-safe', () =>
     assert.equal(clientSafeDescription('the homepage'), 'the homepage');
 });
 
-test('block options hide a stage and task descriptions', () => {
+test('legacy block options leave project groups visible and descriptions opt-in', () => {
     const roadmap = projectClientRoadmap({
-        board: 'phases',
-        today: TODAY,
+        projects: [{ id: 'site', title: 'Website updates', state: 'planned' }],
         tasks: [
-            task({ id: 'a', title: 'Fix titles', stage: 'foundation', description: 'Short titles on the main pages.' }),
-            task({ id: 'b', title: 'New page', stage: 'growth', description: 'A page for the service people search for.' }),
+            task({ id: 'a', title: 'Fix titles', initiativeId: 'site', description: 'Short titles on the main pages.' }),
+            task({ id: 'b', title: 'New page' }),
         ],
     });
-    assert.equal(roadmapHasClientDescriptions(roadmap), true);
     const options = readRoadmapBlockOptions({
-        hiddenStages: ['growth', 'nope', 4],
-        showTaskDescriptions: false,
+        hiddenStages: ['foundation', 'growth', 'scale', 'onboarding', 'this_month', 'backlog'],
         tasks: [{ title: 'should not stick' }],
-        email: EMAIL,
     });
-    assert.deepEqual(options.hiddenStages, ['growth']);
-    assert.equal(options.showTaskDescriptions, false);
-    const shown = presentRoadmap(roadmap, { ...options, showTaskDescriptions: false });
-    assert.deepEqual(shown.stages.map(stage => stage.id), ['foundation', 'scale']);
-    assert.equal(shown.stages[0]?.tasks[0]?.description, undefined);
-    const described = presentRoadmap(roadmap, { hiddenStages: [], showTaskDescriptions: true });
-    assert.equal(described.stages[0]?.tasks[0]?.description, 'Short titles on the main pages.');
+    assert.deepEqual(options, { showTaskDescriptions: false });
+    const shown = presentRoadmap(roadmap, options);
+    assert.deepEqual(shown.groups.map(group => group.title), ['Website updates', 'Other work']);
+    assert.equal(shown.groups[0]?.tasks[0]?.description, undefined);
+    const described = presentRoadmap(roadmap, { showTaskDescriptions: true });
+    assert.equal(described.groups[0]?.tasks[0]?.description, 'Short titles on the main pages.');
 });

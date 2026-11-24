@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { completedLeavesInMonth } from '../seo-plan/done-this-month.ts';
-import type { StageListTask } from '../seo-plan/stage-list.ts';
+import { completionDay } from '../seo-plan/plan-sections.ts';
 import {
     acceptedCompletionInstant,
     completionCalendarDay,
@@ -11,22 +10,6 @@ import {
 
 const NOW = new Date('2026-10-21T18:00:00.000Z');
 const ZONE = 'America/Los_Angeles';
-
-function leaf(completedAt: string, id = 'seo'): StageListTask {
-    return {
-        id,
-        title: 'September SEO Content',
-        status: 'done',
-        stage: 'backlog',
-        position: 1,
-        parentTaskId: null,
-        createdAt: '2026-09-01T15:00:00.000Z',
-        category: 'content',
-        basecamp: false,
-        recurring: false,
-        completedAt,
-    };
-}
 
 test('today is the default and uses the current instant', () => {
     const resolved = resolveCompletionInstant({ choice: { kind: 'today' }, now: NOW, timeZone: ZONE });
@@ -86,19 +69,6 @@ test('a date input of today uses the current instant, and future or invalid days
     assert.equal(acceptedCompletionInstant('not-a-date', NOW.toISOString()), null);
 });
 
-test('a backdated completion counts in the month it was finished', () => {
-    const finished = resolveCompletionInstant({
-        choice: { kind: 'day', day: '2026-09-30' },
-        now: NOW,
-        timeZone: ZONE,
-    });
-    assert.equal(finished.ok, true);
-    if (!finished.ok) return;
-    const tasks = [leaf(finished.completedAt)];
-    assert.deepEqual(completedLeavesInMonth(tasks, '2026-09', ZONE).map(task => task.id), ['seo']);
-    assert.deepEqual(completedLeavesInMonth(tasks, '2026-10', ZONE).map(task => task.id), []);
-
-    const lateEvening = leaf('2026-10-01T06:30:00.000Z', 'late');
-    assert.deepEqual(completedLeavesInMonth([lateEvening], '2026-09', ZONE).map(task => task.id), ['late']);
-    assert.deepEqual(completedLeavesInMonth([lateEvening], '2026-10', ZONE).map(task => task.id), []);
+test('a backdated completion keeps its calendar day in the plan', () => {
+    assert.equal(completionDay('2026-10-01T06:30:00.000Z', ZONE), '2026-09-30');
 });

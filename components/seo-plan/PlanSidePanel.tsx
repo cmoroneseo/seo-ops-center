@@ -19,7 +19,6 @@ import {
     planDescriptionSave,
     planLabelText,
     planLiveUrlSave,
-    planOnboardingStage,
     planPanelDue,
     planParentField,
     planSubtasks,
@@ -327,7 +326,7 @@ export function PlanSidePanel({
     });
     const parent = planParentField(tasks, task.id);
     const partOfTitle = partOf?.find(choice => choice.id === task.initiativeId)?.title ?? null;
-    const showPartOf = Array.isArray(partOf) && task.parentTaskId == null && (partOf.length > 0 || Boolean(task.initiativeId));
+    const showPartOf = Array.isArray(partOf) && task.parentTaskId == null;
     const subtasks = planCanAddSubtasks(task) ? planSubtasks(tasks, task.id) : [];
     const selectedPeople = task.assigneeIds
         .map(id => people.find(person => person.id === id))
@@ -561,10 +560,10 @@ export function PlanSidePanel({
                         <span className="text-[#71717a]">· {formatPlanHours(task.loggedHours)} logged</span>
                         {estimateError && <span className="text-[#dc2626]">{estimateError}</span>}
                     </Field>
-                    <Field label="Pillar">
+                    <Field label={parent.kind === 'pillar' ? 'Subtasks' : 'Parent task'}>
                         {parent.kind === 'pillar' ? (
                             <span data-plan-pillar={parent.childCount} data-subtask-progress={`${task.childDone}/${task.childCount}`} className="text-[#71717a]">
-                                This is a pillar · {task.childDone}/{task.childCount}
+                                Subtasks done · {task.childDone}/{task.childCount}
                             </span>
                         ) : parent.kind === 'locked' ? (
                             <span className="text-[#71717a]">{parent.currentTitle ?? 'None'}</span>
@@ -612,7 +611,7 @@ export function PlanSidePanel({
                         )}
                     </Field>
                     {showPartOf && partOf ? (
-                        <Field label="Part of">
+                        <Field label="Project">
                             <span data-plan-part-of={task.initiativeId ?? 'none'}>
                                 {partOfLine(partOfTitle, Boolean(task.initiativeId))}
                             </span>
@@ -780,23 +779,6 @@ export function PlanSidePanel({
                                 </div>
                             </form>
                         )}
-                    </Field>
-                    <Field label="Onboarding">
-                        <button
-                            type="button"
-                            data-plan-field="onboarding"
-                            data-plan-onboarding={task.stage === 'onboarding' ? 'yes' : 'no'}
-                            aria-pressed={task.stage === 'onboarding'}
-                            onClick={() => {
-                                void commit({
-                                    field: 'onboarding',
-                                    stage: planOnboardingStage(task.stage !== 'onboarding'),
-                                });
-                            }}
-                            className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]"
-                        >
-                            {task.stage === 'onboarding' ? 'Yes, shows in Onboarding' : 'No'}
-                        </button>
                     </Field>
                     <Field label="Live URL">
                         {task.publishedUrl ? (

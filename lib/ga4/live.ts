@@ -1,15 +1,30 @@
 import 'server-only';
 
 import { createAdminClient } from '@/lib/supabase/admin';
+import { chunkList } from '@/lib/search-reporting/fact-read';
 import { getGoogleAccessToken, GoogleAuthError } from '@/lib/sync/token';
 import { Ga4KeyEventsError, readGa4KeyEvents } from './key-events';
 import { enqueueGa4Continuation } from './queue';
-import { Ga4AuthError, runGa4Cron, runGa4QueueMessage, type Ga4ReadResult, type Ga4RunDeps } from './run';
+import { Ga4AuthError, runGa4Cron, runGa4QueueMessage, syncGa4Days, type Ga4Property, type Ga4ReadResult, type Ga4RunDeps } from './run';
 import { createGa4Store } from './store';
-import { eventNameFilter, ga4ReportBody, organicChannelFilter, readPropertyQuota, strictestQuota } from './sync';
+import { GA4_DAILY_REPAIR_DAYS, eachUtcDate, eventNameFilter, ga4ReportBody, organicChannelFilter, readPropertyQuota, strictestQuota } from './sync';
 
 function failStatus(status: number): number {
     return status === 401 || status === 403 || status === 429 ? status : 500;
+}
+
+/** Replace a specific range through the same report and day writer as the queue. */
+export async function repullGa4History(property: Ga4Property, range: { start: string; end: string }): Promise<void> {
+    const deps = liveDeps();
+    const batches = chunkList(eachUtcDate(range.start, range.end), GA4_DAILY_REPAIR_DAYS);
+    for (const [index, dates] of batches.entries()) {
+        const outcome = await syncGa4Days(deps, property, dates);
+        if ('auth' in outcome) throw outcome.auth;
+        if ('paused' in outcome || ('pause' in outcome && outcome.pause && index < batches.length - 1)) {
+            throw new Error('GA4 quota pause');
+        }
+        if ('failed' in outcome) throw new Error('GA4 re-pull failed');
+    }
 }
 
 async function postReport(token: string, propertyId: string, body: unknown): Promise<{ status: number; body: unknown }> {
@@ -38,10 +53,11 @@ function liveDeps(): Ga4RunDeps {
         newRunId: () => crypto.randomUUID(),
         store: createGa4Store(admin as unknown as Parameters<typeof createGa4Store>[0]),
         publish: enqueueGa4Continuation,
-        async getToken(clientId) {
+        async getToken(clientId, property) {
             try {
                 const auth = await getGoogleAccessToken(clientId, 'ga4');
                 if (!auth) return null;
+                if (auth.creds.property_id !== property) throw new Ga4AuthError('GA4 property changed', 'transient');
                 return { token: auth.token };
             } catch (error) {
                 if (error instanceof GoogleAuthError) throw new Ga4AuthError(error.message, error.kind);

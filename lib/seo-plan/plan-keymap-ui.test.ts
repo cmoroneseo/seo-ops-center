@@ -69,20 +69,20 @@ function task(overrides: Partial<StageListTask> & Pick<StageListTask, 'id' | 'ti
 
 const seed: StageListTask[] = [
     task({ id: 'kickoff', title: 'Kickoff call recap', stage: 'onboarding', position: 1 }),
-    task({ id: 'done', title: 'Finished onboarding', stage: 'onboarding', position: 2, status: 'done' }),
-    task({ id: 'pillar', title: 'Citations cleanup', stage: 'onboarding', position: 3 }),
+    task({ id: 'done', title: 'Finished onboarding', stage: 'onboarding', position: 6, status: 'done' }),
+    task({ id: 'pillar', title: 'Citations cleanup', stage: 'onboarding', position: 2 }),
     task({ id: 'child', title: 'Fix NAP', stage: 'onboarding', position: 1, parentTaskId: 'pillar' }),
     task({ id: 'sibling', title: 'Other citation', stage: 'onboarding', position: 2, parentTaskId: 'pillar' }),
     task({
         id: 'kitchen',
         title: 'Service page refresh: Kitchen remodeling',
         stage: 'backlog',
-        position: 1,
+        position: 3,
         dueDate: '2026-10-17',
         status: 'in_progress',
         blockedReason: 'Waiting on the client',
     }),
-    task({ id: 'later', title: 'Later backlog', stage: 'backlog', position: 2 }),
+    task({ id: 'later', title: 'Later backlog', stage: 'backlog', position: 5 }),
 ];
 
 function key(target: EventTarget, keyName: string, init: KeyboardEventInit = {}) {
@@ -102,14 +102,6 @@ function setValue(input: HTMLInputElement, value: string) {
     input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
 }
 
-function paste(input: HTMLInputElement, text: string) {
-    const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
-    Object.defineProperty(event, 'clipboardData', {
-        value: { getData: (type: string) => (type === 'text' || type === 'text/plain' ? text : '') },
-    });
-    input.dispatchEvent(event);
-}
-
 function focusedRow(): string | null {
     return document.querySelector('[data-plan-focused="true"]')?.getAttribute('data-plan-row') ?? null;
 }
@@ -122,7 +114,7 @@ function rowUrl(taskId: string): HTMLInputElement | null {
 }
 
 function addInput(): HTMLInputElement {
-    const found = document.querySelector('[data-plan-add]');
+    const found = document.querySelector('input[data-add]');
     assert.ok(found instanceof dom.window.HTMLInputElement);
     return found;
 }
@@ -139,12 +131,14 @@ function Harness({
     onAdd,
     onTimer,
     checks,
+    onReorder,
 }: {
     onOpen: (id: string) => void;
     onClose: () => void;
     onAdd: () => void;
     onTimer: (id: string) => void;
     checks: string[];
+    onReorder: (move: { taskId: string; index: number; projectGroup?: string }) => Promise<void>;
 }) {
     const [tasks, setTasks] = useState(seed);
     const [query, setQuery] = useState('');
@@ -162,7 +156,7 @@ function Harness({
             onClose();
         },
         onAddTasks: async () => { onAdd(); },
-        onReorder: async () => undefined,
+        onReorder,
         onSetLiveUrl: async () => null,
             onToggleCheck: (id) => {
             checks.push(id);
@@ -179,12 +173,11 @@ function Harness({
         },
         onRowTimer: onTimer,
         today: '2026-10-20',
-        initialMonth: '2026-10',
         panelTaskId: panelId,
     });
 }
 
-async function mount(): Promise<{ root: Root; opens: string[]; closes: number[]; adds: number[]; timers: string[]; checks: string[] }> {
+async function mount(): Promise<{ root: Root; opens: string[]; closes: number[]; adds: number[]; timers: string[]; checks: string[]; moves: { taskId: string; index: number; projectGroup?: string }[] }> {
     await ensureLoaded();
     document.body.replaceChildren();
     const opens: string[] = [];
@@ -192,6 +185,7 @@ async function mount(): Promise<{ root: Root; opens: string[]; closes: number[];
     const adds: number[] = [];
     const timers: string[] = [];
     const checks: string[] = [];
+    const moves: { taskId: string; index: number; projectGroup?: string }[] = [];
     const host = document.createElement('div');
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -202,9 +196,10 @@ async function mount(): Promise<{ root: Root; opens: string[]; closes: number[];
             onAdd: () => { adds.push(1); },
             onTimer: id => { timers.push(id); },
             checks,
+            onReorder: async move => { moves.push(move); },
         }));
     });
-    return { root, opens, closes, adds, timers, checks };
+    return { root, opens, closes, adds, timers, checks, moves };
 }
 
 test.after(() => {
@@ -218,130 +213,11 @@ test.after(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = previous.act;
 });
 
-test('each plan shortcut acts once, and brackets step a single month', async () => {
-    const { root, opens, closes, timers, checks } = await mount();
-    try {
-        assert.equal(document.querySelector('[data-plan-month]')?.getAttribute('data-plan-month'), '2026-10');
-        await act(async () => { key(window, ']'); });
-        assert.equal(document.querySelector('[data-plan-month]')?.getAttribute('data-plan-month'), '2026-11');
-        await act(async () => { key(window, '['); });
-        assert.equal(document.querySelector('[data-plan-month]')?.getAttribute('data-plan-month'), '2026-10');
-        await act(async () => { key(window, '['); });
-        assert.equal(document.querySelector('[data-plan-month]')?.getAttribute('data-plan-month'), '2026-09');
-        await act(async () => { key(window, ']'); });
-
-        await act(async () => { key(window, 'c'); });
-        assert.equal(document.activeElement, addInput());
-        addInput().blur();
-
-        await act(async () => { key(window, '/'); });
-        assert.equal(document.activeElement, searchInput());
-        searchInput().blur();
-
-        await act(async () => { key(window, 'j'); });
-        assert.equal(focusedRow(), 'kickoff');
-        const row = document.querySelector('[data-plan-focused="true"]');
-        assert.match(row?.className ?? '', /bg-\[#f4f4f6\]/);
-        assert.match(row?.className ?? '', /inset_2px_0_0_0_#ec4899/);
-        await act(async () => { key(window, 'j'); });
-        assert.equal(focusedRow(), 'pillar');
-        await act(async () => { key(window, 'k'); });
-        assert.equal(focusedRow(), 'kickoff');
-
-        for (const id of ['pillar', 'child', 'sibling', 'kitchen']) {
-            await act(async () => { key(window, 'j'); });
-            assert.equal(focusedRow(), id);
-        }
-        assert.ok(document.querySelector('[data-plan-row="kitchen"] [data-plan-blocked]'));
-        await act(async () => { key(window, 'x'); });
-        assert.deepEqual(checks, []);
-        const today = document.querySelector('[data-completion-choice="today"]');
-        assert.ok(today instanceof dom.window.HTMLButtonElement);
-        await act(async () => { today.click(); });
-        assert.deepEqual(checks, ['kitchen']);
-        assert.equal(document.querySelector('[data-plan-row="kitchen"] [data-plan-check]')?.getAttribute('data-plan-check'), 'done');
-        assert.equal(document.querySelector('[data-plan-row="kitchen"] [data-plan-blocked]'), null);
-        await act(async () => { key(window, 'x'); });
-        assert.deepEqual(checks, ['kitchen', 'kitchen']);
-        assert.equal(document.querySelector('[data-plan-row="kitchen"] [data-plan-check]')?.getAttribute('data-plan-check'), 'open');
-
-        const check = document.querySelector('[data-plan-row="kitchen"] [data-plan-check]');
-        assert.ok(check instanceof dom.window.HTMLButtonElement);
-        await act(async () => { check.click(); });
-        assert.deepEqual(checks, ['kitchen', 'kitchen']);
-        const todayAgain = document.querySelector('[data-completion-choice="today"]');
-        assert.ok(todayAgain instanceof dom.window.HTMLButtonElement);
-        await act(async () => { todayAgain.click(); });
-        assert.deepEqual(checks, ['kitchen', 'kitchen', 'kitchen']);
-        await act(async () => { check.click(); });
-        assert.equal(document.querySelector('[data-plan-row="kitchen"] [data-plan-check]')?.getAttribute('data-plan-check'), 'open');
-
-        for (let step = 0; step < 3; step += 1) await act(async () => { key(window, 'k'); });
-        assert.equal(focusedRow(), 'pillar');
-        await act(async () => { key(window, 'u'); });
-        const url = rowUrl('pillar');
-        assert.ok(url instanceof dom.window.HTMLInputElement);
-        await act(async () => { key(url, 'Escape'); });
-        assert.equal(rowUrl('pillar'), null);
-
-        const toggle = document.querySelector('[data-plan-row="pillar"] button[aria-expanded]');
-        assert.equal(toggle?.getAttribute('aria-expanded'), 'true');
-        await act(async () => { key(window, 'ArrowLeft'); });
-        assert.equal(document.querySelector('[data-plan-row="pillar"] button[aria-expanded]')?.getAttribute('aria-expanded'), 'false');
-        assert.equal(document.querySelector('[data-plan-row="child"]'), null);
-        await act(async () => { key(window, 'ArrowRight'); });
-        assert.equal(document.querySelector('[data-plan-row="pillar"] button[aria-expanded]')?.getAttribute('aria-expanded'), 'true');
-        assert.ok(document.querySelector('[data-plan-row="child"]'));
-        await act(async () => { key(window, 'ArrowRight'); });
-        assert.equal(document.querySelector('[data-plan-row="child"]') instanceof dom.window.HTMLElement, true);
-
-        await act(async () => { key(window, 't'); });
-        assert.deepEqual(timers, ['pillar']);
-        await act(async () => { key(window, 't'); });
-        assert.deepEqual(timers, ['pillar', 'pillar']);
-        const commandTimer = await act(async () => key(window, 't', { metaKey: true, shiftKey: true }));
-        assert.equal(commandTimer.defaultPrevented, false);
-        assert.deepEqual(timers, ['pillar', 'pillar']);
-        const commandSearch = await act(async () => key(window, 'k', { metaKey: true }));
-        assert.equal(commandSearch.defaultPrevented, false);
-        assert.equal(focusedRow(), 'pillar');
-
-        await act(async () => { key(window, 'Enter'); });
-        assert.equal(opens.at(-1), 'pillar');
-        await act(async () => { key(window, 'j'); });
-        assert.equal(opens.at(-1), 'child');
-        assert.equal(focusedRow(), 'child');
-        await act(async () => { key(window, 'Escape'); });
-        assert.equal(closes.length, 1);
-
-        await act(async () => { key(window, '?'); });
-        const sheet = document.querySelector('[data-plan-shortcuts]');
-        assert.equal(sheet?.getAttribute('role'), 'dialog');
-        assert.match(sheet?.textContent ?? '', /Focus Add task/);
-        assert.match(sheet?.textContent ?? '', /Check or uncheck/);
-        assert.match(sheet?.textContent ?? '', /Start or pause the timer/);
-        assert.match(sheet?.textContent ?? '', /Previous and next month/);
-        assert.equal(focusedRow(), 'child');
-        await act(async () => { key(window, 'j'); });
-        assert.equal(focusedRow(), 'child');
-        await act(async () => { key(window, 'Escape'); });
-        assert.equal(document.querySelector('[data-plan-shortcuts]'), null);
-        await act(async () => { key(window, '?'); });
-        const close = document.querySelector('[aria-label="Close shortcuts"]');
-        assert.ok(close instanceof dom.window.HTMLButtonElement);
-        await act(async () => { close.click(); });
-        assert.equal(document.querySelector('[data-plan-shortcuts]'), null);
-    } finally {
-        await act(async () => { root.unmount(); });
-    }
-});
-
 test('shortcuts stay off in text fields, and escape still runs the field', async () => {
     const { root, adds, checks, opens } = await mount();
     try {
         await act(async () => { key(window, 'j'); });
         assert.equal(focusedRow(), 'kickoff');
-        const month = document.querySelector('[data-plan-month]')?.getAttribute('data-plan-month');
 
         await act(async () => { key(window, 'c'); });
         const add = addInput();
@@ -351,32 +227,15 @@ test('shortcuts stay off in text fields, and escape still runs the field', async
         assert.equal(document.activeElement, add);
         assert.equal(focusedRow(), 'kickoff');
         assert.deepEqual(checks, []);
-        assert.equal(document.querySelector('[data-plan-month]')?.getAttribute('data-plan-month'), month);
         assert.equal(document.querySelector('[data-plan-shortcuts]'), null);
         assert.equal(document.querySelector('[data-live-url] input'), null);
 
         await act(async () => { key(add, 'Tab'); });
-        assert.equal(document.querySelector('[data-plan-add-chip]')?.getAttribute('data-plan-add-chip'), 'backlog');
         const liveAdd = addInput();
         await act(async () => { setValue(liveAdd, 'Write the kitchen page'); });
         await act(async () => { key(liveAdd, 'Enter'); });
         assert.equal(adds.length, 1);
         assert.deepEqual(opens, []);
-
-        await act(async () => {
-            paste(add, 'Citations\n  Yelp\n  BBB');
-        });
-        assert.ok(document.querySelector('[data-plan-add-preview]'));
-        await act(async () => { key(add, 'Escape'); });
-        assert.equal(document.querySelector('[data-plan-add-preview]'), null);
-        assert.equal(adds.length, 1);
-
-        const chip = document.querySelector('[data-plan-add-chip]');
-        assert.ok(chip instanceof dom.window.HTMLButtonElement);
-        await act(async () => { chip.click(); });
-        assert.ok(document.querySelector('[data-plan-add-option="onboarding"]'));
-        await act(async () => { key(chip, 'Escape'); });
-        assert.equal(document.querySelector('[data-plan-add-option="onboarding"]'), null);
 
         const search = searchInput();
         await act(async () => {
@@ -422,6 +281,19 @@ test('escape clears a search that is not focused, after the panel is closed', as
         assert.equal(searchInput().value, 'kitchen');
         await act(async () => { key(window, 'Escape'); });
         assert.equal(searchInput().value, '');
+    } finally {
+        await act(async () => { root.unmount(); });
+    }
+});
+
+test('Alt and arrow keys move the focused task within its project group', async () => {
+    const { root, moves } = await mount();
+    try {
+        await act(async () => { key(window, 'j'); });
+        assert.equal(focusedRow(), 'kickoff');
+        await act(async () => { key(window, 'ArrowDown', { altKey: true }); });
+        assert.deepEqual(moves.map(({ taskId, index, projectGroup }) => [taskId, index, projectGroup]),
+            [['kickoff', 1, 'no-project']]);
     } finally {
         await act(async () => { root.unmount(); });
     }

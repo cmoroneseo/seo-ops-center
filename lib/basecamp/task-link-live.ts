@@ -7,14 +7,13 @@ import { basecampRecordingKind } from './push-live.ts';
 import { createBasecampTaskLinkHandler } from './task-link-route.ts';
 import type { BasecampLinkedTask } from './task-todo-link.ts';
 
-const TASK_COLUMNS = 'id, organization_id, client_id, title, stage, priority, category, parent_task_id, basecamp_todo_id, basecamp_project_id';
+const TASK_COLUMNS = 'id, organization_id, client_id, title, priority, category, parent_task_id, basecamp_todo_id, basecamp_project_id';
 
 function taskRecord(row: {
     id: string;
     organization_id: string;
     client_id: string;
     title: string;
-    stage: string | null;
     category: string | null;
     priority: string | null;
     parent_task_id: string | null;
@@ -26,7 +25,6 @@ function taskRecord(row: {
         organizationId: row.organization_id,
         clientId: row.client_id,
         title: row.title,
-        stage: row.stage,
         category: row.category,
         priority: row.priority,
         parentTaskId: row.parent_task_id,
