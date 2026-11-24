@@ -17,6 +17,7 @@ import { impactCsv } from '@/lib/change-log/csv';
 import { addedWords, removedWords, wordDiff, type DiffToken } from '@/lib/change-log/diff';
 import { overlapLabel } from '@/lib/change-log/impact';
 import { formatHeadlinePct, headlineFields, pagePath } from '@/lib/change-log/list';
+import { comparable } from '@/lib/change-log/metrics';
 import {
     EARLY_ESTIMATE_NOTE,
     TERMS_EMPTY_COPY,
@@ -193,7 +194,13 @@ export function ChangeDetail({
                     <VerdictPill verdict={head.verdict} estimate={head.estimate} pct={headlinePct} />
                     {head.ready && <span className="text-xs text-muted-foreground">Latest: {head.days}-day check</span>}
                 </div>
-                <p className="mt-3 text-sm">{answerLine(change.kpi, impact)}</p>
+                <p className="mt-3 text-sm">{answerLine(impact.kpi, impact)}</p>
+                {impact.lowClickBaseline != null && (
+                    <p className="mt-2 text-sm text-amber-900">
+                        The saved metric is {KPI_LABEL[change.kpi]}. Google reported only {impact.lowClickBaseline} {impact.lowClickBaseline === 1 ? 'click' : 'clicks'} in the 28 days before the change.
+                        {' '}The result uses impressions (times shown in Google). Clicks are shown below for context.
+                    </p>
+                )}
                 <p className="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
                     <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                     <span>{impact.causation}</span>
@@ -206,8 +213,8 @@ export function ChangeDetail({
                     <div>
                         <dt className="text-xs text-muted-foreground">What we&apos;re watching</dt>
                         <dd>
-                            {KPI_LABEL[change.kpi]}
-                            {KPI_HINT[change.kpi] ? <span className="text-zinc-400"> ({KPI_HINT[change.kpi]})</span> : null}
+                            {KPI_LABEL[impact.kpi]}
+                            {KPI_HINT[impact.kpi] ? <span className="text-zinc-400"> ({KPI_HINT[impact.kpi]})</span> : null}
                         </dd>
                     </div>
                     <div>
@@ -232,8 +239,9 @@ export function ChangeDetail({
 
             <section className="rounded-lg border border-border bg-card p-4">
                 <ImpactChart
+                    key={impact.kpi}
                     points={impact.series}
-                    kpi={change.kpi}
+                    kpi={impact.kpi}
                     liveOn={change.liveOn}
                     finalThrough={impact.finalThrough}
                     controlLabel={impact.controlLabel}
@@ -244,8 +252,11 @@ export function ChangeDetail({
                 />
             </section>
 
+            {impact.gbp && <GbpResults summary={impact.gbp} checkpointDays={head.ready ? head.days : null} />}
+
             <SearchTerms
                 queries={queries}
+                context={impact.searchTermContext}
                 ready={head.ready}
                 empty={searchTermsEmpty(impact.queries)}
                 gaps={termsHaveGaps(impact.queries)}
@@ -357,6 +368,7 @@ function CheckStepper({ change, impact, today }: { change: SeoChange; impact: Im
                     Today is {formatDayWithYear(today)}. Google&apos;s numbers are final through {formatDay(impact.finalThrough)}.
                 </p>
             </div>
+            <p className="mt-1 text-xs text-muted-foreground">Checks start the day after the change went live.</p>
             <ol className="mt-4 grid gap-3 md:grid-cols-4">
                 {impact.checkpoints.map((checkpoint, index) => {
                     const dates = schedule.find(item => item.days === checkpoint.days);
@@ -484,6 +496,48 @@ function ResultsTable({ impact }: { impact: ImpactModel }) {
                                 </tr>
                             );
                         })}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    );
+}
+
+function GbpResults({ summary, checkpointDays }: {
+    summary: NonNullable<ImpactModel['gbp']>;
+    checkpointDays: CheckpointRead['days'] | null;
+}) {
+    const rows = [
+        { kpi: 'clicks', label: 'Clicks per day', kind: 'daily' },
+        { kpi: 'impressions', label: 'Impressions per day', kind: 'daily' },
+        { kpi: 'avg_position', label: 'Average Google position', kind: 'position' },
+    ] as const;
+    return (
+        <section className="rounded-lg border border-border bg-card p-4">
+            <h3 className="text-sm font-medium">Google Business Profile link</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+                Search Console data for the tagged link. Excluded from the verdict. Analytics counts these visits under the same landing page.
+            </p>
+            <div className="insights-table-scroll mt-3">
+                <table className="w-full min-w-[360px] text-left text-sm">
+                    <thead className="text-xs text-muted-foreground">
+                        <tr>
+                            <th scope="col" className="px-3 py-2 font-medium">Metric</th>
+                            <th scope="col" className="px-3 py-2 font-medium">Before ({summary.before.daysPresent} saved days)</th>
+                            <th scope="col" className="px-3 py-2 font-medium">
+                                {checkpointDays == null ? 'After so far' : `After (${checkpointDays}-day check)`}
+                                <span className="block">{summary.after.daysPresent} saved days</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map(({ kpi, label, kind }) => (
+                            <tr key={kpi} className="border-t border-border">
+                                <th scope="row" className="px-3 py-2 font-medium">{label}</th>
+                                <td className="px-3 py-2 tabular-nums">{formatResultsValue(kind, comparable(kpi, summary.before))}</td>
+                                <td className="px-3 py-2 tabular-nums">{formatResultsValue(kind, comparable(kpi, summary.after))}</td>
+                            </tr>
+                        ))}
                     </tbody>
                 </table>
             </div>
@@ -701,12 +755,14 @@ function MenuItem({
 
 function SearchTerms({
     queries,
+    context,
     ready,
     empty,
     gaps,
     onToggle,
 }: {
     queries: QueryCompare[];
+    context?: ImpactModel['searchTermContext'];
     ready: boolean;
     empty: 'none' | 'unmeasured' | null;
     gaps: boolean;
@@ -749,6 +805,52 @@ function SearchTerms({
             )}
             {!empty && ready && gaps && (
                 <p className="px-4 py-3 text-xs text-muted-foreground">{TERMS_MISSING_NOTE}</p>
+            )}
+            {context && context.warnings.length > 0 && (
+                <div className="space-y-2 border-t border-border px-4 py-3 text-sm">
+                    <h4 className="font-medium">Check your tracked terms</h4>
+                    <ul className="space-y-2">
+                        {context.warnings.map(warning => (
+                            <li key={warning.query}>
+                                <p className="font-medium">{warning.query}</p>
+                                {(warning.before != null || warning.after != null) && (
+                                    <p className="text-muted-foreground">
+                                        Very few impressions reported for this test.
+                                        {warning.before != null && ` ${warning.before} before the change.`}
+                                        {warning.after != null && ` ${warning.after} after the change.`}
+                                    </p>
+                                )}
+                                {warning.betterPages.map(page => (
+                                    <p key={page.period} className="text-muted-foreground">
+                                        {page.pagePosition == null ? (
+                                            <>The test page didn&apos;t show for this search {page.period} the change. {pagePath(page.url, '')} ranks about #{page.position}.</>
+                                        ) : (
+                                            <>
+                                                {pagePath(page.url, '')} ranks higher for this term {page.period} the change
+                                                {' '}(position {page.position} compared with {page.pagePosition} for the test).
+                                                {' '}The pages may be competing for the same search.
+                                            </>
+                                        )}
+                                    </p>
+                                ))}
+                            </li>
+                        ))}
+                    </ul>
+                    {context.suggestions.length > 0 && (
+                        <>
+                            <h4 className="font-medium">Other terms to track</h4>
+                            <p className="text-muted-foreground">Terms that showed the test page in Google before the change.</p>
+                            <ul className="list-disc pl-5">
+                                {context.suggestions.map(term => (
+                                    <li key={term.query}>
+                                        {term.query} · {term.impressions} impressions
+                                        {term.position != null && ` · average position ${term.position}`}
+                                    </li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
+                </div>
             )}
         </section>
     );

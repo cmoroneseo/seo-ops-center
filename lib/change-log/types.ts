@@ -251,6 +251,8 @@ export interface PageImpactRow {
 
 export interface ImpactModel {
     kpi: Kpi;
+    /** Baseline clicks when the result uses impressions in place of the saved clicks metric. */
+    lowClickBaseline: number | null;
     liveOn: string;
     finalThrough: string;
     lagDays: number;
@@ -272,6 +274,9 @@ export interface ImpactModel {
     checkpoints: CheckpointRead[];
     series: ChartPoint[];
     queries: QueryCompare[];
+    /** Read on the detail page from stored Search Console facts. */
+    searchTermContext?: SearchTermContext;
+    gbp?: { before: MetricRead; after: MetricRead };
     /** Empty for a single change. One row per URL for a group test. */
     pageRows: PageImpactRow[];
     gscConnected: boolean;
@@ -279,6 +284,17 @@ export interface ImpactModel {
     causation: string;
     controlLabel: string;
     sources: string[];
+}
+
+export interface SearchTermContext {
+    warnings: {
+        query: string;
+        /** Reported impressions below the warning threshold. Null if there is no warning for this period. */
+        before: number | null;
+        after: number | null;
+        betterPages: { period: 'before' | 'after'; url: string; position: number; pagePosition: number | null }[];
+    }[];
+    suggestions: { query: string; impressions: number; position: number | null }[];
 }
 
 export interface TimelineItem {

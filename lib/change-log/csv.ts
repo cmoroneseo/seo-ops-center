@@ -15,7 +15,8 @@ export function impactCsv(change: SeoChange, impact: ImpactModel): string {
         ['Type', CHANGE_TYPE_LABEL[change.changeType]],
         ['Went live', formatWentLive(change.liveAt)],
         ['Approved by', change.approvedByName],
-        ["What we're watching", KPI_LABEL[change.kpi]],
+        ["What we're watching", KPI_LABEL[impact.kpi]],
+        ...(impact.kpi === change.kpi ? [] : [['Saved metric', KPI_LABEL[change.kpi]]]),
         ['Pages', change.pages.map(page => page.url).join(' ')],
         ['Result', resultLabel(impact.headline.verdict, impact.headline.estimate)],
         ['Note', impact.headline.note],
@@ -29,7 +30,7 @@ export function impactCsv(change: SeoChange, impact: ImpactModel): string {
             checkpoint.ready ? 'yes' : 'no',
             resultLabel(checkpoint.verdict, checkpoint.estimate),
             checkpoint.estimate ? 'Early estimate' : '',
-            checkpoint.ready ? dailyRateText(change.kpi, impact.baseline, checkpoint.page) : 'Not ready yet',
+            checkpoint.ready ? dailyRateText(impact.kpi, impact.baseline, checkpoint.page) : 'Not ready yet',
             controlModeLabel(checkpoint.controlMode),
         ]);
     }

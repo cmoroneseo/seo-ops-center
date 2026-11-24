@@ -48,7 +48,7 @@ function impactFor(input: {
 }): ImpactModel {
     const beforeStart = dateOffset(input.liveOn, -28);
     const beforeEnd = dateOffset(input.liveOn, -1);
-    const afterEnd = dateOffset(input.liveOn, 55);
+    const afterEnd = dateOffset(input.liveOn, 56);
     const pageDays = input.pageDays ?? [
         ...fill(beforeStart, beforeEnd, input.pageBefore),
         ...fill(input.liveOn, afterEnd, input.pageAfter),
@@ -188,16 +188,16 @@ test('no finished check stays not ready, with the due date and the data-ready da
     assert.equal(table.days, null);
     assert.deepEqual(table.notReady, {
         days: 7,
-        dueOn: '2026-10-20',
-        dataReadyOn: '2026-10-23',
+        dueOn: '2026-10-21',
+        dataReadyOn: '2026-10-24',
     });
-    assert.equal(table.notReady?.dataReadyOn, dataReadyOn('2026-10-20'));
+    assert.equal(table.notReady?.dataReadyOn, dataReadyOn('2026-10-21'));
     assert.equal(row(table, 'clicks').before, 9);
     assert.equal(row(table, 'clicks').after, null);
     assert.equal(row(table, 'clicks').change, null);
     assert.equal(row(table, 'impressions').after, null);
-    assert.match(notReadyCopy(table.notReady) ?? '', /Not ready yet\. The 7-day check is due Oct 20, 2026\. Google's numbers are ready around Oct 23, 2026\./);
-    assert.match(answerLine('clicks', impact), /Too early to tell\. The 7-day check is due Oct 20, 2026\. Google's numbers are ready around Oct 23, 2026\./);
+    assert.match(notReadyCopy(table.notReady) ?? '', /Not ready yet\. The 7-day check is due Oct 21, 2026\. Google's numbers are ready around Oct 24, 2026\./);
+    assert.match(answerLine('clicks', impact), /Too early to tell\. The 7-day check is due Oct 21, 2026\. Google's numbers are ready around Oct 24, 2026\./);
 });
 
 test('low data keeps the numbers and flags an early estimate', () => {

@@ -1,21 +1,20 @@
 import { dateOffset } from '@/lib/gsc/history';
 
 import { CHECKPOINTS, GSC_LAG_DAYS, type CheckpointDays } from './thresholds';
-import { isIsoDay } from './time';
+import { afterWindow, isIsoDay } from './time';
 
 /**
- * The due date is the go-live date plus the length of the check.
- * A 28-day check that went live on Oct 13 is due Nov 10.
+ * A check is due the day after its window closes.
+ * A 28-day check that went live on Oct 13 runs Oct 14–Nov 10 and is due Nov 11.
  */
 export function checkDueOn(liveOn: string, days: CheckpointDays): string | null {
     if (!isIsoDay(liveOn)) return null;
-    return dateOffset(liveOn, days);
+    return dateOffset(afterWindow(liveOn, days).end, 1);
 }
 
 /**
  * Google's numbers for a check are ready exactly `GSC_LAG_DAYS` after the due
- * date. Due Nov 10 is ready Nov 13. The check's last day is the day before it
- * is due, so adding the lag to that last day lands one day early.
+ * date. Due Nov 11 is ready Nov 14.
  */
 export function dataReadyOn(dueOn: string): string | null {
     if (!isIsoDay(dueOn)) return null;

@@ -1,6 +1,6 @@
 import { dateOffset } from '@/lib/gsc/history';
 
-import { dataReadyOn } from './schedule';
+import { checkDueOn, dataReadyOn } from './schedule';
 import { CHECKPOINTS, type CheckpointDays } from './thresholds';
 import { afterWindow, formatDay, formatDayWithYear, isIsoDay } from './time';
 import {
@@ -162,8 +162,7 @@ export function headlineFields(headline: Pick<CheckpointRead, 'ready' | 'days' |
 
 /**
  * The next check is the shortest window whose last day is not final yet.
- * Due date is go-live plus that many days. Ready means the window end
- * (go-live + N − 1) is on or before the final-data date.
+ * Ready means the window end is on or before the final-data date.
  */
 export function nextCheck(liveOn: string, through: string): {
     nextCheckOn: string | null;
@@ -172,7 +171,7 @@ export function nextCheck(liveOn: string, through: string): {
     if (!isIsoDay(liveOn) || !isIsoDay(through)) return { nextCheckOn: null, nextCheckDays: null };
     for (const days of CHECKPOINTS) {
         if (afterWindow(liveOn, days).end > through) {
-            return { nextCheckOn: dateOffset(liveOn, days), nextCheckDays: days };
+            return { nextCheckOn: checkDueOn(liveOn, days), nextCheckDays: days };
         }
     }
     return { nextCheckOn: null, nextCheckDays: null };

@@ -83,13 +83,13 @@ test('the next check comes from the go-live date and the final-data date', () =>
     assert.equal(finalThrough(new Date('2026-11-10T20:00:00.000Z')), FINAL_THROUGH);
     assert.equal(GSC_LAG_DAYS, 3);
     const cases: { liveOn: string; days: 7 | 14 | 28 | 56; due: string }[] = [
-        { liveOn: '2026-11-04', days: 7, due: '2026-11-11' },
-        { liveOn: '2026-10-28', days: 14, due: '2026-11-11' },
-        { liveOn: '2026-10-20', days: 28, due: '2026-11-17' },
-        { liveOn: '2026-10-13', days: 28, due: '2026-11-10' },
-        { liveOn: '2026-10-09', days: 56, due: '2026-12-04' },
-        { liveOn: '2026-10-06', days: 56, due: '2026-12-01' },
-        { liveOn: '2026-10-02', days: 56, due: '2026-11-27' },
+        { liveOn: '2026-11-04', days: 7, due: '2026-11-12' },
+        { liveOn: '2026-10-28', days: 14, due: '2026-11-12' },
+        { liveOn: '2026-10-20', days: 28, due: '2026-11-18' },
+        { liveOn: '2026-10-13', days: 28, due: '2026-11-11' },
+        { liveOn: '2026-10-09', days: 56, due: '2026-12-05' },
+        { liveOn: '2026-10-06', days: 56, due: '2026-12-02' },
+        { liveOn: '2026-10-02', days: 56, due: '2026-11-28' },
     ];
     for (const item of cases) {
         assert.deepEqual(nextCheck(item.liveOn, FINAL_THROUGH), {
@@ -103,13 +103,13 @@ test('the next check comes from the go-live date and the final-data date', () =>
 
 test('a due check names the date Google data should catch up, and a future check does not', () => {
     const due = nextCheck('2026-10-13', FINAL_THROUGH);
-    const copy = nextCheckCopy({ ...due }, TODAY);
-    assert.equal(copy.date, 'Nov 10, 2026');
+    const copy = nextCheckCopy(due, '2026-11-11');
+    assert.equal(copy.date, 'Nov 11, 2026');
     assert.equal(copy.check, '28-day check');
     assert.equal(copy.data, `data ~${formatDay(dateOffset(due.nextCheckOn ?? '', GSC_LAG_DAYS))}`);
-    assert.equal(copy.data, 'data ~Nov 13');
+    assert.equal(copy.data, 'data ~Nov 14');
     const upcoming = nextCheckCopy(nextCheck('2026-11-04', FINAL_THROUGH), TODAY);
-    assert.equal(upcoming.date, 'Nov 11, 2026');
+    assert.equal(upcoming.date, 'Nov 12, 2026');
     assert.equal(upcoming.check, '7-day check');
     assert.equal(upcoming.data, null);
     assert.deepEqual(nextCheckCopy({ nextCheckOn: null, nextCheckDays: null }, TODAY), {
@@ -123,18 +123,18 @@ test('a change that went live today and one with a future date still get a first
     const future = '2026-12-01';
     assert.deepEqual(nextCheck(TODAY, FINAL_THROUGH), {
         nextCheckDays: 7,
-        nextCheckOn: '2026-11-17',
+        nextCheckOn: '2026-11-18',
     });
     assert.deepEqual(nextCheck(future, FINAL_THROUGH), {
         nextCheckDays: 7,
-        nextCheckOn: '2026-12-08',
+        nextCheckOn: '2026-12-09',
     });
     const todayCopy = nextCheckCopy(nextCheck(TODAY, FINAL_THROUGH), TODAY);
-    assert.equal(todayCopy.date, 'Nov 17, 2026');
+    assert.equal(todayCopy.date, 'Nov 18, 2026');
     assert.equal(todayCopy.check, '7-day check');
     assert.equal(todayCopy.data, null);
     const futureCopy = nextCheckCopy(nextCheck(future, FINAL_THROUGH), TODAY);
-    assert.equal(futureCopy.date, 'Dec 8, 2026');
+    assert.equal(futureCopy.date, 'Dec 9, 2026');
     assert.equal(futureCopy.check, '7-day check');
     assert.equal(futureCopy.data, null);
 
@@ -196,7 +196,7 @@ test('the list row copies headline and next-check fields from the read, without 
     assert.equal(item.headlineDays, null);
     assert.equal(item.headlinePct, null);
     assert.equal(item.nextCheckDays, 7);
-    assert.equal(item.nextCheckOn, '2026-11-11');
+    assert.equal(item.nextCheckOn, '2026-11-12');
 
     const board = exampleBoard();
     for (const change of board.changes) {
@@ -216,7 +216,7 @@ test('the list row copies headline and next-check fields from the read, without 
     const h1 = board.items.find(row => row.id === 'example-ecoworkz-h1');
     assert.equal(h1?.headlineDays, 28);
     assert.equal(h1?.nextCheckDays, 56);
-    assert.equal(h1?.nextCheckOn, '2027-01-05');
+    assert.equal(h1?.nextCheckOn, '2027-01-06');
 });
 
 test('summary counts match the filtered list, and a result click toggles that bucket', () => {

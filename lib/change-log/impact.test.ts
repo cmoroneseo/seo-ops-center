@@ -8,8 +8,9 @@ import { impactCsv } from './csv';
 import { ecoworkzH1Input, exampleBoard, exampleConfounders, EXAMPLE_AS_OF } from './fixture';
 import { buildImpact, findConfounders } from './impact';
 import { gscPageCandidates, pageMatchesChange } from './match';
-import { finalThrough, ptLocalToIso, sameDateLastYear } from './time';
-import { GSC_LAG_DAYS, VERDICT_THRESHOLDS } from './thresholds';
+import { afterWindow, baselineWindow, finalThrough, ptLocalToIso, sameDateLastYear } from './time';
+import { CHECKPOINTS, GSC_LAG_DAYS, VERDICT_THRESHOLDS } from './thresholds';
+import { buildResultsTable } from './results';
 import type { DayPoint, Kpi } from './types';
 import { normalizeChange, validateChange } from './validate';
 
@@ -38,7 +39,7 @@ function source(input: {
 }) {
     const beforeStart = dateOffset(input.liveOn, -28);
     const beforeEnd = dateOffset(input.liveOn, -1);
-    const afterEnd = input.through ?? dateOffset(input.liveOn, 55);
+    const afterEnd = input.through ?? dateOffset(input.liveOn, 56);
     return buildImpact({
         liveOn: input.liveOn,
         kpi: input.kpi ?? 'clicks',
@@ -64,6 +65,32 @@ test('thresholds stay the documented bands', () => {
     assert.equal(VERDICT_THRESHOLDS.minBaselineDays, 21);
     assert.equal(VERDICT_THRESHOLDS.positionNoise, 1);
     assert.equal(VERDICT_THRESHOLDS.lowDataImpressions, 100);
+});
+
+test('all checkpoints skip go-live day and keep their full length', () => {
+    const liveOn = '2026-11-10';
+    assert.deepEqual(baselineWindow(liveOn), { start: '2026-10-13', end: '2026-11-09' });
+    for (const days of CHECKPOINTS) {
+        const after = afterWindow(liveOn, days);
+        assert.equal(after.start, '2026-11-11');
+        assert.equal(eachDate(after.start, after.end).length, days);
+    }
+});
+
+test('a baseline below ten clicks uses impressions for the verdict and shows clicks for context', () => {
+    const impact = source({
+        liveOn: '2026-11-10',
+        now: EXAMPLE_AS_OF,
+        pageBefore: { ...DAY, clicks: 0, impressions: 100 },
+        pageAfter: { ...DAY, clicks: 2, impressions: 50 },
+        siteBefore: { ...DAY, clicks: 80, impressions: 2000 },
+        siteAfter: { ...DAY, clicks: 80, impressions: 2000 },
+    });
+    assert.equal(impact.kpi, 'impressions');
+    assert.equal(impact.headline.verdict, 'declined');
+    const table = buildResultsTable(impact);
+    assert.equal(table.rows.find(row => row.id === 'impressions')?.watched, true);
+    assert.deepEqual(table.rows.filter(row => row.id === 'clicks').map(row => [row.watched, row.before, row.after]), [[false, 0, 2]]);
 });
 
 test('a page that beats a flat control is improved', () => {
@@ -269,7 +296,8 @@ test('the Ecoworkz example is improved, estimated nowhere, and flags the same-da
     assert.equal(/\bKPI\b/.test(csv), false);
     assert.match(csv, /Nov 10, 2026 · 2:04 PM PT \(Pacific time\)/);
     assert.equal(h1.series.some(point => point.live), true);
-    assert.equal(h1.series.find(point => point.date === '2026-11-10')?.clicks, 12);
+    assert.equal(h1.series.find(point => point.date === '2026-11-10')?.clicks, null);
+    assert.equal(h1.series.find(point => point.date === '2026-11-11')?.clicks, 12);
     const waiting = h1.series.filter(point => point.date > h1.finalThrough);
     assert.equal(waiting.length, GSC_LAG_DAYS);
     assert.ok(waiting.every(point => point.preliminary && point.clicks == null && point.page == null));

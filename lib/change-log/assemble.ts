@@ -34,7 +34,8 @@ export function impactsFromRows(input: {
             const path = ga4PathFor(page.url);
             return path ? [path] : [];
         });
-        const pageDays = mergeGa4(pageDaysFromFacts(input.historyDays, input.pageFacts, urls), input.ga4Pages, paths);
+        const gscPageDays = pageDaysFromFacts(input.historyDays, input.pageFacts, urls);
+        const pageDays = mergeGa4(gscPageDays, input.ga4Pages, paths);
         const impact = buildImpact({
             liveOn: change.liveOn,
             kpi: change.kpi,
@@ -43,6 +44,7 @@ export function impactsFromRows(input: {
             gscConnected: input.gscConnected,
             ga4Connected: input.ga4Connected,
             pageDays,
+            gscPageDays,
             sitewideDays: sitewide,
             yoyPageDays: pageDays,
             yoySitewideDays: sitewide,

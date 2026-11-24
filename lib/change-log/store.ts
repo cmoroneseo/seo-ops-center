@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { chunkList } from '@/lib/search-reporting/fact-read';
 
 import { impactsFromRows } from './assemble';
+import { addDetailContext } from './detail-context';
 import {
     isMissingColumn,
     isMissingRelation,
@@ -155,7 +156,7 @@ async function propertyFor(db: Admin, organizationId: string, clientId: string, 
 
 async function history(db: Admin, organizationId: string, clientId: string, property: string, span: { start: string; end: string }): Promise<HistoryDayRow[]> {
     const data = await rows(db.from('gsc_history_days')
-        .select('id, data_date, is_incomplete')
+        .select('id, data_date, is_incomplete, page_limited')
         .eq('organization_id', organizationId)
         .eq('client_id', clientId)
         .eq('property', property)
@@ -168,7 +169,7 @@ async function history(db: Admin, organizationId: string, clientId: string, prop
         const id = text(row.id);
         const date = text(row.data_date).slice(0, 10);
         if (!id || !date) return [];
-        return [{ id, date, preliminary: row.is_incomplete === true }];
+        return [{ id, date, preliminary: row.is_incomplete === true, pageLimited: row.page_limited !== false }];
     });
 }
 
@@ -176,7 +177,7 @@ async function facts(
     db: Admin,
     dayIds: string[],
     grain: 'property' | 'page' | 'query_page',
-    filter?: { pages?: string[]; queries?: string[] },
+    filter?: { pages?: string[]; queries?: string[]; taggedPages?: boolean },
 ): Promise<GscFactRow[]> {
     const out: GscFactRow[] = [];
     const pageGroups = filter?.pages?.length ? chunkList(filter.pages, 40) : [[]];
@@ -190,6 +191,7 @@ async function facts(
                         .in('day_id', chunk).eq('grain', grain);
                     if (pages.length) query.in('page', pages);
                     if (queries.length) query.in('query', queries);
+                    if (filter?.taggedPages) query.ilike('page', '%?%utm%');
                     // Within a grain, (day_id, row_key) is unique and indexed.
                     return query.order('day_id').order('row_key').range(start, end);
                 });
@@ -274,7 +276,7 @@ async function ga4Rows(db: Admin, organizationId: string, clientId: string, prop
     };
 }
 
-async function loadImpacts(db: Admin, organizationId: string, clientId: string, changes: SeoChange[], now: Date): Promise<{ impacts: Record<string, ImpactModel>; gsc: boolean; ga4: boolean }> {
+async function loadImpacts(db: Admin, organizationId: string, clientId: string, changes: SeoChange[], now: Date, detail?: SeoChange): Promise<{ impacts: Record<string, ImpactModel>; gsc: boolean; ga4: boolean }> {
     const gscProperty = await propertyFor(db, organizationId, clientId, 'gsc');
     const ga4Property = await propertyFor(db, organizationId, clientId, 'ga4');
     const span = readSpan(changes, now);
@@ -300,35 +302,60 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     const dayIds = historyDays.map(day => day.id);
     const candidates = [...new Set(changes.flatMap(change => change.pages.flatMap(page => gscPageCandidates(page.url))))];
     const queryNeedles = [...new Set(changes.flatMap(change => change.queries.map(query => query.normalized)))];
+    const detailBaseline = detail ? baselineWindow(detail.liveOn) : null;
+    const detailAfter = detail ? afterWindow(detail.liveOn, 56) : null;
+    const baselineDayIds = detailBaseline ? historyDays.filter(day => !day.preliminary
+        && day.date >= detailBaseline.start && day.date <= detailBaseline.end).map(day => day.id) : [];
+    const afterDayIds = detailAfter ? historyDays.filter(day => !day.preliminary
+        && day.date >= detailAfter.start && day.date <= detailAfter.end).map(day => day.id) : [];
+    const detailDayIds = [...baselineDayIds, ...afterDayIds];
     const paths = [...new Set(changes.flatMap(change => change.pages.flatMap(page => {
         const path = ga4PathFor(page.url);
         return path ? [path] : [];
     })))];
-    const [pageFacts, propertyFacts, queryFacts, ga] = await Promise.all([
+    const [pageFacts, propertyFacts, baselineQueryFacts, trackedQueryFacts, ga, siteQueryFacts, taggedPageFacts] = await Promise.all([
         dayIds.length && candidates.length
             ? facts(db, dayIds, 'page', { pages: candidates })
             : Promise.resolve([]),
         dayIds.length ? facts(db, dayIds, 'property') : Promise.resolve([]),
-        dayIds.length && queryNeedles.length
-            ? facts(db, dayIds, 'query_page', { pages: candidates, queries: queryNeedles })
+        baselineDayIds.length && candidates.length && queryNeedles.length
+            ? facts(db, baselineDayIds, 'query_page', { pages: candidates })
+            : Promise.resolve([]),
+        candidates.length && queryNeedles.length
+            ? facts(db, detail ? afterDayIds : dayIds, 'query_page', { pages: candidates, queries: queryNeedles })
             : Promise.resolve([]),
         ga4Property ? ga4Rows(db, organizationId, clientId, ga4Property, span, paths) : Promise.resolve({ pages: [], site: [] }),
+        detailDayIds.length && queryNeedles.length
+            ? facts(db, detailDayIds, 'query_page', { queries: queryNeedles })
+            : Promise.resolve([]),
+        detailDayIds.length && candidates.length
+            ? facts(db, detailDayIds, 'page', { taggedPages: true })
+            : Promise.resolve([]),
     ]);
+    const impacts = impactsFromRows({
+        changes,
+        now,
+        gscConnected: Boolean(gscProperty),
+        ga4Connected: Boolean(ga4Property),
+        historyDays,
+        pageFacts,
+        propertyFacts,
+        queryFacts: [...baselineQueryFacts, ...trackedQueryFacts],
+        ga4Pages: ga.pages,
+        ga4Site: ga.site,
+    });
+    if (detail && detailDayIds.length > 0) addDetailContext({
+        change: detail,
+        impact: impacts[detail.id],
+        days: historyDays,
+        pageQueryFacts: baselineQueryFacts,
+        siteQueryFacts,
+        taggedPageFacts,
+    });
     return {
         gsc: Boolean(gscProperty),
         ga4: Boolean(ga4Property),
-        impacts: impactsFromRows({
-            changes,
-            now,
-            gscConnected: Boolean(gscProperty),
-            ga4Connected: Boolean(ga4Property),
-            historyDays,
-            pageFacts,
-            propertyFacts,
-            queryFacts,
-            ga4Pages: ga.pages,
-            ga4Site: ga.site,
-        }),
+        impacts,
     };
 }
 
@@ -474,7 +501,7 @@ export async function getChange(organizationId: string, clientId: string, change
         const changes = await loadChanges(db, organizationId, clientId);
         const change = changes.find(item => item.id === changeId) ?? null;
         if (!change) return { setup: 'ready', change: null, impact: null, confounders: [], baselineNote: null, pageMarkers: [] };
-        const loaded = await loadImpacts(db, organizationId, clientId, [change], now);
+        const loaded = await loadImpacts(db, organizationId, clientId, [change], now, change);
         return {
             setup: 'ready',
             change,
