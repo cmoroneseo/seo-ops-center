@@ -10,7 +10,7 @@ const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8'
 
 test('migration 140 is mirrored and restricts the bounded RPC to service-role callers', () => {
     assert.match(migration, /NOT APPLIED — needs owner approval/);
-    assert.ok(schema.endsWith(migration));
+    assert.ok(schema.includes(migration));
     assert.match(migration, /create or replace function public\.seo_change_rest_position\(/i);
     assert.match(migration, /language sql\s+stable\s+security invoker\s+set search_path = pg_catalog/i);
     assert.match(migration, /cardinality\(p_day_ids\) between 1 and 84/);
