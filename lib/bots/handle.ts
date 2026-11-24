@@ -4,7 +4,8 @@ import { completionCalendarDay } from '../tasks/completion-date.ts';
 import { taskStatusUpdate, type TaskStatusHistoryEntryLike } from '../tasks/status.ts';
 import { authenticateBotRequest, type BotKeyRecord } from './auth.ts';
 import { linkBasecampTodo, type BotBasecampTasks } from './basecamp-todo-link.ts';
-import { BOT_ACTOR_TIME_ZONE } from './keys.ts';
+import { BOT_ACTOR_TIME_ZONE, isSeoBot } from './keys.ts';
+export { SEO_BOT_NAMES } from './keys.ts';
 import {
     parseBotRequest,
     type BotCommand,
@@ -38,25 +39,6 @@ import {
 } from './timer.ts';
 
 const LOCK_MS = 60_000;
-
-const SEO_BOT_NAMES = new Set([
-    'seo-manager',
-    'technical-seo',
-    'on-page-seo',
-    'content-writer',
-    'copy-humanizer',
-    'web-design-cro',
-    'seo-strategist',
-    'seo-revenue-framework',
-    'seo-aeo-desk',
-    'aeo-seo-bot',
-    'ai-search-visibility',
-    'performance-watch',
-]);
-
-function isSeoBot(name: string): boolean {
-    return SEO_BOT_NAMES.has(name.trim().toLowerCase());
-}
 
 const TWO_HOUR_CAP_MS = 2 * 60 * 60 * 1000;
 

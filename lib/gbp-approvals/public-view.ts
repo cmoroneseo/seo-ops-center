@@ -1,10 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const PUBLIC_REVIEW_HEADERS = {
-    'Cache-Control': 'no-store',
-    'Referrer-Policy': 'no-referrer',
-    'X-Robots-Tag': 'noindex, nofollow',
-} as const;
+export { PUBLIC_REVIEW_HEADERS } from './public-headers';
 
 export type ReviewState = 'active' | 'expired' | 'revoked';
 

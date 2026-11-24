@@ -337,6 +337,14 @@ test('detail returns released/current versions, decisions, link facts and signs 
       last_viewed_at: null,
       view_count: 0
     },
+    approval_internal_feedback: [{
+      id: 'internal-feedback',
+      item_id: task,
+      version_id: current,
+      reviewer_name: 'Internal reviewer',
+      decision: 'approved',
+      comment: 'Ready to send'
+    }],
     approval_bot_actors: null
   };
   const handler = createStaffDetail({
@@ -363,6 +371,10 @@ test('detail returns released/current versions, decisions, link facts and signs 
   assert.equal(data.items[0].version.id, current);
   assert.equal(data.items[0].releasedVersion.id, released);
   assert.equal(data.items[0].response.decision, 'approved');
+  assert.deepEqual(data.internalFeedback, [{
+    id: 'internal-feedback', itemId: task, versionNo: null,
+    reviewerName: 'Internal reviewer', decision: 'approved', comment: 'Ready to send'
+  }]);
   assert.equal(data.canSend, false);
   assert.match(data.sendReason, /account manager/);
   assert.equal(data.link.state, 'active');
