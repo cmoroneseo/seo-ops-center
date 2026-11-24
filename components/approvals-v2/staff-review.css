@@ -180,7 +180,7 @@
 .ar-google-photo { display: block; width: 100%; aspect-ratio: 4 / 3; background: #f1f3f4; }
 .ar-google-photo:focus-visible { outline-offset: -4px !important; }
 .ar-google-photo img { width: 100%; height: 100%; object-fit: cover; }
-.ar-google-photo-picker { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0; }
+.ar-google-photo-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .ar-google-thumb { position: relative; display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #71717a; border-radius: 6px; background: #f4f4f5; }
 .ar-google-thumb[aria-pressed="true"] { border: 2px solid #be0a79; }
 .ar-google-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 4px; object-fit: cover; }
@@ -278,9 +278,10 @@
   .ar-view[data-mobile-screen="detail"] .ar-container { padding-bottom: max(calc(100px + env(safe-area-inset-bottom)), var(--ar-fixed-bar-clearance, 0px)); }
   .ar-view[data-mobile-screen="list"] .ar-mobile-detail, .ar-view[data-mobile-screen="detail"] .ar-mobile-list { display: none; }
   .ar-mobile-only { display: block; }
-  .ar-page-header { padding: 12px 4px 10px; align-items: flex-start; gap: 6px; }
-  .ar-page-header h1 { font-size: 19px; line-height: 25px; }
-  .ar-meta { margin-top: 5px; }
+  .ar-page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding: 12px 4px 10px; }
+  .ar-page-header > :first-child { display: contents; }
+  .ar-page-header h1 { grid-column: 1 / -1; font-size: 19px; line-height: 25px; }
+  .ar-meta { margin-top: 0; }
   .ar-created, .ar-crumb { display: none; }
   .ar-header-actions { gap: 3px; flex-wrap: nowrap; }
   .ar-header-actions > .ar-button { display: none; }
@@ -312,6 +313,13 @@
   .ar-nav :is(span, kbd), .ar-pane-header { display: none; }
   .ar-pane { border: none; background: transparent; }
   .ar-pane-body { padding: 12px 4px; }
+  .ar-google {
+    /* Leave room for the detail bar, post copy, CTA, and fixed review bar. */
+    --ar-google-reserved-height: 408px;
+  }
+  .ar-google-photo {
+    max-height: min(40dvh, max(64px, calc(100dvh - var(--ar-google-reserved-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom))));
+  }
   .ar-item-details { min-width: 0; }
   .ar-facts > div { grid-template-columns: minmax(84px, 33%) 1fr; gap: 8px; }
   .ar-mobile-status { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -354,7 +362,12 @@
 
 @media (min-width: 1081px) {
   .ar-row:has(.ar-chip-photo) .ar-row-meta { margin-right: -30px; column-gap: 6px; }
+  .ar-pane-body:has(.ar-google-photo-picker) :is(.ar-google-photo, .ar-google-unavailable) { aspect-ratio: 3 / 2; }
 }
 @media (max-width: 760px) {
   .ar-preview-column { max-width: none; }
+}
+@media (max-width: 760px) and (max-height: 600px) {
+  .ar-google { --ar-google-reserved-height: 368px; }
+  .ar-google-copy { -webkit-line-clamp: 2; }
 }

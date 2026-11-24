@@ -44,6 +44,8 @@ test('Option B renders a GBP update with null offer dates and an enabled Send be
   }));
   assert.match(html, /data-mobile-screen="detail"/);
   assert.match(html, /Item 1 of 1.*GBP post.*v1/);
+  assert.match(html, /class="ar-type-chip">GBP posts · 1/);
+  assert.match(html, /<dt>Content type<\/dt><dd>GBP post · <span class="ar-capitalize">update<\/span><\/dd>/);
   assert.match(html, /Holiday hours changed/);
   assert.match(html, /Our December opening hours have changed/);
   assert.match(html, /0 of 1 reviewed/);

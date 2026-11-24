@@ -155,6 +155,27 @@ test('mobile change notes open a labelled sheet and Escape returns focus', async
   }
 });
 
+test('Option B shows the dimensions of a photo that has already loaded', async () => {
+  const root = createRoot(get('#review'));
+  const imagePrototype = dom.window.HTMLImageElement.prototype;
+  const dimensions = { naturalWidth: 1200, naturalHeight: 900 };
+  const descriptors = Object.getOwnPropertyDescriptors(imagePrototype);
+  try {
+    for (const [property, value] of Object.entries(dimensions)) {
+      Object.defineProperty(imagePrototype, property, { configurable: true, get: () => value });
+    }
+    await act(async () => root.render(createElement(StaffReviewView, {
+      data: draftData(), initialSelection: 'item-2', saveReview: async () => {},
+    })));
+    assert.match(get('.ar-facts').textContent ?? '', /1200 × 900, 4:3/);
+  } finally {
+    await act(async () => root.unmount());
+    for (const property of Object.keys(dimensions)) {
+      Object.defineProperty(imagePrototype, property, descriptors[property]);
+    }
+  }
+});
+
 test('Option B selects gallery photos by keyboard, shows versioned comments, and replaces one photo', async () => {
   const root = createRoot(get('#review'));
   const data = draftData();
@@ -197,7 +218,7 @@ test('Option B selects gallery photos by keyboard, shows versioned comments, and
     })));
     assert.equal(get('[data-review-row="item-2"] img').getAttribute('src'), first);
     assert.equal(get('.ar-approve').getAttribute('aria-disabled'), 'false');
-    const gallery = get('[role="group"][aria-label="Post photos"]');
+    const gallery = get('.ar-item-details [role="group"][aria-label="Post photos"]');
     assert.equal(gallery.querySelectorAll('button[aria-pressed]').length, 3);
     assert.equal(get('.ar-google-photo img').getAttribute('src'), first);
     assert.equal(get('[aria-label="Client comments"] a').getAttribute('href'), 'https://example.test/old-photo.jpg');
