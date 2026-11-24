@@ -395,6 +395,7 @@ export function TimesheetsShell({
                                     group={selected.group}
                                     row={selected.row}
                                     entries={data?.entries ?? []}
+                                    onPausedTrimSaved={isManager ? load : undefined}
                                     onClose={() => setSelectedRowKey(null)}
                                     onAddTime={() =>
                                         window.dispatchEvent(new CustomEvent('timer:open-quick-start'))}

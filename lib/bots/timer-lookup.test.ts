@@ -50,9 +50,9 @@ test('bot timer selects name the time_log_segments foreign key', () => {
             );
         }
     }
-    const live = readFileSync(join(repoRoot, 'lib/bots/live.ts'), 'utf8');
+    const store = readFileSync(join(repoRoot, 'lib/bots/timer-store.ts'), 'utf8');
     assert.match(
-        live,
+        store,
         /time_log_segments!time_log_segments_time_log_id_fkey\(started_at, ended_at, note\)/,
     );
     assert.ok(embeds >= 1, 'expected the bot timer select to embed segments');

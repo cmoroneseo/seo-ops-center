@@ -17,7 +17,8 @@ test('migration 142 contains exactly one standalone concurrent index build', () 
 test('the schema mirror creates a valid partial day index inside a transaction', async () => {
     const mirrorStart = schema.lastIndexOf('-- Migration 142:');
     assert.ok(mirrorStart >= 0);
-    const mirror = schema.slice(mirrorStart);
+    const nextMigration = schema.indexOf('\n-- Migration ', mirrorStart + 1);
+    const mirror = schema.slice(mirrorStart, nextMigration === -1 ? undefined : nextMigration);
     assert.equal(executableSql(mirror), `create index if not exists ${index}`);
 
     // PGlite fails CREATE INDEX CONCURRENTLY with "tuple concurrently updated".

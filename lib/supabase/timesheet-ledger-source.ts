@@ -1,4 +1,6 @@
 import { createAdminClient } from './admin';
+import { closedTimerTime } from '../bots/timer-store';
+import { timerRunningMs } from '../bots/timer';
 import type { LedgerLog } from '@/lib/timesheets/ledger';
 import type { LedgerQueryScope } from '@/lib/timesheets/ledger-route';
 import type { TimeLogImportStatus, TimeLogSource, TimeLogStatus } from '@/lib/types';
@@ -28,6 +30,9 @@ interface LedgerRow {
     voided_at: string | null;
     operation_id: string | null;
     elapsed_seconds: number | string | null;
+    trimmed_from_seconds?: number | string | null;
+    paused_at?: string | null;
+    time_log_segments?: unknown;
     clients: { name: string } | null;
     tasks: { title: string } | null;
 }
@@ -40,6 +45,7 @@ const SELECT = [
 
 function rowToLedgerLog(row: LedgerRow): LedgerLog {
     const hours = Number(row.hours);
+    const paused = row.status === 'paused' ? closedTimerTime({ ...row }) : null;
     return {
         id: row.id,
         organizationId: row.organization_id,
@@ -59,13 +65,18 @@ function rowToLedgerLog(row: LedgerRow): LedgerLog {
         voidedAt: row.voided_at ?? undefined,
         operationId: row.operation_id ?? undefined,
         elapsedSeconds: row.elapsed_seconds == null ? undefined : Number(row.elapsed_seconds),
+        trimmedFromSeconds: row.trimmed_from_seconds == null ? undefined : Number(row.trimmed_from_seconds),
+        ...(paused ? {
+            pausedRunningSeconds: timerRunningMs(paused) / 1000,
+            pausedAt: row.paused_at ?? paused.stretches[paused.stretches.length - 1]?.endedAt,
+        } : {}),
     };
 }
 
 export async function listLedgerLogs(scope: LedgerQueryScope): Promise<LedgerLog[]> {
     let query = createAdminClient()
         .from('time_logs')
-        .select(SELECT)
+        .select(`${SELECT}, trimmed_from_seconds, paused_at:paused_trim_source->>pausedAt, time_log_segments!time_log_segments_time_log_id_fkey(started_at, ended_at)`)
         .eq('organization_id', scope.organizationId)
         .gte('date', scope.from)
         .lte('date', scope.to);

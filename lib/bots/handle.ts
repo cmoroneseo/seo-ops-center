@@ -17,7 +17,7 @@ import {
     type BotTimerStartCommand,
     type BotTimerStopCommand,
 } from './request.ts';
-import { BOT_TASKS_COMPLETE_PATH } from './scope.ts';
+import { BOT_TASKS_COMPLETE_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
 import { isBuiltInTaskCategory, isSeoManagerBot, TASK_CATEGORY_ERROR, taskCategoryAllowed } from './task-create.ts';
 import type { BotTaskMatch } from './task-lookup.ts';
 import { botTaskLinks } from './task-links.ts';
@@ -30,12 +30,15 @@ import {
     closedRunningMs,
     combineStretchNote,
     hoursFromSeconds,
+    trimTimerTime,
     type BotTimerDaySlice,
+    type BotTimerStretch,
+    type BotTimerTrimAudit,
 } from './timer.ts';
 
 const LOCK_MS = 60_000;
 
-const SEO_TASK_COMPLETION_BOT_NAMES = new Set([
+const SEO_BOT_NAMES = new Set([
     'seo-manager',
     'technical-seo',
     'on-page-seo',
@@ -49,6 +52,10 @@ const SEO_TASK_COMPLETION_BOT_NAMES = new Set([
     'ai-search-visibility',
     'performance-watch',
 ]);
+
+function isSeoBot(name: string): boolean {
+    return SEO_BOT_NAMES.has(name.trim().toLowerCase());
+}
 
 const TWO_HOUR_CAP_MS = 2 * 60 * 60 * 1000;
 
@@ -139,12 +146,6 @@ export interface BotCreatedTaskResult {
     basecampStepId?: string;
 }
 
-export interface BotTimerStretch {
-    startedAt: string;
-    endedAt: string;
-    note: string | null;
-}
-
 export interface RunningBotTimer {
     id: string;
     organizationId: string;
@@ -173,6 +174,10 @@ export interface RunningBotTimer {
     carriedSeconds?: number;
     /** Local date the carried seconds belong to (`time_logs.date`). */
     carriedDate?: string | null;
+    /** Row version inputs, used to prevent a stale timer write. */
+    elapsedSeconds?: number;
+    trimmedAt?: string | null;
+    trimmedDescription?: string | null;
 }
 
 export interface FinalizedBotLog {
@@ -296,7 +301,8 @@ export interface BotDeps {
         /** Set on the first row when this stop has an idempotency operation. */
         botOperationId: string | null;
         note: string | null;
-    }): Promise<FinalizedBotLog[] | null>;
+        trimAudit?: BotTimerTrimAudit;
+    }): Promise<FinalizedBotLog[] | 'changed' | null>;
     pushTodo(taskId: string, actor: BotActor): Promise<BasecampStep>;
     basecampTasks: BotBasecampTasks;
     syncTimesheet(timeLogId: string, actor: BotActor): Promise<BasecampStep>;
@@ -784,10 +790,12 @@ async function closeTimer(
         countsTowardBudget: boolean;
         timeZone: string;
         botOperationId: string | null;
+        trimAudit?: BotTimerTrimAudit;
+        carriedSeconds?: number;
     },
     deps: BotDeps,
 ): Promise<{ status: number; body: unknown } | { logs: FinalizedBotLog[]; capped: boolean }> {
-    const carriedSeconds = Math.round(Math.max(0, timer.carriedSeconds ?? 0));
+    const carriedSeconds = Math.round(Math.max(0, input.carriedSeconds ?? timer.carriedSeconds ?? 0));
     const slices = botTimerDaySlicesFromStretches(
         input.stretches,
         input.timeZone,
@@ -808,7 +816,11 @@ async function closeTimer(
         operationId: randomUUID(),
         botOperationId: input.botOperationId,
         note: input.capped && input.maxMs != null ? capNote(input.maxMs) : null,
+        trimAudit: input.trimAudit,
     });
+    if (logs === 'changed') {
+        return { status: 409, body: errorBody('timer_changed', 'The timer changed while it was being stopped. Try again.') };
+    }
     if (!logs || logs.length === 0) return { status: 500, body: errorBody('internal', 'Timer could not be stopped.') };
     return { logs, capped: input.capped };
 }
@@ -817,7 +829,7 @@ async function capTimer(timer: RunningBotTimer, deps: BotDeps, maxMs: number): P
     const closed = closedStretches(timer, deps.now(), null, maxMs);
     if (!closed.capped) return null;
     const seconds = Math.round(closed.closedMs / 1000);
-    const summary = botTimerBasecampSummary({
+    const summary = timer.trimmedDescription ?? botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(stretch => stretch.note),
         hours: hoursFromSeconds(seconds),
         startedAt: closed.stretches[0]?.startedAt,
@@ -1028,7 +1040,7 @@ async function executePause(
     const closed = closedStretches(running, deps.now(), command.description ?? null, maxMs);
     if (closed.capped && maxMs != null) {
         const seconds = Math.round(closed.closedMs / 1000);
-        const summary = botTimerBasecampSummary({
+        const summary = running.trimmedDescription ?? botTimerBasecampSummary({
             stretchNotes: closed.stretches.map(stretch => stretch.note),
             hours: hoursFromSeconds(seconds),
             startedAt: closed.stretches[0]?.startedAt,
@@ -1073,9 +1085,9 @@ async function executePause(
     }
     const stretch = closed.stretches[closed.stretches.length - 1];
     if (!stretch) return { status: 500, body: errorBody('internal', 'Timer could not be paused.') };
-    const description = botTimerBasecampSummary({
+    const description = running.trimmedDescription ?? (botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(item => item.note),
-    }) || running.taskTitle;
+    }) || running.taskTitle);
     const seconds = Math.round(closed.closedMs / 1000);
     const paused = await deps.pauseTimer({
         timer: running,
@@ -1267,18 +1279,40 @@ async function executeStop(
     if ('status' in target) return target;
     const timer = target.timer;
     const maxMs = botTimerMaxMs();
-    const closed = closedStretches(timer, deps.now(), null, maxMs);
+    const now = deps.now();
+    const closed = closedStretches(timer, now, null, maxMs);
+    let stretches = closed.stretches;
+    let stoppedAt = closed.stoppedAt;
+    let carriedSeconds = timer.carriedSeconds ?? 0;
+    let trimAudit: BotTimerTrimAudit | undefined;
+    if (command.hours !== undefined) {
+        const trimmed = trimTimerTime(
+            { stretches, carriedSeconds },
+            command.hours,
+            Math.min(closed.closedMs, maxMs ?? Infinity),
+        );
+        if (!trimmed) {
+            const reason = maxMs == null ? 'the time this timer actually ran' : 'the time this timer ran up to the cap';
+            return { status: 422, body: errorBody('hours_exceeds_running', `Hours can't be more than ${reason}.`) };
+        }
+        ({ stretches, carriedSeconds } = trimmed);
+        stoppedAt = stretches[stretches.length - 1]?.endedAt ?? timer.pausedAt ?? closed.stoppedAt;
+        trimAudit = {
+            fromSeconds: (closed.capped ? closedStretches(timer, now, null, null).closedMs : closed.closedMs) / 1000,
+            at: now.toISOString(),
+            userId: null,
+            botKeyId: key.id,
+        };
+    }
     const summary = botTimerBasecampSummary({
-        stretchNotes: closed.stretches.map(stretch => stretch.note),
+        stretchNotes: timer.trimmedDescription == null
+            ? stretches.map(stretch => stretch.note)
+            : [timer.trimmedDescription],
         stopNote: command.description,
-        hours: hoursFromSeconds(Math.round(closed.closedMs / 1000)),
-        minutes: Math.round(closed.closedMs / 60000),
-        startedAt: closed.stretches[0]?.startedAt,
-        stoppedAt: closed.stoppedAt,
     });
     const finalized = await closeTimer(timer, {
-        stretches: closed.stretches,
-        stoppedAt: closed.stoppedAt,
+        stretches,
+        stoppedAt,
         capped: closed.capped,
         maxMs,
         description: summary || timer.taskTitle,
@@ -1286,6 +1320,8 @@ async function executeStop(
         countsTowardBudget: command.countsTowardBudget ?? timer.countsTowardBudget,
         timeZone: command.timeZone,
         botOperationId: operation.id,
+        trimAudit,
+        carriedSeconds,
     }, deps);
     if ('status' in finalized) return finalized;
 
@@ -1328,7 +1364,7 @@ async function executeStop(
                 description: primary.description,
                 basecampEntryId: primary.basecampEntryId,
                 basecamp: timesheet,
-                stretches: closed.stretches,
+                stretches,
             },
             ...(finalized.logs.length > 1 ? { additionalTimeLogIds: finalized.logs.slice(1).map(log => log.id) } : {}),
             ...(task ? { task: taskBody(task) } : {}),
@@ -1408,7 +1444,7 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     const auth = await authenticateBotRequest(request, token => deps.authenticate(token));
     if ('response' in auth) return auth.response;
     const { key } = auth;
-    if (pathname === BOT_TASKS_COMPLETE_PATH && !SEO_TASK_COMPLETION_BOT_NAMES.has(key.name.trim().toLowerCase())) {
+    if (pathname === BOT_TASKS_COMPLETE_PATH && !isSeoBot(key.name)) {
         await deps.recordKeyUse(key.id);
         return json(errorBody('forbidden', 'Only SEO bots can complete tasks without a timer.'), 403);
     }
@@ -1419,6 +1455,11 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     } catch {
         await deps.recordKeyUse(key.id);
         return json(errorBody('invalid_json', 'Request body must be JSON.'), 400);
+    }
+    if (pathname === BOT_TIMER_STOP_PATH && !isSeoBot(key.name)
+        && payload && typeof payload === 'object' && Object.hasOwn(payload, 'hours')) {
+        await deps.recordKeyUse(key.id);
+        return json(errorBody('forbidden', 'Only SEO bots can set hours when stopping a timer.'), 403);
     }
     const parsed = parseBotRequest(pathname, payload, deps.now());
     if (!parsed.ok) {
@@ -1467,7 +1508,7 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     }
 
     const nowIso = deps.now().toISOString();
-    const requiresMatchingHash = command.kind === 'create' || command.kind === 'complete';
+    const requiresMatchingHash = command.kind === 'create' || command.kind === 'complete' || command.kind === 'stop';
     if (operation?.status === 'pending') {
         if (requiresMatchingHash && operation.requestHash !== command.requestHash) {
             return json(errorBody('idempotency_conflict', 'This idempotency key was already used with a different request.'), 409);

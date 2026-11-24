@@ -55,6 +55,47 @@ export interface BotTimerStretchInterval {
     endedAt: string;
 }
 
+export interface BotTimerStretch extends BotTimerStretchInterval {
+    note: string | null;
+}
+
+export interface BotTimerTime {
+    stretches: BotTimerStretch[];
+    carriedSeconds: number;
+}
+
+export interface BotTimerTrimAudit {
+    fromSeconds: number;
+    at: string;
+    userId: string | null;
+    botKeyId: string | null;
+}
+
+export function timerRunningMs({ stretches, carriedSeconds }: BotTimerTime): number {
+    return closedRunningMs(stretches) + carriedSeconds * 1000;
+}
+
+/** Keep the oldest running time, including any legacy time before the stored stretches. */
+export function trimTimerTime(time: BotTimerTime, hours: number, maxMs = timerRunningMs(time)): BotTimerTime | null {
+    const requestedMs = hours * 3_600_000;
+    if (requestedMs > maxMs + 1e-7 || maxMs <= 0) return null;
+    const targetMs = Math.max(1, Math.round(requestedMs));
+    if (targetMs >= timerRunningMs(time)) return time;
+    const carriedSeconds = Math.min(time.carriedSeconds, Math.max(1, Math.round(targetMs / 1000)));
+    let remaining = targetMs - carriedSeconds * 1000;
+    const stretches: BotTimerStretch[] = [];
+    for (const stretch of time.stretches) {
+        if (remaining <= 0) break;
+        const start = instantMs(stretch.startedAt);
+        const duration = instantMs(stretch.endedAt) - start;
+        stretches.push(remaining >= duration
+            ? stretch
+            : { ...stretch, endedAt: new Date(start + remaining).toISOString() });
+        remaining -= duration;
+    }
+    return { stretches, carriedSeconds };
+}
+
 export interface BotTimerOpenClose {
     /** True when running time is already past a configured cap. Exactly at the cap is not past it. */
     capped: boolean;
