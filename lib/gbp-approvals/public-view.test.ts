@@ -59,6 +59,8 @@ test('a public review drops other requests, paths, and org data', () => {
     assert.equal(encoded.includes('tokenHash'), false);
     assert.equal(view.posts[0]?.photoSrc, '/signed/gbp-approvals/request/object');
     assert.equal(view.posts[0]?.scheduledDate, '2026-11-23');
+    assert.deepEqual(view.posts[0]?.photoSrcs, ['/signed/gbp-approvals/request/object']);
+    assert.deepEqual(view.posts[0]?.previous?.photoSrcs, ['https://allinone-const.com/photos/post.jpg']);
 });
 
 test('a public update post keeps null offer dates and empty terms', () => {

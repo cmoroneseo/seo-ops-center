@@ -6,6 +6,7 @@ import {
     applySuggestion,
     clientVisibleChange,
     parseGbpPostPayload,
+    parseGbpPhotoPaths,
     visibleSnapshot,
 } from './registry.ts';
 
@@ -46,4 +47,15 @@ test('accepting a suggestion does not move the scheduled date', () => {
     const after = visibleSnapshot(next, 'https://allinone-const.com/photos/post.jpg');
     assert.equal(clientVisibleChange(before, after), true);
     assert.equal(clientVisibleChange(before, before), false);
+});
+
+test('GBP galleries validate photos and compare order for updates with null offer dates', () => {
+    const parsed = parseGbpPostPayload({ ...payload, postType: 'update', offerStart: null, offerEnd: null });
+    assert.ok(parsed.ok);
+    const paths = ['https://drive.google.com/thumbnail?id=first', 'https://example.com/second.jpg'];
+    assert.deepEqual(parseGbpPhotoPaths(paths), paths);
+    assert.equal(parseGbpPhotoPaths([...paths, 'javascript:alert(1)']), null);
+    assert.equal(parseGbpPhotoPaths(Array(11).fill(paths[0])), null);
+    assert.equal(clientVisibleChange(visibleSnapshot(parsed.payload, paths), visibleSnapshot(parsed.payload, [...paths].reverse())), true);
+    assert.deepEqual(visibleSnapshot(parsed.payload, paths[0]), visibleSnapshot(parsed.payload, [paths[0]]));
 });

@@ -11,16 +11,16 @@ const approved = { itemId, versionId, decision: 'approved' };
 
 function fixture({
   actor = 'staff', role = 'member', stage = 'draft', archived = false, current = versionId, photo = 'photo', errorCode = '',
-  body = 'Draft text', ctaLabel = 'Call now', ctaUrl = '',
+  body = 'Draft text', ctaLabel = 'Call now', ctaUrl = '', photoPaths,
 }: {
   actor?: string | null; role?: string; stage?: string; archived?: boolean; current?: string; photo?: string | null;
-  errorCode?: string; body?: string; ctaLabel?: string; ctaUrl?: string;
+  errorCode?: string; body?: string; ctaLabel?: string; ctaUrl?: string; photoPaths?: string[];
 } = {}) {
   const rows: Record<string, unknown> = {
     organization_members: [{ organization_id: 'org', role }],
     approval_requests: { stage, archived_at: archived ? 'today' : null, organization_id: 'org' },
     approval_items: { item_type: 'gbp_post', page_kind: null, current_version_id: current },
-    approval_item_versions: { payload: { body, ctaLabel, ctaUrl }, photo_path: photo },
+    approval_item_versions: { payload: { body, ctaLabel, ctaUrl }, photo_path: photo, photo_paths: photoPaths },
   };
   const writes: unknown[][] = [];
   const reads: unknown[][] = [];
@@ -90,4 +90,6 @@ test('staff approval checks blockers on the scoped version while request changes
     p_decision: 'changes_requested', p_note: 'Fix photo.', p_tags: ['photo'],
   }]]);
   assert.equal((await fixture().request(approved)).status, 200);
+  assert.equal((await fixture({ photo: null, photoPaths: ['first', 'second'] }).request(approved)).status, 200);
+  assert.equal((await fixture({ photoPaths: [] }).request(approved)).status, 400);
 });

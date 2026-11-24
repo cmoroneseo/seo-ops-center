@@ -4,6 +4,7 @@ import test from 'node:test';
 import { database, call, post, org, otherOrg, owner, member, viewer, client, task, now, later, expiry, hash } from './test-database';
 
 const internalLinksMigration = readFileSync(new URL('../../migrations/144_approval_internal_review_links.sql', import.meta.url), 'utf8');
+const multiPhotoMigration = readFileSync(new URL('../../migrations/145_gbp_approval_multi_photo.sql', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('../../migrations/146_approval_staff_reviews.sql', import.meta.url), 'utf8');
 
 test('146 records isolated staff decisions and enforces grants, draft status, roles and current versions', async t => {
@@ -11,8 +12,10 @@ test('146 records isolated staff decisions and enforces grants, draft status, ro
   t.after(() => db.close());
   await db.exec("alter table public.users add column full_name text; update public.users set full_name = 'Review Owner'; alter table public.bot_api_keys add column revoked_at timestamptz");
   await db.exec(internalLinksMigration);
+  await db.exec(multiPhotoMigration);
   await db.exec(migration);
-  assert.ok(readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8').endsWith(migration));
+  const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+  assert.ok(schema.endsWith(multiPhotoMigration + '\n' + migration));
 
   const grants = await db.query(`select relrowsecurity, roles.role,
     has_table_privilege(roles.role, 'public.approval_staff_reviews', 'SELECT') can_read,
@@ -25,8 +28,10 @@ test('146 records isolated staff decisions and enforces grants, draft status, ro
   assert.deepEqual(grants.rows, ['anon', 'authenticated', 'service_role'].map(role => ({
     role, relrowsecurity: true, can_read: role === 'service_role', can_insert: false, can_update: false, can_delete: false, can_review: role === 'service_role',
   })));
+  const first = post('First');
+  const photoPaths = [first.photoPath, 'https://example.test/photo-2.jpg', 'https://example.test/photo-3.jpg'];
   const created = await call(db, "select create_approval_request($1,$2,$3,$4,'gbp_post','Staff review',null,'[]',$5) result",
-    [owner, org, client, task, JSON.stringify([post('First'), { ...post('Second'), position: 2 }])]);
+    [owner, org, client, task, JSON.stringify([{ ...first, photoPaths }, { ...post('Second'), position: 2 }])]);
   assert.equal(created.ok, true);
   const requestId = String(created.requestId);
   const internalLink = await call(db, 'select issue_approval_internal_link($1,null,$2,null,$3,7,null,$4,$5) result',
@@ -71,7 +76,8 @@ test('146 records isolated staff decisions and enforces grants, draft status, ro
   assert.deepEqual(await unchanged(), before);
 
   const edit = await call(db, 'select post_approval_version($1,$2,$3,$4) result',
-    [owner, requestId, JSON.stringify([{ ...post('Revised'), itemId: item.id }]), now]);
+    [owner, requestId, JSON.stringify([{ ...post('Revised'), itemId: item.id, expectedVersionId: item.current_version_id,
+      photoPaths: [photoPaths[0], 'https://example.test/replaced.jpg', photoPaths[2]] }]), now]);
   assert.equal(edit.ok, true);
   assert.equal((await review('approved')).code, 'refresh_required');
   const current = (await db.query<{ current_version_id: string }>('select current_version_id from approval_items where id=$1', [item.id])).rows[0].current_version_id;

@@ -1,4 +1,5 @@
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
+import { versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import { signApprovalPhoto } from '@/lib/gbp-approvals/live';
 import { createAdminClient } from '@/lib/supabase/admin';
 
@@ -16,23 +17,23 @@ export async function GET(httpRequest: Request, context: { params: Promise<{ tas
     const request = await admin.from('approval_requests').select('id, title, round, due_at').eq('task_id', taskId).order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (request.error) return Response.json({ error: 'Approvals are not available yet.' }, { status: 503 });
     if (!request.data) return Response.json({ request: null, role: member.data.role });
-    const items = await admin.from('approval_items').select('id, position, status, decision_lock_reason, current_version_id').eq('request_id', request.data.id).order('position');
-    const link = await admin.from('approval_links').select('expires_at, revoked_at, view_count, last_viewed_at').eq('request_id', request.data.id).maybeSingle();
+    const requestId = request.data.id;
+    const items = await admin.from('approval_items').select('id, position, status, decision_lock_reason, current_version_id').eq('request_id', requestId).order('position');
+    const link = await admin.from('approval_links').select('expires_at, revoked_at, view_count, last_viewed_at').eq('request_id', requestId).maybeSingle();
     const [versions, responses, events] = await Promise.all([
-        admin.from('approval_item_versions').select('id, item_id, version_no, payload, photo_path, change_note, source, created_at').eq('request_id', request.data.id).order('version_no', { ascending: false }),
-        admin.from('approval_responses').select('id, item_id, version_id, decision, comment, suggested_title, suggested_body, replacement_photo_path, created_at').eq('request_id', request.data.id).order('created_at', { ascending: false }),
-        admin.from('approval_events').select('id, item_id, kind, detail, created_at').eq('request_id', request.data.id).order('created_at', { ascending: false }),
+        admin.from('approval_item_versions').select('id, item_id, version_no, payload, photo_path, photo_paths, change_note, source, created_at').eq('request_id', requestId).order('version_no', { ascending: false }),
+        admin.from('approval_responses').select('id, item_id, version_id, decision, comment, suggested_title, suggested_body, replacement_photo_path, created_at').eq('request_id', requestId).order('created_at', { ascending: false }),
+        admin.from('approval_events').select('id, item_id, kind, detail, created_at').eq('request_id', requestId).order('created_at', { ascending: false }),
     ]);
     if ([items, link, versions, responses, events].some(result => result.error)) {
         return Response.json({ error: 'Approvals could not be loaded.' }, { status: 503 });
     }
-    const photos = new Map<string, string | null>();
-    for (const path of new Set([
-        ...(versions.data ?? []).map(version => version.photo_path),
+    const paths = [...new Set([
+        ...(versions.data ?? []).flatMap(version => versionPhotoPaths(version.photo_paths, version.photo_path)),
         ...(responses.data ?? []).map(response => response.replacement_photo_path),
-    ].filter((path): path is string => Boolean(path)))) {
-        photos.set(path, await signApprovalPhoto(path));
-    }
+    ].filter((path): path is string => typeof path === 'string' && (path.startsWith('https://')
+        || path.startsWith(`gbp-approvals/${requestId}/`) || path.startsWith(`approval-assets/${requestId}/`))))];
+    const photos = new Map(await Promise.all(paths.map(async path => [path, await signApprovalPhoto(path)] as const)));
     return Response.json({
         request: request.data,
         items: (items.data ?? []).map(item => ({
@@ -40,7 +41,7 @@ export async function GET(httpRequest: Request, context: { params: Promise<{ tas
             version: (versions.data ?? []).find(version => version.id === item.current_version_id) ?? null,
             response: (responses.data ?? []).find(response => response.item_id === item.id && response.version_id === item.current_version_id) ?? null,
         })),
-        versions: (versions.data ?? []).map(version => ({ ...version, photoUrl: photos.get(version.photo_path) ?? null })),
+        versions: (versions.data ?? []).map(version => ({ ...version, photoUrl: photos.get(version.photo_path) ?? null, photoUrls: versionPhotoPaths(version.photo_paths, version.photo_path).map(path => photos.get(path) ?? null) })),
         responses: (responses.data ?? []).map(response => ({ ...response, photoUrl: photos.get(response.replacement_photo_path) ?? null })),
         events: events.data ?? [],
         photos: Object.fromEntries(photos),

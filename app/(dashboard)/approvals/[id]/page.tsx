@@ -45,6 +45,7 @@ function RequestReview({ id }: { id: string }) {
       const result = await response.json();
       if (!response.ok) {
         if (path === 'send') throw new Error('Couldn’t create the link. Try again.');
+        if (path === 'versions' && result.code === 'conflict') throw new Error('This post changed. Refresh before saving a new version.');
         throw new Error(result.code === 'forbidden' ? 'You do not have permission to make this change.' : result.error);
       }
       if (result.url) setUrl(result.url);

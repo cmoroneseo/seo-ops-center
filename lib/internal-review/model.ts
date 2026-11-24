@@ -8,11 +8,13 @@ export interface InternalFeedback {
     reviewerName: string;
     decision: ReviewDecision;
     comment: string | null;
+    photoPosition?: number | null;
 }
 
 export interface StaffInternalFeedback extends InternalFeedback {
     id: string;
     versionNo: number | null;
+    photoUrl?: string | null;
 }
 
 export interface InternalReviewPost {
@@ -29,6 +31,7 @@ export interface InternalReviewPost {
     ctaUrl: string | null;
     ctaLabel: string;
     photoSrc: string | null;
+    photoSrcs?: (string | null)[];
     feedback: InternalFeedback[];
 }
 

@@ -67,3 +67,11 @@ test('Option B uses released page content and client status after sending', () =
   assert.match(html, /Edit · new version/);
   assert.doesNotMatch(html, /Unreleased title|ar-button ar-approve/);
 });
+
+test('Option B shows the empty request message without an add-items action', () => {
+  const fixture = data(update);
+  fixture.items = [];
+  const html = renderToStaticMarkup(createElement(StaffReviewView, { data: fixture }));
+  assert.match(html, /This request has no items yet/);
+  assert.doesNotMatch(html, /Add items/);
+});

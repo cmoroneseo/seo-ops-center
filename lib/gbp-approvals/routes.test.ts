@@ -22,7 +22,7 @@ function adminMock(value: unknown): Admin {
 const token = 'a-valid-long-unguessable-review-token';
 const context = { params: Promise.resolve({ token }) };
 const view: PublicReviewView = {
-    state: 'active', title: 'Posts', clientName: 'Client', dueAt: null, round: 1,
+    state: 'active', title: 'Posts', clientName: 'Client', clientLogoUrl: null, dueAt: null, round: 1,
     expiresAt: '2099-01-01', hadSubmission: false, posts: [], questions: [],
     summary: { approved: 0, changesRequested: 0, pending: 0, questionsAnswered: 0, questionsTotal: 0 },
 };
@@ -136,4 +136,67 @@ test('retention removes Storage objects before acknowledging row deletion and re
         assert.equal(response.status, failed ? 500 : 200);
         assert.deepEqual(calls, failed ? ['select keys', 'remove objects'] : ['select keys', 'remove objects', 'delete rows']);
     }
+});
+
+test('public submit forwards version-scoped GBP photo comments and rejects invalid or stale targets', async () => {
+    const itemId = '11111111-1111-4111-8111-111111111111';
+    const versionId = '22222222-2222-4222-8222-222222222222';
+    let calls = 0;
+    const link = { id: 'link', request_id: 'request', expires_at: '2099-01-01' };
+    const chain = { select: () => chain, eq: () => chain, maybeSingle: async () => ({ data: link }) };
+    const admin = adminMock({
+        from(table: string) {
+            assert.equal(table, 'approval_links');
+            return chain;
+        },
+        rpc: async (name: string, args: { p_payload: { comments: { photoPosition: number; versionId: string }[] } }) => {
+            calls++;
+            assert.equal(name, 'submit_gbp_approval');
+            const [comment] = args.p_payload.comments;
+            if (comment.versionId !== versionId) return { data: { ok: false, code: 'refresh_required' } };
+            if (comment.photoPosition > 2) return { data: { ok: false, code: 'invalid_request' } };
+            assert.deepEqual(comment, { itemId, versionId, anchorKind: 'page', body: 'Use this photo', photoPosition: 2 });
+            return { data: { ok: true } };
+        },
+    });
+    const submit = createSubmit({ createAdminClient: () => admin, clientIpHash: () => null });
+    const send = (photoPosition: unknown, target = versionId) => submit(post('/submit', {
+        respondentName: 'Client reviewer', idempotencyKey: 'submission-gallery-1',
+        displayedVersionIds: [target], decisions: [], answers: [],
+        comments: [{ itemId, versionId: target, anchorKind: 'page', body: 'Use this photo', photoPosition }],
+    }), context);
+    for (const invalid of [0, 1.5, 11, '2']) assert.equal((await send(invalid)).status, 400);
+    assert.equal(calls, 0);
+    assert.equal((await send(1, itemId)).status, 409);
+    assert.equal((await send(3)).status, 400);
+    assert.equal((await send(2)).status, 200);
+    assert.equal(calls, 3);
+});
+
+test('public GET signs the current and prior galleries after the token check and preserves a missing slot', async () => {
+    const first = 'https://drive.google.com/thumbnail?id=public-photo';
+    const stored = 'approval-assets/request/second';
+    const unavailable = 'gbp-approvals/request/unavailable';
+    const paths: string[] = [];
+    const admin = adminMock({
+        rpc: async (name: string, args: { p_token_hash: string }) => {
+            assert.equal(name, 'get_gbp_approval_by_token');
+            assert.equal(args.p_token_hash, hashToken(token));
+            return { data: { ok: true, state: 'active', items: [{
+                id: 'item', position: 1,
+                version: { id: 'version', versionNo: 2, payload: { postType: 'update', offerStart: null, offerEnd: null },
+                    photoPaths: [first, unavailable, stored], previous: { photoPath: stored, payload: { body: 'Previous' } } },
+                comments: [{ body: 'Reference the third image', photoPosition: 3, versionId: 'private' }],
+            }] } };
+        },
+    });
+    const review = await loadPublicReview(token, async path => {
+        paths.push(path);
+        return path === stored ? 'https://storage.test/signed' : null;
+    }, () => admin);
+    assert.ok(review && 'posts' in review);
+    assert.deepEqual(paths, [unavailable, stored]);
+    assert.deepEqual(review.posts[0].photoSrcs, [first, null, 'https://storage.test/signed']);
+    assert.deepEqual(review.posts[0].previous?.photoSrcs, ['https://storage.test/signed']);
+    assert.deepEqual(review.posts[0].comments, [{ body: 'Reference the third image', photoPosition: 3 }]);
 });

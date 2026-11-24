@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { parseGbpPostPayload, type GbpPostPayload } from '../gbp-approvals/registry.ts';
+import { parseGbpPhotoPaths, parseGbpPostPayload, type GbpPostPayload } from '../gbp-approvals/registry.ts';
 import { canonicalJson } from '../approvals-v2/registry.ts';
 import { parsePagePayload } from '../approvals-v2/page-body.ts';
 import type { PagePayload } from '../approvals-v2/registry.ts';
@@ -13,6 +13,7 @@ export interface BotApprovalItem {
   payload: GbpPostPayload | PagePayload;
   outline?: OutlineSection[];
   photoPath: string | null;
+  photoPaths?: string[];
 }
 export interface BotApprovalQuestion {
   prompt: string;
@@ -99,7 +100,11 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
     seen.add(item.position);
     const parsed = record.itemType === 'page' ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
     if (!parsed.ok) return fail(400, 'invalid_request', parsed.error);
-    const photoPath = item.mockupUrl ?? item.photoPath ?? null;
+    const photoPaths = 'photoPaths' in item && record.itemType !== 'page' ? parseGbpPhotoPaths(item.photoPaths, true) : undefined;
+    if (photoPaths === null || (record.itemType === 'page' && 'photoPaths' in item)) {
+      return fail(400, 'invalid_request', 'A GBP post can include up to 10 HTTPS photo URLs.');
+    }
+    const photoPath = photoPaths ? photoPaths[0] ?? null : item.mockupUrl ?? item.photoPath ?? null;
     if (photoPath !== null && (typeof photoPath !== 'string' || !/^https:\/\/\S+$/.test(photoPath))) {
       return fail(400, 'invalid_request', 'A post photo must be an https URL.');
     }
@@ -107,7 +112,8 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
       position: item.position,
       payload: parsed.payload,
       ...('outline' in parsed ? { outline: parsed.outline } : {}),
-      photoPath
+      photoPath,
+      ...(photoPaths ? { photoPaths } : {})
     });
   }
   const questions: BotApprovalQuestion[] = [];

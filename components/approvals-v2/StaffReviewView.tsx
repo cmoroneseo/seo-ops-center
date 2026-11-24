@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { monthDay } from '@/components/gbp-approvals/sample';
 import { typeLabel } from '@/lib/approvals-v2/list';
+import { versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import {
   characterCount, filterReviewItems, nextUnreviewed, reviewCounts, reviewFilters, reviewNoteLimit, reviewShortcut,
   reviewStatus, staffReviewBlockers, staffReviewTags, type ReviewFilter, type StaffDecision, type StaffReviewTag,
@@ -15,7 +16,7 @@ import {
 import { PreviewDialog } from './PreviewDialog';
 import { ItemErrorBoundary } from './ItemErrorBoundary';
 import { StaffItemPreview, ReviewChip, ReviewThumbnail, reviewDate, statusText } from './StaffReviewPreview';
-import { AddReviewItemForm, RequestEditForm, ReviewDialog, ReviewItemEditor } from './StaffReviewDialogs';
+import { RequestEditForm, ReviewDialog, ReviewItemEditor } from './StaffReviewDialogs';
 import { type StaffReviewData, type StaffReviewItem, type ReviewAction, type SaveStaffReview, displayVersion, itemTypeName } from './StaffReviewTypes';
 
 const tabNames: Record<ReviewFilter, string> = { all: 'All', pending: 'To review', changes_requested: 'Changes', approved: 'Approved' };
@@ -124,7 +125,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   const [selection, setSelection] = useState(initialSelection ?? nextUnreviewed(data.items, '')?.id ?? data.items[0]?.id);
   const [screen, setScreen] = useState(initialMobileScreen);
   const [completion, setCompletion] = useState(draft && !initialSelection && !!data.items.length && !nextUnreviewed(data.items, ''));
-  const [dialog, setDialog] = useState<'shortcuts' | 'request' | 'edit' | 'add' | null>(null);
+  const [dialog, setDialog] = useState<'shortcuts' | 'request' | 'edit' | null>(null);
   const [singleKeysOff, setSingleKeysOff] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [announcement, setAnnouncement] = useState({ id: 0, text: '' });
@@ -152,7 +153,8 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   const selected = filtered.find(item => item.id === selection) ?? filtered[0];
   const version = selected ? displayVersion(selected, draft) : null;
   const number = selected ? data.items.indexOf(selected) + 1 : 0;
-  const blockers = selected && draft ? staffReviewBlockers(selected.item_type, selected.page_kind, version?.payload, version?.photo_path ?? null) : [];
+  const blockers = selected && draft ? staffReviewBlockers(selected.item_type, selected.page_kind, version?.payload,
+    versionPhotoPaths(version?.photo_paths, version?.photo_path)) : [];
   const selectedStatus = selected ? reviewStatus(selected, draft) : 'pending';
   const showCompletion = draft && completion && counts.all > 0 && counts.pending === 0;
   const mobileScreen = selected || showCompletion ? screen : 'list';
@@ -408,7 +410,11 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
       trigger={<button type="button" className="ar-button"><Eye size={18} aria-hidden /><span>Preview as client</span></button>}
       items={data.items.flatMap(item => {
         const current = displayVersion(item, draft);
-        return current ? [{ id: item.id, payload: current.payload, images: data.photos, photoUrl: data.photos[current.photo_path ?? ''] ?? null }] : [];
+        return current ? [{
+          id: item.id, payload: current.payload, images: data.photos,
+          photoUrl: data.photos[current.photo_path ?? ''] ?? null,
+          photoUrls: versionPhotoPaths(current.photo_paths, current.photo_path).map(path => data.photos[path] ?? null),
+        }] : [];
       })} />;
   }
 
@@ -574,14 +580,15 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
                   const index = data.items.indexOf(item) + 1;
                   const date = monthDay(reviewDate(rowVersion));
                   const status = reviewStatus(item, draft);
-                  const rowBlockers = draft && rowVersion ? staffReviewBlockers(item.item_type, item.page_kind, rowVersion.payload, rowVersion.photo_path) : [];
+                  const photoPaths = versionPhotoPaths(rowVersion?.photo_paths, rowVersion?.photo_path);
+                  const rowBlockers = draft && rowVersion ? staffReviewBlockers(item.item_type, item.page_kind, rowVersion.payload, photoPaths) : [];
                   const photoNeeded = rowBlockers.some(blocker => blocker.label === 'Photo needed');
                   return <li key={item.id}>
                     <button type="button" className="ar-row" data-review-row={item.id} data-status={status} aria-current={active || undefined}
                       aria-label={[`Item ${index}: ${title}`, statusText(status, draft), ...rowBlockers.map(blocker => blocker.label), date].filter(Boolean).join(', ')}
                       onClick={() => select(item, 'click')}>
                       <span className="ar-row-number">{index}</span>
-                      <ReviewThumbnail item={item} version={rowVersion} photo={data.photos[rowVersion?.photo_path ?? ''] ?? null} blocked={photoNeeded} />
+                      <ReviewThumbnail item={item} version={rowVersion} photo={data.photos[photoPaths[0]] ?? null} blocked={photoNeeded} />
                       <span className="ar-row-copy"><span className="ar-row-title">{title}</span>
                         <span className="ar-row-meta">
                           <ReviewChip kind={status}>{statusText(status, draft)}</ReviewChip>
@@ -595,7 +602,6 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
                 })}
               </ol> : <div className="ar-empty-list"><p>{counts.all ? emptyFilters[filter] : emptyFilters.all}</p>
                 {counts.all > 0 && <button className="ar-button ar-text-button" onClick={() => chooseFilter('all')}>Show all</button>}
-                {!counts.all && draft && editable && <button className="ar-button" onClick={event => openDialog('add', event.currentTarget)}>Add items</button>}
               </div>}
             </div>
           </section>
@@ -642,10 +648,6 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
     {dialog === 'request' && <ReviewDialog title="Edit request details" onClose={closeDialog}>
       {error && <p role="alert" className="ar-error">{error}</p>}
       <RequestEditForm data={data} busy={busy} act={act} onClose={closeDialog} />
-    </ReviewDialog>}
-    {dialog === 'add' && <ReviewDialog title="Add items" onClose={closeDialog}>
-      {error && <p role="alert" className="ar-error">{error}</p>}
-      <AddReviewItemForm itemType={data.request.item_type} busy={busy} act={act} onClose={() => { setFilter('all'); closeDialog(); }} />
     </ReviewDialog>}
     {dialog === 'edit' && selected && <ReviewDialog title={draft ? `Edit ${itemTypeName(selected, selected.version).toLowerCase()}` : 'Edit as a new version'}
       onClose={closeDialog} className="sm:max-w-3xl">

@@ -289,12 +289,25 @@ test('new send and compatibility link aliases reject bots with 403 before any RP
     assert.equal(response.status, 403);
   }
 });
+test('staff draft PATCH rejects adding items before calling the database', async () => {
+  const handler = mutation('draft', {
+    agencyActor: async () => id,
+    createAdminClient: () => { throw new Error('Must not connect'); },
+  });
+  const response = await handler(new Request(`https://local.test/api/approval-requests/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ items: [{ itemType: 'gbp_post', payload }] }),
+  }), { params: Promise.resolve({ id }) });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'invalid_request');
+});
 test('detail returns released/current versions, decisions, link facts and signs request-scoped photos for both types after membership scoping', async () => {
   const {
     createStaffDetail
   } = await import('./detail');
   const current = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
   const released = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  const historicPhoto = 'approval-assets/' + id + '/photo';
   const signed: string[] = [];
   let scoped = false;
   const records: Record<string, unknown> = {
@@ -324,7 +337,9 @@ test('detail returns released/current versions, decisions, link facts and signs 
       photo_path: 'https://example.com/current.jpg'
     }, {
       id: released,
-      photo_path: null
+      version_no: 1,
+      photo_path: 'https://example.com/primary.jpg',
+      photo_paths: ['https://example.com/primary.jpg', historicPhoto]
     }],
     approval_responses: [{
       item_id: task,
@@ -341,10 +356,12 @@ test('detail returns released/current versions, decisions, link facts and signs 
       last_viewed_at: null,
       view_count: 0
     },
+    approval_comments: [{ id: 'client-feedback', item_id: task, version_id: released, photo_position: 2, body: 'Use this photo' }],
     approval_internal_feedback: [{
       id: 'internal-feedback',
       item_id: task,
-      version_id: current,
+      version_id: released,
+      photo_position: 2,
       reviewer_name: 'Internal reviewer',
       decision: 'approved',
       comment: 'Ready to send'
@@ -387,19 +404,22 @@ test('detail returns released/current versions, decisions, link facts and signs 
   assert.equal(data.staffReviewHistory.length, 3);
   assert.equal(data.staffReviewUnavailable, false);
   assert.deepEqual(data.internalFeedback, [{
-    id: 'internal-feedback', itemId: task, versionNo: null,
-    reviewerName: 'Internal reviewer', decision: 'approved', comment: 'Ready to send'
+    id: 'internal-feedback', itemId: task, versionNo: 1,
+    reviewerName: 'Internal reviewer', decision: 'approved', comment: 'Ready to send',
+    photoPosition: 2, photoUrl: `signed:${historicPhoto}`
   }]);
+  assert.equal(data.comments[0].photoUrl, `signed:${historicPhoto}`);
   assert.equal(data.canSend, false);
   assert.match(data.sendReason, /account manager/);
   assert.equal(data.link.state, 'active');
-  assert.equal(signed.length, 2);
+  assert.equal(signed.length, 4);
   (records.approval_requests as {
     item_type: string;
   }).item_type = 'page';
+  records.approval_comments = [];
   signed.length = 0;
   records.approval_staff_reviews = (records.approval_staff_reviews as unknown[]).slice(0, 1);
   const pageResponse = await handler(new Request('https://local.test'), context);
   assert.equal((await pageResponse.json()).items[0].staffReview, null);
-  assert.equal(signed.length, 2);
+  assert.equal(signed.length, 4);
 });

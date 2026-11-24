@@ -5,7 +5,7 @@ import { cache } from 'react';
 import { hashToken } from '@/lib/approvals/token';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { signApprovalPhoto } from '@/lib/gbp-approvals/live';
-import { PUBLIC_REVIEW_HEADERS, projectPublicReview, publicStatus } from '@/lib/gbp-approvals/public-view';
+import { PUBLIC_REVIEW_HEADERS, projectPublicReview, publicReviewPhotoPaths, publicStatus } from '@/lib/gbp-approvals/public-view';
 import { uuid } from './list';
 import { imagePaths } from './page-body';
 import { sanitizeDoc } from './page-doc';
@@ -83,12 +83,8 @@ export const loadApprovalReview = cache(async (token: string) => {
       if (!request.error) clientLogoUrl = safeClientLogoUrl(client?.logo_url);
     }
   }
-  const paths = new Map<string, string | null>();
-  for (const item of data.items ?? []) {
-    for (const path of [item.version?.photoPath, item.version?.previous?.photoPath, item.decision?.replacementPhotoPath]) {
-      if (typeof path === 'string') paths.set(path, await signApprovalPhoto(path));
-    }
-  }
+  const paths = new Map(await Promise.all(publicReviewPhotoPaths(data).map(async path =>
+    [path, await signApprovalPhoto(path)] as const)));
   return projectPublicReview({ ...data, clientLogoUrl }, path => paths.get(path) ?? null);
 });
 export function createPublicItem(dependencies = {

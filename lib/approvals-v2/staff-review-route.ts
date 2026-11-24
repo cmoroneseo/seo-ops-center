@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
+import { versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { uuid } from './list';
 import { canWriteApproval } from './permissions';
@@ -47,11 +48,12 @@ export function createStaffReview(dependencies = { agencyActor, createAdminClien
       return json({ error: 'This item has a newer version. Refresh and review it again.', code: 'refresh_required' }, 409);
     }
     if (decision === 'approved') {
-      const version = await admin.from('approval_item_versions').select('payload,photo_path')
+      const version = await admin.from('approval_item_versions').select('payload,photo_path,photo_paths')
         .eq('id', versionId).eq('item_id', itemId).eq('request_id', id).eq('organization_id', orgId).maybeSingle();
       if (version.error) return json({ error: 'Review unavailable.', code: 'unavailable' }, 503);
       if (!version.data) return json({ error: 'This version is unavailable.', code: 'refresh_required' }, 409);
-      const blockers = staffReviewBlockers(item.data.item_type, item.data.page_kind, version.data.payload, version.data.photo_path);
+      const { payload, photo_path, photo_paths } = version.data;
+      const blockers = staffReviewBlockers(item.data.item_type, item.data.page_kind, payload, versionPhotoPaths(photo_paths, photo_path));
       if (blockers.length) return json({ error: blockers.map(blocker => blocker.reason).join(' '), code: 'blocked' }, 400);
     }
 

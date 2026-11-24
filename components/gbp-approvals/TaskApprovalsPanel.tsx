@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { applySuggestion, type GbpPostPayload } from '@/lib/gbp-approvals/registry';
+import { MAX_GBP_PHOTOS, versionPhotoPaths } from '@/lib/gbp-approvals/photos';
+import { PhotoGallery } from './PhotoGallery';
 import { CreateDraftButton } from '@/components/approvals-v2/CreateDraftButton';
 import { StatusChip, LinkStatus } from '@/components/approvals-v2/Shared';
 import type { ApprovalRow } from '@/lib/approvals-v2/list';
@@ -13,6 +15,7 @@ interface Version {
   version_no: number;
   payload: GbpPostPayload;
   photo_path: string | null;
+  photo_paths?: string[] | null;
   change_note: string | null;
   created_at: string;
 }
@@ -97,78 +100,125 @@ export function TaskApprovalsPanel({
 }
 export function RevisionEditor({
   item,
+  requestId,
+  images,
   busy,
   onPost,
-  staffDraftRequestId
+  draft
 }: {
   item: ApprovalItem;
+  requestId: string;
+  images: Record<string, string | null>;
   busy: boolean;
   onPost: (entry: unknown) => Promise<unknown>;
-  staffDraftRequestId?: string;
+  draft: boolean;
 }) {
   const version = item.version!;
   const [body, setBody] = useState(version.payload.body);
   const [note, setNote] = useState('');
   const [title, setTitle] = useState(version.payload.title);
   const [ctaUrl, setCtaUrl] = useState(version.payload.ctaUrl);
-  const [photoPath, setPhotoPath] = useState(version.photo_path);
+  const [photos, setPhotos] = useState(() => versionPhotoPaths(version.photo_paths, version.photo_path)
+    .map(path => ({ path, src: images[path] ?? null })));
   const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState('');
-  async function uploadPhoto(file?: File) {
-    if (!staffDraftRequestId || !file) return;
+  const [photoError, setPhotoError] = useState('');
+  const response = item.response;
+  const hasSuggestion = Boolean(response?.suggested_title || response?.suggested_body || response?.replacement_photo_path);
+  async function upload(index: number, file: File) {
+    if (uploading || busy) return;
     setUploading(true);
-    setUploadError('');
+    setPhotoError('');
     try {
-      const response = await fetch(`/api/approval-requests/${staffDraftRequestId}/assets`, {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size < 1 || file.size > 10485760) {
+        throw new Error('Choose a JPG, PNG or WebP image up to 10 MB.');
+      }
+      const endpoint = `/api/approval-requests/${requestId}/assets`;
+      const reserve = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId: item.id, contentType: file.type, size: file.size }),
       });
-      const asset = await response.json();
-      if (!response.ok) throw new Error(asset.error);
-      const upload = await fetch(asset.signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
-      if (!upload.ok) throw new Error('Photo upload failed. Try again.');
-      setPhotoPath(asset.objectKey);
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Photo upload failed.');
+      const { objectKey, signedUrl, error } = await reserve.json();
+      if (!reserve.ok) throw new Error(error ?? 'Image could not be reserved.');
+      const uploaded = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+      if (!uploaded.ok) throw new Error('Image upload failed. Try again.');
+      const preview = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: item.id, objectKey }),
+      });
+      const result = await preview.json();
+      if (!preview.ok) throw new Error(result.error ?? 'Preview unavailable.');
+      setPhotos(current => {
+        const next = [...current];
+        next[index] = { path: objectKey, src: result.photoUrl };
+        return next;
+      });
+    } catch (cause) {
+      setPhotoError(cause instanceof Error ? cause.message : 'Image upload failed.');
     } finally {
       setUploading(false);
     }
   }
-  const response = item.response;
-  const hasSuggestion = Boolean(response?.suggested_title || response?.suggested_body || response?.replacement_photo_path);
+
   function post(accept: boolean) {
+    const photoPaths = photos.map(photo => photo.path);
+    if (accept && response?.replacement_photo_path) photoPaths[0] = response.replacement_photo_path;
     return onPost({
       itemId: item.id,
+      expectedVersionId: version.id,
       payload: accept && response ? applySuggestion(version.payload, {
         title: response.suggested_title,
         body: response.suggested_body
       }) : {
         ...version.payload,
-        ...(staffDraftRequestId ? { title, ctaUrl } : {}),
+        ...(draft ? { title, ctaUrl } : {}),
         body
       },
-      photoPath: accept ? response?.replacement_photo_path ?? photoPath : photoPath,
+      photoPaths,
       changeNote: note,
       source: accept ? 'accepted_suggestion' : 'manual',
       sourceResponseId: accept ? response?.id : null
     });
   }
   const fields = <>
-    {staffDraftRequestId && <>
+    {draft && <>
       <label className="block">Post title<input value={title} maxLength={80} onChange={event => setTitle(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border p-2" /></label>
       <label className="block">Button URL<input type="url" value={ctaUrl} onChange={event => setCtaUrl(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border p-2" /></label>
-      <label className="block">Upload photo (JPG, PNG or WebP, up to 10 MB)<input type="file" accept="image/jpeg,image/png,image/webp"
-        disabled={uploading || busy} onChange={event => void uploadPhoto(event.target.files?.[0])} className="mt-1 block w-full rounded-md border p-2" /></label>
-      {uploading && <p role="status">Uploading photo…</p>}
-      {photoPath && photoPath !== version.photo_path && <p role="status">Photo uploaded. Save the revision to use it.</p>}
-      {uploadError && <p role="alert">{uploadError}</p>}
     </>}
     <label className="block">Post text<textarea
       value={body}
       maxLength={2000}
       onChange={event => setBody(event.target.value)}
       className="mt-1 min-h-24 w-full rounded-md border border-input bg-background p-2 text-foreground" /></label>
+    <fieldset disabled={busy || uploading} className="space-y-2">
+      <legend className="font-medium">Post photos</legend>
+      {photos.length > 0 && <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {photos.map(({ path, src }, index) => <li key={`${index}:${path}`} className="min-w-0 space-y-2 rounded-lg border p-3">
+          <p className="font-medium">Photo {index + 1}{index === 0 ? ' · Primary' : ''}</p>
+          <PhotoGallery sources={[src]} alt={`Photo ${index + 1} for ${version.payload.title}`} />
+          <label className="block">Replace photo {index + 1}
+            <input className="block w-full" type="file" accept="image/jpeg,image/png,image/webp" onChange={event => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file) void upload(index, file);
+            }} />
+          </label>
+          <Button type="button" variant="outline" size="sm" aria-label={`Remove photo ${index + 1}`}
+            onClick={() => setPhotos(current => current.filter((_, position) => position !== index))}>Remove</Button>
+        </li>)}
+      </ol>}
+      {photos.length < MAX_GBP_PHOTOS && <label className="block">Add photo
+        <input className="block w-full" type="file" accept="image/jpeg,image/png,image/webp" onChange={event => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file) void upload(photos.length, file);
+        }} />
+      </label>}
+      {uploading && <p role="status">Uploading photo…</p>}
+      {photoError && <p role="alert">{photoError}</p>}
+    </fieldset>
+    {photos.length > 1 && <p className="text-xs text-muted-foreground">GHL Social Planner supports one image per GBP post. Publish the remaining photos by hand.</p>}
     <label className="block">Change note the client will see<textarea
       value={note}
       maxLength={500}
@@ -178,17 +228,17 @@ export function RevisionEditor({
       <Button
         type="button"
         variant="outline"
-        disabled={busy || uploading || (staffDraftRequestId ? !title.trim() : !note.trim()) || !body.trim()}
+        disabled={busy || uploading || (draft ? !title.trim() : !note.trim()) || !body.trim()}
         onClick={() => void post(false)}>Post v{version.version_no + 1}</Button>
       {hasSuggestion && <Button
         type="button"
         variant="outline"
-        disabled={busy || !note.trim()}
+        disabled={busy || uploading || !note.trim()}
         onClick={() => void post(true)}>Accept suggestion into v{version.version_no + 1}</Button>}
     </div>
-    {!staffDraftRequestId && <p className="text-xs text-muted-foreground">Client suggestions become a revision only when accepted. Re-share the same review link for approval.</p>}
+    {!draft && <p className="text-xs text-muted-foreground">Client suggestions become a revision only when accepted. Re-share the same review link for approval.</p>}
   </>;
-  return staffDraftRequestId ? <div className="space-y-3 text-sm">{fields}</div> : <details className="space-y-2 text-sm">
+  return draft ? <div className="space-y-3 text-sm">{fields}</div> : <details className="space-y-2 text-sm">
     <summary className="cursor-pointer font-medium">Revise post · v{version.version_no + 1}</summary>
     {fields}
   </details>;

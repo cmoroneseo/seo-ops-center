@@ -154,3 +154,101 @@ test('mobile change notes open a labelled sheet and Escape returns focus', async
     isMobile = false;
   }
 });
+
+test('Option B selects gallery photos by keyboard, shows versioned comments, and replaces one photo', async () => {
+  const root = createRoot(get('#review'));
+  const data = draftData();
+  const item = data.items[1];
+  const version = item.version!;
+  const first = version.photo_path!;
+  const second = 'https://example.test/post-2.jpg';
+  const third = 'https://example.test/post-3.jpg';
+  const replacement = 'approval-assets/request/replacement';
+  version.photo_paths = [first, second, third];
+  version.photo_path = null;
+  data.photos[second] = second;
+  data.photos[third] = null;
+  data.comments = [{
+    id: 'client-photo-note', item_id: item.id, author_kind: 'client', author_name: 'Client',
+    body: 'Please use this angle.', photo_position: 2, photoUrl: 'https://example.test/old-photo.jpg', versionNo: 1,
+    anchor_kind: 'page', parent_id: null, block_id: null, pin_target: null, quote: null, suggested_text: null,
+    suggested_image_key: null, suggestion_status: null, suggestion_reply: null, resolved_at: null,
+    resolved_in_version_id: null, previewUrl: null,
+  }];
+  data.internalFeedback = [{
+    id: 'internal-photo-note', itemId: item.id, reviewerName: 'Reviewer', decision: 'changes_requested',
+    versionNo: 1, photoPosition: 3, photoUrl: null, comment: 'Swap this photo.',
+  }];
+  let saved: unknown;
+  const fetchOriginal = globalThis.fetch;
+  let uploads = 0;
+  globalThis.fetch = async (input, init) => {
+    uploads += 1;
+    if (input === 'https://example.test/upload' && init?.method === 'PUT') return new Response(null, { status: 200 });
+    assert.equal(input, '/api/approval-requests/request/assets');
+    if (uploads === 1) return Response.json({ objectKey: replacement, signedUrl: 'https://example.test/upload' });
+    assert.deepEqual(JSON.parse(String(init?.body)), { itemId: item.id, objectKey: replacement });
+    return Response.json({ photoUrl: 'https://example.test/replacement.jpg' });
+  };
+  try {
+    await act(async () => root.render(createElement(StaffReviewView, {
+      data, initialSelection: item.id, saveReview: async () => {},
+      act: async (path, body) => { assert.equal(path, 'versions'); saved = body; return true; },
+    })));
+    assert.equal(get('[data-review-row="item-2"] img').getAttribute('src'), first);
+    assert.equal(get('.ar-approve').getAttribute('aria-disabled'), 'false');
+    const gallery = get('[role="group"][aria-label="Post photos"]');
+    assert.equal(gallery.querySelectorAll('button[aria-pressed]').length, 3);
+    assert.equal(get('.ar-google-photo img').getAttribute('src'), first);
+    assert.equal(get('[aria-label="Client comments"] a').getAttribute('href'), 'https://example.test/old-photo.jpg');
+    assert.match(get('[aria-label="Internal feedback"]').textContent ?? '', /Version 1 · Photo 3/);
+
+    const firstThumb = get<HTMLButtonElement>('[aria-label="Show photo 1 of 3"]');
+    firstThumb.focus();
+    await act(async () => key(firstThumb, 'ArrowRight'));
+    assert.equal(document.activeElement, get('[aria-label="Show photo 2 of 3"]'));
+    assert.equal(document.activeElement?.getAttribute('aria-pressed'), 'true');
+    const image = get<HTMLImageElement>('.ar-google-photo img');
+    assert.equal(image.getAttribute('src'), second);
+    await act(async () => {
+      Object.defineProperties(image, { naturalWidth: { value: 1200 }, naturalHeight: { value: 900 } });
+      image.dispatchEvent(new dom.window.Event('load'));
+    });
+    assert.match(get('.ar-facts').textContent ?? '', /1200 × 900, 4:3/);
+    const enlarge = get<HTMLButtonElement>('[aria-label="Enlarge photo 2 of 3 for item 2"]');
+    enlarge.focus();
+    await act(async () => enlarge.click());
+    assert.equal(get('[role="dialog"] img').getAttribute('src'), second);
+    await act(async () => key(get('[role="dialog"]'), 'Escape'));
+    await act(async () => new Promise(resolve => requestAnimationFrame(resolve)));
+    assert.equal(document.activeElement, enlarge);
+    await act(async () => image.dispatchEvent(new dom.window.Event('error')));
+    assert.equal(get('.ar-google-unavailable a').getAttribute('href'), second);
+    assert.match(get('.ar-facts').textContent ?? '', /PhotoPreview unavailable/);
+    await act(async () => get<HTMLButtonElement>('[aria-label="Show photo 3 of 3"]').click());
+    assert.match(get('.ar-facts').textContent ?? '', /PhotoPreview unavailable/);
+    assert.equal(get('.ar-approve').getAttribute('aria-disabled'), 'false');
+    assert.doesNotMatch(get('.ar-facts').textContent ?? '', /1200 × 900/);
+
+    await act(async () => get<HTMLButtonElement>('.ar-item-tools button').click());
+    const editor = get('[role="dialog"]');
+    const replace = [...editor.querySelectorAll('label')].find(label => label.textContent === 'Replace photo 2')?.querySelector('input');
+    assert.ok(replace);
+    await act(async () => {
+      Object.defineProperty(replace, 'files', { value: [new File(['image'], 'replace.jpg', { type: 'image/jpeg' })] });
+      replace.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    });
+    assert.equal(uploads, 3);
+    assert.equal(editor.querySelector('img[alt="Photo 2 for Two"]')?.getAttribute('src'), 'https://example.test/replacement.jpg');
+    const save = [...editor.querySelectorAll('button')].find(button => button.textContent === 'Post v2');
+    assert.ok(save);
+    await act(async () => save.click());
+    assert.deepEqual(saved, { items: [{
+      itemId: item.id, expectedVersionId: version.id, payload: version.payload,
+      photoPaths: [first, replacement, third], changeNote: '', source: 'manual', sourceResponseId: null,
+    }] });
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    await act(async () => root.unmount());
+  }
+});

@@ -11,6 +11,7 @@ export interface ReviewVersion {
   version_no: number;
   payload: GbpPostPayload | PagePayload;
   photo_path: string | null;
+  photo_paths?: string[] | null;
   outline?: OutlineSection[] | null;
   change_note: string | null;
   created_at: string;

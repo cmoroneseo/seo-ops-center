@@ -180,7 +180,13 @@
 .ar-google-photo { display: block; width: 100%; aspect-ratio: 4 / 3; background: #f1f3f4; }
 .ar-google-photo:focus-visible { outline-offset: -4px !important; }
 .ar-google-photo img { width: 100%; height: 100%; object-fit: cover; }
+.ar-google-photo-picker { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0; }
+.ar-google-thumb { position: relative; display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #71717a; border-radius: 6px; background: #f4f4f5; }
+.ar-google-thumb[aria-pressed="true"] { border: 2px solid #be0a79; }
+.ar-google-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 4px; object-fit: cover; }
+.ar-google-thumb span { position: absolute; right: 1px; bottom: 1px; padding: 0 3px; border-radius: 3px; background: #18181b; color: white; font-size: 12px; line-height: 16px; }
 .ar-google-placeholder { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; aspect-ratio: 4/3; border: 2px dashed #b45309; color: #451a03; background: repeating-linear-gradient(135deg, #fafafa 0 10px, #f4f4f5 10px 20px); }
+.ar-google-placeholder.ar-google-unavailable { border: 0; color: #52525b; background: #f4f4f5; }
 .ar-google-body { padding: 12px 14px 14px; }
 .ar-google-body h3 { font-size: 16px; line-height: 22px; font-weight: 600; }
 .ar-google-body .ar-google-date { margin-top: 2px; color: #5f6368; font-size: 12px; line-height: 16px; }

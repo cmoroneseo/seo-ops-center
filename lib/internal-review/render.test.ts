@@ -48,3 +48,16 @@ test('the internal page only shows an offer date range for offers with two valid
     assert.doesNotMatch(renderPost({ postType: 'offer', offerStart: '2026-12-01', offerEnd: '2026-12-32' }), /Offer dates/);
     assert.match(renderPost({ postType: 'offer', offerStart: '2026-12-01', offerEnd: '2026-12-31' }), /Offer dates 2026-12-01 to 2026-12-31/);
 });
+
+test('the internal page gives a null-date update a numbered gallery and a photo feedback target', () => {
+    const html = renderPost({
+        photoSrcs: ['https://drive.google.com/thumbnail?id=first', 'https://example.com/second.jpg'],
+        feedback: [{ reviewerName: 'Reviewer', decision: null, comment: 'Use the daytime shot', photoPosition: 2 }],
+    });
+    assert.match(html, /alt="Draft post photo 1 of 2"/);
+    assert.match(html, /alt="Draft post photo 2 of 2"/);
+    assert.match(html, /referrerPolicy="no-referrer"/i);
+    assert.match(html, /<option value="2">Photo 2<\/option>/);
+    assert.match(html, /Reviewer<\/strong> · Comment · Photo 2/);
+    assert.doesNotMatch(html, /Offer dates/);
+});

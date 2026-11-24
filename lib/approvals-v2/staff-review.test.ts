@@ -36,17 +36,17 @@ test('advance skips both decisions, wraps, and excludes the just-reviewed item',
 
 test('GBP validation checks the stored photo, Unicode length, and URL CTAs but accepts Call now without a URL', () => {
   assert.equal(characterCount('👍a'), 2);
-  assert.deepEqual(staffReviewBlockers('gbp_post', null, { body: '👍'.repeat(1500), ctaLabel: 'Call now', ctaUrl: null }, 'photo'), []);
-  assert.deepEqual(staffReviewBlockers('gbp_post', null, { body: 'x'.repeat(1501), ctaLabel: 'Learn more', ctaUrl: ' ' }, null).map(blocker => blocker.label),
+  assert.deepEqual(staffReviewBlockers('gbp_post', null, { body: '👍'.repeat(1500), ctaLabel: 'Call now', ctaUrl: null }, ['photo']), []);
+  assert.deepEqual(staffReviewBlockers('gbp_post', null, { body: 'x'.repeat(1501), ctaLabel: 'Learn more', ctaUrl: ' ' }, []).map(blocker => blocker.label),
     ['Photo needed', 'Over character limit', 'CTA URL needed']);
-  assert.deepEqual(staffReviewBlockers('gbp_post', null, { body: 'Post', ctaLabel: 'Book now', ctaUrl: 'https://example.test' }, 'photo'), []);
+  assert.deepEqual(staffReviewBlockers('gbp_post', null, { body: 'Post', ctaLabel: 'Book now', ctaUrl: 'https://example.test' }, ['photo']), []);
 });
 
 test('blog title and target keyword block; service, city and search metadata lengths do not', () => {
-  assert.deepEqual(staffReviewBlockers('page', 'blog', { title: '  ' }, null).map(blocker => blocker.label), ['Title needed', 'Keyword needed']);
-  assert.deepEqual(staffReviewBlockers('page', 'blog', { title: 'Blog', targetKeyword: 'keyword' }, null), []);
+  assert.deepEqual(staffReviewBlockers('page', 'blog', { title: '  ' }, []).map(blocker => blocker.label), ['Title needed', 'Keyword needed']);
+  assert.deepEqual(staffReviewBlockers('page', 'blog', { title: 'Blog', targetKeyword: 'keyword' }, []), []);
   for (const kind of ['service', 'city']) {
-    assert.deepEqual(staffReviewBlockers('page', kind, { metaTitle: 'x'.repeat(61), metaDescription: 'x'.repeat(161) }, null), []);
+    assert.deepEqual(staffReviewBlockers('page', kind, { metaTitle: 'x'.repeat(61), metaDescription: 'x'.repeat(161) }, []), []);
   }
 });
 

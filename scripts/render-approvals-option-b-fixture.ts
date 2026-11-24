@@ -85,6 +85,10 @@ async function render() {
     };
     return item(index, payload, path);
   }));
+  const galleryVersion = gbpItems[5].version!;
+  const galleryPhotos = [galleryVersion.photo_path, gbpItems[0].version?.photo_path, gbpItems[1].version?.photo_path];
+  if (galleryPhotos.some(path => !path)) throw new Error('The GBP gallery fixture needs post6.jpg, post1.jpg, and post2.jpg.');
+  galleryVersion.photo_paths = galleryPhotos.filter((path): path is string => Boolean(path));
   const page: PagePayload = {
     schemaVersion: 1, pageKind: 'service', title: 'Electrical upgrades for Banning homes',
     slug: 'services/electrical', metaTitle: 'Electrical upgrades in Banning | ALL-IN-1', metaDescription: 'Plan panel upgrades, lighting, rewiring, and new circuits with our team.',
@@ -103,7 +107,7 @@ async function render() {
   );
   const css = [compiled.css, ...await Promise.all(['page-review.css', 'staff-review.css'].map(name => readFile(resolve('components/approvals-v2', name), 'utf8')))].join('\n');
   const formats = [
-    { name: 'desktop', data: gbp, selected: 'item-4', screen: 'list' },
+    { name: 'desktop', data: gbp, selected: 'item-6', screen: 'list' },
     { name: 'mobile-list', data: gbp, selected: 'item-4', screen: 'list' },
     { name: 'mobile-detail', data: gbp, selected: 'item-4', screen: 'detail' },
     { name: 'page-item', data: landing, selected: 'item-1', screen: 'detail' },

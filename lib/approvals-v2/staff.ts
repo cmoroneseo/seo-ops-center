@@ -3,7 +3,7 @@ import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { generateToken, hashToken } from '@/lib/approvals/token';
 import { approvalGroup, embeddedOne, linkState, parseListQuery, summarizeRows, uuid, type ApprovalRow } from './list';
-import { parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
+import { parseGbpPhotoPaths, parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
 import { isBotKeyToken, bearerToken } from '@/lib/bots/scope';
 export const json = (body: unknown, status = 200) => Response.json(body, {
   status,
@@ -178,6 +178,10 @@ export function mutation(action: string, dependencies = {
           error: parsed.error,
           code: 'invalid_request'
         }, 400);
+        if ('photoPaths' in item && ('outline' in parsed || !parseGbpPhotoPaths(item.photoPaths))) return json({
+          error: 'A GBP post can include up to 10 valid photos.',
+          code: 'invalid_request'
+        }, 400);
         items.push({
           ...item,
           payload: parsed.payload,
@@ -199,24 +203,10 @@ export function mutation(action: string, dependencies = {
       final: 'mark_gbp_approval_final',
       release: 'release_approval_revision'
     };
-    if (action === 'draft' && Object.keys(body).some(k => !['title', 'dueAt', 'questions', 'removeItemIds', 'itemOrder', 'items'].includes(k))) return json({
+    if (action === 'draft' && Object.keys(body).some(k => !['title', 'dueAt', 'questions', 'removeItemIds', 'itemOrder'].includes(k))) return json({
       error: 'Invalid draft patch.',
       code: 'invalid_request'
     }, 400);
-    if (action === 'draft' && 'items' in body) {
-      if (Buffer.byteLength(JSON.stringify(body)) > 4194304 || !Array.isArray(body.items)
-        || body.items.length !== 1 || Object.keys(body).length !== 1) {
-        return json({ error: 'Add one item at a time.', code: 'invalid_request' }, 400);
-      }
-      const item = body.items[0];
-      if (!item || !['gbp_post', 'page'].includes(item.itemType)
-        || item.photoPath != null && (typeof item.photoPath !== 'string' || !/^https:\/\/\S+$/.test(item.photoPath))) {
-        return json({ error: 'Invalid item.', code: 'invalid_request' }, 400);
-      }
-      const parsed = item.itemType === 'page' ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
-      if (!parsed.ok) return json({ error: parsed.error, code: 'invalid_request' }, 400);
-      body.items = [{ itemType: item.itemType, photoPath: item.photoPath ?? null, payload: parsed.payload, ...('outline' in parsed ? { outline: parsed.outline } : {}) }];
-    }
     const args: Record<string, unknown> = {
       p_actor: actor,
       p_request_id: id,

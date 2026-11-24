@@ -6,6 +6,7 @@ import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
 import { monthDay, offerRange, weekday } from '@/components/gbp-approvals/sample';
 import { nodeText, safeUrl, sanitizeDoc, type PageNode } from '@/lib/approvals-v2/page-doc';
 import { characterCount, gbpCharacterLimit, isPhoneCta, type ReviewStatus } from '@/lib/approvals-v2/staff-review';
+import { versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import { feedbackLabel } from '@/lib/internal-review/model';
 import { AgencyComments } from './AgencyComments';
 import { PagePreview } from './PagePreview';
@@ -49,6 +50,11 @@ function Meter({ length, limit, unit = 'characters' }: { length: number; limit: 
 
 function Facts({ rows }: { rows: [string, ReactNode][] }) {
   return <dl className="ar-facts">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>;
+}
+
+function FeedbackPhoto({ position, url }: { position?: number | null; url?: string | null }) {
+  if (!position) return null;
+  return <> · {url ? <a className="ar-fact-link" href={url} target="_blank" rel="noopener noreferrer">Photo {position}</a> : `Photo ${position}`}</>;
 }
 
 function wordCount(root: PageNode) {
@@ -99,15 +105,21 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
 }) {
   const [full, setFull] = useState(false);
   const [enlarge, setEnlarge] = useState(false);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const [failedPhoto, setFailedPhoto] = useState<string | null>(null);
   const photoTrigger = useRef<HTMLButtonElement>(null);
-  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [loadedPhoto, setLoadedPhoto] = useState<{ src: string; width: number; height: number } | null>(null);
   const payload = version.payload;
-  const photo = data.photos[version.photo_path ?? ''] ?? null;
   const client = data.request.clients;
   const type = itemTypeName(item, version);
   const title = payload.title || 'Untitled item';
   const isPage = item.item_type === 'page' && 'pageKind' in payload;
   const isGbp = item.item_type === 'gbp_post' && 'postType' in payload;
+  const photoPaths = isGbp ? versionPhotoPaths(version.photo_paths, version.photo_path) : [];
+  const photo = data.photos[isGbp ? photoPaths[photoIndex] : version.photo_path ?? ''] ?? null;
+  const photoUnavailable = !photo || failedPhoto === photo;
+  const dimensions = photo && loadedPhoto?.src === photo ? loadedPhoto : null;
+  const photoName = photoPaths.length > 1 ? `photo ${photoIndex + 1} of ${photoPaths.length}` : 'photo';
   let preview: ReactNode;
   let detail: ReactNode;
   let extra: ReactNode;
@@ -120,10 +132,43 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
     const body = payload.body ?? '';
     const cta = payload.ctaLabel ?? '';
     const planned = weekday(payload.scheduledDate);
+    const gallery = <div role={photoPaths.length > 1 ? 'group' : undefined} aria-label={photoPaths.length > 1 ? 'Post photos' : undefined}>
+      {!photoUnavailable ? <button type="button" className="ar-google-photo" ref={photoTrigger} onClick={() => setEnlarge(true)}
+        aria-label={`Enlarge ${photoName} for item ${position}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL. */}
+        <img key={photo} src={photo} alt="" referrerPolicy="no-referrer" onLoad={({ currentTarget }) => setLoadedPhoto({
+          src: photo, width: currentTarget.naturalWidth, height: currentTarget.naturalHeight,
+        })} onError={() => setFailedPhoto(photo)} />
+      </button> : <div className={`ar-google-placeholder${photoPaths.length ? ' ar-google-unavailable' : ''}`}>
+        <ImageIcon size={20} aria-hidden />
+        <strong>{photoPaths.length ? 'Photo unavailable' : 'Photo needed'}</strong>
+        {photo && <a className="ar-button ar-compact" href={photo} target="_blank" rel="noopener noreferrer">Open photo</a>}
+        {!photoPaths.length && canEdit && draft && <button type="button" className="ar-button ar-compact" onClick={event => edit(event.currentTarget)}>Add photo</button>}
+      </div>}
+      {photoPaths.length > 1 && <div className="ar-google-photo-picker">
+        {photoPaths.map((path, index) => <button type="button" key={index} className="ar-google-thumb"
+          aria-label={`Show photo ${index + 1} of ${photoPaths.length}`} aria-pressed={index === photoIndex}
+          onClick={() => setPhotoIndex(index)} onKeyDown={event => {
+            if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault();
+            const delta = event.key === 'ArrowRight' ? 1 : -1;
+            const next = (index + delta + photoPaths.length) % photoPaths.length;
+            setPhotoIndex(next);
+            event.currentTarget.parentElement?.querySelectorAll('button')[next]?.focus();
+          }}>
+          {data.photos[path] ? (
+            // eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL.
+            <img src={data.photos[path]} alt="" referrerPolicy="no-referrer" />
+          ) : <ImageIcon size={16} aria-hidden />}
+          <span>{index + 1}</span>
+        </button>)}
+      </div>}
+    </div>;
     preview = <>
       <GbpPostPreview clientName={client?.name ?? 'Client'} logoSrc={client?.logo_url ?? undefined}
-        post={{ ...payload, position, scheduled: payload.scheduledDate, offerStart: payload.offerStart ?? '', offerEnd: payload.offerEnd ?? '', photo, status: item.status }}
-        staff={{ itemNumber: position, onEnlarge: trigger => { photoTrigger.current = trigger; setEnlarge(true); }, onAddPhoto: canEdit && draft ? edit : undefined, onPhotoLoad: (width, height) => setDimensions({ width, height }) }} />
+        post={{ ...payload, position, scheduled: payload.scheduledDate, photo, status: item.status }}
+        staff={{ photo: gallery }} />
       <Meter length={characterCount(body)} limit={gbpCharacterLimit} />
     </>;
     detail = <Facts rows={[
@@ -131,7 +176,8 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
       ['Planned', planned ? `${planned}, ${payload.scheduledDate.slice(0, 4)}` : '—'],
       ...(range ? [['Offer runs', range] as [string, ReactNode]] : []),
       ['Button', cta ? (isPhoneCta(cta) ? `${cta} (business phone)` : cta) : '—'],
-      ['Photo', version.photo_path ? <span className="ar-positive"><Check size={14} aria-hidden />{dimensions ? `${dimensions.width} × ${dimensions.height}${dimensions.width * 3 === dimensions.height * 4 ? ', 4:3' : ''}` : photo ? 'Included' : 'Preview unavailable'}</span> : 'Photo needed'],
+      ['Photo', !photoPaths.length ? 'Photo needed' : photoUnavailable ? 'Preview unavailable' :
+        <span className="ar-positive"><Check size={14} aria-hidden />{dimensions ? `${dimensions.width} × ${dimensions.height}${dimensions.width * 3 === dimensions.height * 4 ? ', 4:3' : ''}` : 'Included'}</span>],
       ['Terms', payload.terms ? <span className="ar-positive"><Check size={14} aria-hidden />Included</span> : '—'],
       ['Version', `v${version.version_no}${!draft ? ' · Client preview' : version.version_no === 1 && data.botName ? ` · written by ${data.botName}` : ''}`],
     ]} />;
@@ -198,6 +244,8 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
     preview = <div className="ar-card p-4">{typeof payload.body === 'string' ? <p className="whitespace-pre-wrap">{payload.body}</p> : <p>Preview unavailable for this item type.</p>}</div>;
     detail = <Facts rows={[[ 'Content type', type ], [ 'Version', `v${version.version_no}` ]]} />;
   }
+  const clientComments = isGbp ? data.comments?.filter(comment =>
+    comment.item_id === item.id && !comment.parent_id && comment.author_kind === 'client') ?? [] : [];
   const feedback = data.internalFeedback?.filter(entry => entry.itemId === item.id) ?? [];
   const review = item.staffReview;
   const ownNote = review?.reviewer_id === data.actorId;
@@ -224,10 +272,18 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
           {canEdit && <button className="ar-button ar-text-button" onClick={event => editNote(event.currentTarget)}>Edit<span className="sr-only"> review note</span></button>}
         </div>}
         {extra}
+        {!!clientComments.length && <section className="ar-full-copy" aria-label="Client comments">
+          <h3>Client comments</h3>
+          <ul>{clientComments.map(comment => <li key={comment.id}>
+            <p><strong>{comment.author_name}</strong>{comment.versionNo && ` · Version ${comment.versionNo}`}
+              {comment.photo_position ? <FeedbackPhoto position={comment.photo_position} url={comment.photoUrl} /> : ' · Whole post'}</p>
+            <p className="whitespace-pre-wrap">{comment.body}</p>
+          </li>)}</ul>
+        </section>}
         {!!feedback.length && <section className="ar-full-copy" aria-label="Internal feedback">
           <h3>Internal feedback</h3>
           <ul>{feedback.map(entry => <li key={entry.id}>
-            <p><strong>{entry.reviewerName}</strong> · {feedbackLabel(entry.decision)}{entry.versionNo !== null && ` · Version ${entry.versionNo}`}</p>
+            <p><strong>{entry.reviewerName}</strong> · {feedbackLabel(entry.decision)}{entry.versionNo !== null && ` · Version ${entry.versionNo}`}<FeedbackPhoto position={entry.photoPosition} url={entry.photoUrl} /></p>
             {entry.comment && <p className="whitespace-pre-wrap">{entry.comment}</p>}
           </li>)}</ul>
         </section>}
@@ -239,7 +295,7 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
     </div>
     {enlarge && photo && <ReviewDialog title={title} onClose={() => setEnlarge(false)} restoreFocus={() => photoTrigger.current} className="sm:max-w-4xl">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="max-h-[72dvh] w-full object-contain" src={photo} alt={`Photo for ${title}`} />
+      <img className="max-h-[72dvh] w-full object-contain" src={photo} referrerPolicy="no-referrer" alt={`${photoName} for ${title}`} />
     </ReviewDialog>}
   </>;
 }
