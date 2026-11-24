@@ -6,12 +6,33 @@ import { sanitizeDoc } from './page-doc';
 import { imagePaths } from './page-body';
 import { staffContext, json } from './staff';
 import { linkState, uuid } from './list';
-import { canSendApproval, sendPermissionReason } from './permissions';
+import { canSendApproval, canWriteApproval, sendPermissionReason } from './permissions';
+import type { StaffReview } from './staff-review';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import type { ReviewDecision } from '@/lib/internal-review/model';
 import { signApprovalPhoto } from '@/lib/gbp-approvals/live';
+async function loadStaffReviews(admin: ReturnType<typeof createAdminClient>, orgId: string, requestId: string) {
+  const history: (StaffReview & { id: number; item_id: string })[] = [];
+  const pageSize = 500;
+  let before: number | undefined;
+  for (;;) {
+    let query = admin.from('approval_staff_reviews')
+      .select('id,item_id,version_id,decision,note,tags,reviewer_id,created_at,reviewer:users!approval_staff_reviews_reviewer_id_fkey(full_name)')
+      .eq('organization_id', orgId).eq('request_id', requestId).order('id', { ascending: false }).limit(pageSize);
+    if (before !== undefined) query = query.lt('id', before);
+    const result = await query;
+    if (result.error) return { history, unavailable: true };
+    for (const { reviewer, ...row } of result.data ?? []) {
+      const user = reviewer as unknown as { full_name: string | null } | null;
+      history.push({ ...row, reviewer_name: user?.full_name ?? null } as typeof history[number]);
+    }
+    if (!result.data || result.data.length < pageSize) return { history, unavailable: false };
+    before = result.data[result.data.length - 1].id;
+  }
+}
+
 export function createStaffDetail(dependencies = {
   agencyActor,
   createAdminClient,
@@ -53,7 +74,7 @@ export function createStaffDetail(dependencies = {
     }, 404);
     const r = result.data;
     if (r.clients) r.clients.logo_url = safeClientLogoUrl(r.clients.logo_url);
-    const [items, versions, responses, questions, events, link, comments, uploads, feedback] = await Promise.all([
+    const [items, versions, responses, questions, events, link, comments, uploads, feedback, staffReviews] = await Promise.all([
       admin.from('approval_items').select('*').eq('request_id', id).order('position'),
       admin.from('approval_item_versions').select('*').eq('request_id', id)
         .order('version_no', { ascending: false }),
@@ -70,6 +91,7 @@ export function createStaffDetail(dependencies = {
       r.item_type === 'gbp_post' ? admin.from('approval_internal_feedback')
         .select('id,item_id,version_id,reviewer_name,decision,comment,photo_position')
         .eq('organization_id', r.organization_id).eq('request_id', id).order('created_at').order('id') : null,
+      loadStaffReviews(admin, r.organization_id, id),
     ]);
     if ([items, versions, responses, questions, events, link, comments, uploads].some(v => v.error)) return json({
       error: 'Approvals could not be loaded.'
@@ -101,10 +123,20 @@ export function createStaffDetail(dependencies = {
     } | null;
     const botActor = await admin.from('approval_bot_actors').select('user_id').eq('user_id', actor).maybeSingle();
     const canSend = canSendApproval(role, actor, client?.account_manager_id, !!botActor.error || !!botActor.data);
+    const latest = new Map<string, StaffReview>();
+    for (const { item_id, ...entry } of staffReviews.history) {
+      const { decision, note, tags, reviewer_id, reviewer_name, created_at, version_id } = entry;
+      const review = { decision, note, tags, reviewer_id, reviewer_name, created_at, version_id };
+      const key = `${item_id}:${review.version_id}`;
+      if (!latest.has(key)) latest.set(key, review);
+    }
     return json({
       request: r,
+      staffReviewHistory: staffReviews.history,
+      staffReviewUnavailable: staffReviews.unavailable,
       items: (items.data ?? []).map(item => ({
         ...item,
+        staffReview: latest.get(`${item.id}:${item.current_version_id}`) ?? null,
         version: versions.data?.find(v => v.id === item.current_version_id) ?? null,
         releasedVersion: versions.data?.find(v => v.id === item.released_version_id) ?? null,
         response: responses.data?.find(v => v.item_id === item.id && v.version_id === (r.stage === 'sent' ? item.released_version_id : item.current_version_id)) ?? null
@@ -151,7 +183,7 @@ export function createStaffDetail(dependencies = {
         name: string;
       } | null)?.name ?? null,
       canSend,
-      canWrite: ['owner', 'admin', 'member'].includes(role ?? ''),
+      canWrite: canWriteApproval(role),
       sendReason: canSend ? null : sendPermissionReason,
       actorId: actor
     });

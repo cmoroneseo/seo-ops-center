@@ -83,6 +83,7 @@ export function PagePreview({
   decorateBlock,
   mockupTools,
   onMockupPin,
+  staffMode,
   domain = 'Your website'
 }: {
   payload: PagePayload;
@@ -92,7 +93,17 @@ export function PagePreview({
   decorateBlock?: (node: PageNode, children: ReactNode) => ReactNode;
   mockupTools?: ReactNode;
   onMockupPin?: () => void;
+  staffMode?: 'page' | 'blog';
 }) {
+  if (staffMode) return <article className="ar-page-preview" aria-label={staffMode === 'blog' ? 'Blog draft' : 'Page preview'}>
+    {staffMode === 'page' && photoUrl ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img className="ar-page-mockup" src={photoUrl} alt={payload.mockupAlt || `${payload.title} mockup`} />
+    ) : <div className="ar-page-document">
+      <h3>{payload.title}</h3>
+      <PageBody body={payload.body} images={images} />
+    </div>}
+  </article>;
   return <div className="page-review-content space-y-5">
     <section aria-label="Search preview" className="rounded-xl border border-[#E2E3DF] bg-white p-5 text-[#1A1A1A]">
       <h3 className="mb-3 font-semibold">How it shows in Google</h3>

@@ -15,7 +15,7 @@ interface Version {
   version_no: number;
   payload: GbpPostPayload;
   photo_path: string | null;
-  photo_paths?: string[];
+  photo_paths?: string[] | null;
   change_note: string | null;
   created_at: string;
 }
@@ -103,17 +103,21 @@ export function RevisionEditor({
   requestId,
   images,
   busy,
-  onPost
+  onPost,
+  draft
 }: {
   item: ApprovalItem;
   requestId: string;
   images: Record<string, string | null>;
   busy: boolean;
-  onPost: (entry: unknown) => Promise<void>;
+  onPost: (entry: unknown) => Promise<unknown>;
+  draft: boolean;
 }) {
   const version = item.version!;
   const [body, setBody] = useState(version.payload.body);
   const [note, setNote] = useState('');
+  const [title, setTitle] = useState(version.payload.title);
+  const [ctaUrl, setCtaUrl] = useState(version.payload.ctaUrl);
   const [photos, setPhotos] = useState(() => versionPhotoPaths(version.photo_paths, version.photo_path)
     .map(path => ({ path, src: images[path] ?? null })));
   const [uploading, setUploading] = useState(false);
@@ -168,6 +172,7 @@ export function RevisionEditor({
         body: response.suggested_body
       }) : {
         ...version.payload,
+        ...(draft ? { title, ctaUrl } : {}),
         body
       },
       photoPaths,
@@ -176,8 +181,11 @@ export function RevisionEditor({
       sourceResponseId: accept ? response?.id : null
     });
   }
-  return <details className="space-y-2 text-sm">
-    <summary className="cursor-pointer font-medium">Revise post · v{version.version_no + 1}</summary>
+  const fields = <>
+    {draft && <>
+      <label className="block">Post title<input value={title} maxLength={80} onChange={event => setTitle(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border p-2" /></label>
+      <label className="block">Button URL<input type="url" value={ctaUrl} onChange={event => setCtaUrl(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border p-2" /></label>
+    </>}
     <label className="block">Post text<textarea
       value={body}
       maxLength={2000}
@@ -220,7 +228,7 @@ export function RevisionEditor({
       <Button
         type="button"
         variant="outline"
-        disabled={busy || uploading || !note.trim() || !body.trim()}
+        disabled={busy || uploading || (draft ? !title.trim() : !note.trim()) || !body.trim()}
         onClick={() => void post(false)}>Post v{version.version_no + 1}</Button>
       {hasSuggestion && <Button
         type="button"
@@ -228,6 +236,10 @@ export function RevisionEditor({
         disabled={busy || uploading || !note.trim()}
         onClick={() => void post(true)}>Accept suggestion into v{version.version_no + 1}</Button>}
     </div>
-    <p className="text-xs text-muted-foreground">Client suggestions become a revision only when accepted. Re-share the same review link for approval.</p>
+    {!draft && <p className="text-xs text-muted-foreground">Client suggestions become a revision only when accepted. Re-share the same review link for approval.</p>}
+  </>;
+  return draft ? <div className="space-y-3 text-sm">{fields}</div> : <details className="space-y-2 text-sm">
+    <summary className="cursor-pointer font-medium">Revise post · v{version.version_no + 1}</summary>
+    {fields}
   </details>;
 }

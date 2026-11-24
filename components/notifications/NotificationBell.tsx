@@ -123,7 +123,7 @@ function NotificationRow({
 }
 
 // ── Main bell component ─────────────────────────────────────────────────────
-export function NotificationBell() {
+export function NotificationBell({ approvalReview = false }: { approvalReview?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -177,6 +177,7 @@ export function NotificationBell() {
             : 'text-muted-foreground hover:bg-accent/20 hover:text-foreground',
         )}
         title="Notifications"
+        aria-label={approvalReview ? `Notifications, ${unreadCount} unread` : undefined}
       >
         <Bell className="h-6 w-6" />
         {unreadCount > 0 && (

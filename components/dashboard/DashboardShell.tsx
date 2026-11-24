@@ -45,18 +45,19 @@ export function DashboardShell({
     const isWorkspace = pathname.startsWith('/workspace');
     const isPlanner = pathname.startsWith('/planner');
     const isCloseBoard = pathname.startsWith('/reports/close');
+    const isApprovalReview = /^\/approvals\/[^/]+\/?$/.test(pathname);
     const isTraining = pathname.startsWith('/training');
 
     return (
         <TimerProvider>
             <ToastGateProvider>
             <div className="staff-canvas flex h-screen overflow-hidden bg-background text-foreground">
-                {!isSetupPage && <Sidebar />}
-                {!isSetupPage && <MobileNav />}
-                <div className="flex flex-1 min-w-0 flex-col">
-                    {!isSetupPage && <TopNav />}
+                {!isSetupPage && !isApprovalReview && <Sidebar />}
+                {!isSetupPage && !isApprovalReview && <MobileNav />}
+                <div className={cn("flex flex-1 min-w-0 flex-col", isApprovalReview && "ar-shell")}>
+                    {!isSetupPage && <TopNav approvalReview={isApprovalReview} />}
                     <div className="flex flex-1 min-h-0">
-                        <main className={cn(
+                        <main data-approval-scroll={isApprovalReview ? "" : undefined} className={cn(
                             "flex-1 min-w-0 overflow-y-auto",
                             // Classic scrollbars are ~15px. Without a stable gutter, opening
                             // Roadmap or Overview shows the bar and shifts the right-aligned
@@ -66,6 +67,8 @@ export function DashboardShell({
                                 ? "flex flex-col items-center justify-center"
                                 // The planner manages its own scrolling and rails, so it opts out
                                 // of the page padding entirely.
+                                : isApprovalReview
+                                    ? "p-0 ar-shell-scroll"
                                 : isPlanner || isCloseBoard
                                     ? "overflow-hidden p-0 pt-14 lg:pt-0"
                                     : isTraining
