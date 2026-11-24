@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backgroundHistoryDates, backgroundWindowLength, planBackgroundDays, planV2Backfill, retryDelaySeconds, V2_BACKFILL_HISTORY_DAYS, V2_REQUEST_GAP_MS } from './background';
+import { backgroundHistoryDates, backgroundWindowLength, planBackgroundDays, planOlderFinalDay, planV2Backfill, retryDelaySeconds, V2_BACKFILL_HISTORY_DAYS, V2_REQUEST_GAP_MS } from './background';
 import { dateOffset } from './history';
 const now = new Date('2026-10-01T18:00:00Z');
 test('background history spans 480 dates, Pacific dates including today newest first', () => {
@@ -75,6 +75,37 @@ test('the newest stale day cannot repeatedly displace older recent revisions', (
         is_incomplete: false,
     }));
     assert.deepEqual(planBackgroundDays(dates, existing, now, 2), [dates[1], dates[7]]);
+});
+
+test('older final re-check rotates by import age among dates outside the recent window and within 90 days', () => {
+    const dates = backgroundHistoryDates(now);
+    const days = dates.map(data_date => ({ data_date, imported_at: now.toISOString(), is_incomplete: false }));
+    const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+    days[6].imported_at = '2026-09-01T00:00:00Z'; // Recent work only.
+    days[7].imported_at = weekAgo;
+    days[8].imported_at = new Date(Date.parse(weekAgo) + 1).toISOString();
+    days[9].imported_at = '2026-09-01T00:00:00Z';
+    days[9].is_incomplete = true;
+    days[89].imported_at = '2026-09-02T00:00:00Z';
+    days[90].imported_at = '2026-09-01T00:00:00Z';
+
+    assert.deepEqual(planBackgroundDays(dates, days, now), [dates[9], dates[6]]);
+    assert.equal(planOlderFinalDay(dates, days, now), dates[89]);
+    days[89].imported_at = now.toISOString();
+    assert.equal(planOlderFinalDay(dates, days, now), dates[7]);
+    days[7].imported_at = now.toISOString();
+    assert.equal(planOlderFinalDay(dates, days, now), null);
+});
+
+test('older final re-check is separate from the priority work that keeps a claim pending', () => {
+    const dates = backgroundHistoryDates(now, 14);
+    const days = dates.filter((_, index) => index !== 10).map((data_date, index) => ({
+        data_date, imported_at: index === 7 ? '2026-09-01T00:00:00Z' : now.toISOString(), is_incomplete: false,
+    }));
+    assert.deepEqual(planBackgroundDays(dates, days, now, 1), [dates[10]]);
+    days.push({ data_date: dates[10], imported_at: now.toISOString(), is_incomplete: false });
+    assert.deepEqual(planBackgroundDays(dates, days, now, 1), []);
+    assert.equal(planOlderFinalDay(dates, days, now), dates[7]);
 });
 
 test('the 486-day window is separate from the daily 480-day sync', () => {

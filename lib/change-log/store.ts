@@ -109,10 +109,11 @@ async function rows(query: PromiseLike<{ data: Row[] | null; error: { code?: str
 
 async function* rowPages(read: (start: number, end: number) => Parameters<typeof rows>[0]) {
     const pageSize = 1000;
-    for (let start = 0; ; start += pageSize) {
+    for (let start = 0; ;) {
         const page = await rows(read(start, start + pageSize - 1));
+        if (page.length === 0) break;
         yield page;
-        if (page.length < pageSize) break;
+        start += page.length;
     }
 }
 
@@ -306,9 +307,13 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     const controlCandidates = [...new Set(changes.flatMap(change => change.controlUrls ?? []).flatMap(gscPageCandidates))];
     const pageCandidates = [...new Set([...candidates, ...controlCandidates])];
     const queryNeedles = [...new Set(changes.flatMap(change => change.queries.map(query => query.normalized)))];
-    const detailSpan = detail ? { start: baselineWindow(detail.liveOn).start, end: afterWindow(detail.liveOn, 56).end } : null;
-    const detailDayIds = detailSpan ? historyDays.filter(day => !day.preliminary
-        && day.date >= detailSpan.start && day.date <= detailSpan.end && day.date !== detail?.liveOn).map(day => day.id) : [];
+    const detailBaseline = detail ? baselineWindow(detail.liveOn) : null;
+    const detailAfter = detail ? afterWindow(detail.liveOn, 56) : null;
+    const baselineDayIds = detailBaseline ? historyDays.filter(day => !day.preliminary
+        && day.date >= detailBaseline.start && day.date <= detailBaseline.end).map(day => day.id) : [];
+    const afterDayIds = detailAfter ? historyDays.filter(day => !day.preliminary
+        && day.date >= detailAfter.start && day.date <= detailAfter.end).map(day => day.id) : [];
+    const detailDayIds = [...baselineDayIds, ...afterDayIds];
     const positionChanges = changes.filter(change => (detail || change.kpi === 'avg_position') && !change.controlUrls?.length);
     const positionWindows = positionChanges
         .map(change => ({ start: baselineWindow(change.liveOn).start, live: change.liveOn, end: afterWindow(change.liveOn, 56).end }));
@@ -317,15 +322,16 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     const paths = [...new Set(changes.flatMap(change => [
         ...change.pages.map(page => page.url), ...(change.controlUrls ?? []),
     ]).flatMap(url => ga4PathFor(url) ?? []))];
-    const [pageFacts, propertyFacts, queryFacts, ga, siteQueryFacts, taggedPageFacts, sitePageFacts] = await Promise.all([
+    const [pageFacts, propertyFacts, baselineQueryFacts, trackedQueryFacts, ga, siteQueryFacts, taggedPageFacts, sitePageFacts] = await Promise.all([
         dayIds.length && pageCandidates.length
             ? facts(db, dayIds, 'page', { pages: pageCandidates })
             : Promise.resolve([]),
         dayIds.length ? facts(db, dayIds, 'property') : Promise.resolve([]),
-        dayIds.length && candidates.length && queryNeedles.length
-            ? (detail
-                ? facts(db, detailDayIds, 'query_page', { pages: candidates })
-                : facts(db, dayIds, 'query_page', { pages: candidates, queries: queryNeedles }))
+        baselineDayIds.length && candidates.length && queryNeedles.length
+            ? facts(db, baselineDayIds, 'query_page', { pages: candidates })
+            : Promise.resolve([]),
+        candidates.length && queryNeedles.length
+            ? facts(db, detail ? afterDayIds : dayIds, 'query_page', { pages: candidates, queries: queryNeedles })
             : Promise.resolve([]),
         ga4Property ? ga4Rows(db, organizationId, clientId, ga4Property, span, paths) : Promise.resolve({ pages: [], site: [] }),
         detailDayIds.length && queryNeedles.length
@@ -345,7 +351,7 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
         pageFacts,
         restPositionFacts: { changes: new Set(positionChanges.map(change => change.id)), rows: sitePageFacts },
         propertyFacts,
-        queryFacts,
+        queryFacts: [...baselineQueryFacts, ...trackedQueryFacts],
         ga4Pages: ga.pages,
         ga4Site: ga.site,
     });
@@ -353,7 +359,7 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
         change: detail,
         impact: impacts[detail.id],
         days: historyDays,
-        pageQueryFacts: queryFacts,
+        pageQueryFacts: baselineQueryFacts,
         siteQueryFacts,
         taggedPageFacts,
     });
@@ -480,21 +486,31 @@ function baselineSnapshot(change: SeoChange, loaded: Awaited<ReturnType<typeof l
 }
 
 async function readBaselineNote(db: Admin, organizationId: string, change: SeoChange, loaded: Awaited<ReturnType<typeof loadImpacts>>, now: Date) {
-    const { data: saved } = await db.from('seo_change_baselines').select('note, status, estimate, payload, captured_at, data_through')
+    const readSaved = () => db.from('seo_change_baselines').select('note, status, estimate, payload, captured_at, data_through')
         .eq('change_id', change.id).eq('organization_id', organizationId).eq('client_id', change.clientId)
         .maybeSingle();
+    let { data: saved } = await readSaved();
     if (!saved) return null;
 
     const current = baselineSnapshot(change, loaded, now);
-    const savedDays = num(saved.payload?.daysPresent);
-    const incomplete = saved.status !== 'captured' || saved.estimate === true
-        || savedDays < current.payload.daysExpected || text(saved.data_through) < baselineWindow(change.liveOn).end;
-    if (incomplete && current.status === 'captured') {
-        // A concurrent detail read may already have replaced this version.
-        const { error } = await db.from('seo_change_baselines').update(current)
+    const baselineEnd = baselineWindow(change.liveOn).end;
+    for (;;) {
+        const savedDays = num(saved.payload?.daysPresent);
+        const complete = saved.status === 'captured' && saved.estimate !== true
+            && savedDays >= current.payload.daysExpected && text(saved.data_through) >= baselineEnd;
+        if (complete || current.payload.daysPresent <= savedDays) break;
+
+        // Always advance the version, even when detail reads share a clock tick.
+        const capturedAt = new Date(Math.max(now.getTime(), Date.parse(saved.captured_at) + 1)).toISOString();
+        const { data: updated, error } = await db.from('seo_change_baselines').update({ ...current, captured_at: capturedAt })
             .eq('change_id', change.id).eq('organization_id', organizationId).eq('client_id', change.clientId)
-            .eq('captured_at', saved.captured_at);
-        if (!error) return plainStartingPointNote(current.note, current.status);
+            .eq('captured_at', saved.captured_at).select('note, status').maybeSingle();
+        if (updated) return plainStartingPointNote(updated.note, updated.status);
+        if (error) break;
+
+        const { data: latest } = await readSaved();
+        if (!latest || latest.captured_at === saved.captured_at) break;
+        saved = latest;
     }
     return plainStartingPointNote(text(saved.note), text(saved.status));
 }

@@ -216,6 +216,11 @@ test('detail explains the low-click metric, sparse terms and separate GBP rates'
                         before: 7,
                         after: 1,
                         betterPages: [{ period: 'before', url: 'https://www.ecoworkz.net/corona-ca/', position: 2, pagePosition: 16 }],
+                    }, {
+                        query: 'corona landscaping',
+                        before: 0,
+                        after: 0,
+                        betterPages: [{ period: 'after', url: 'https://www.ecoworkz.net/corona-ca/', position: 2, pagePosition: null }],
                     }],
                     suggestions: [{ query: 'hardscape contractors', impressions: 93, position: 10.4 }],
                 },
@@ -238,7 +243,7 @@ test('detail explains the low-click metric, sparse terms and separate GBP rates'
     assert.match(markup, /7 before the change/);
     assert.match(markup, /1 after the change/);
     assert.match(markup, /ranks higher/);
-    assert.match(markup, /\/corona-ca\//);
+    assert.match(markup, /The test page didn(?:'|&#x27;|&apos;)t show for this search after the change\. \/corona-ca\/ ranks about #2\./);
     assert.match(markup, /93 impressions/);
     assert.match(markup, /10.4/);
     assert.match(markup, /Google Business Profile link/);
