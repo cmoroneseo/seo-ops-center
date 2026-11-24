@@ -1,4 +1,4 @@
--- Migration 146: Staff decisions during draft review, independent of client decisions and internal review links.
+-- Migration 147: Staff decisions during draft review, independent of client decisions and internal review links.
 
 create table public.approval_staff_reviews (
   id bigint generated always as identity primary key,

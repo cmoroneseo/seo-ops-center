@@ -22822,7 +22822,7 @@ revoke all on function public.approval_replace_primary_photo(text, text[]) from 
 revoke all on function public.submit_approval_internal_feedback(text, uuid, uuid, text, text, text, text, timestamptz, integer) from public, anon, authenticated;
 grant execute on function public.submit_approval_internal_feedback(text, uuid, uuid, text, text, text, text, timestamptz, integer) to service_role;
 
--- Migration 146: Staff decisions during draft review, independent of client decisions and internal review links.
+-- Migration 147: Staff decisions during draft review, independent of client decisions and internal review links.
 
 create table public.approval_staff_reviews (
   id bigint generated always as identity primary key,

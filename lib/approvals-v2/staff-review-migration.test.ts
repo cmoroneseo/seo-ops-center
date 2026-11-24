@@ -5,9 +5,9 @@ import { database, call, post, org, otherOrg, owner, member, viewer, client, tas
 
 const internalLinksMigration = readFileSync(new URL('../../migrations/144_approval_internal_review_links.sql', import.meta.url), 'utf8');
 const multiPhotoMigration = readFileSync(new URL('../../migrations/145_gbp_approval_multi_photo.sql', import.meta.url), 'utf8');
-const migration = readFileSync(new URL('../../migrations/146_approval_staff_reviews.sql', import.meta.url), 'utf8');
+const migration = readFileSync(new URL('../../migrations/147_approval_staff_reviews.sql', import.meta.url), 'utf8');
 
-test('146 records isolated staff decisions and enforces grants, draft status, roles and current versions', async t => {
+test('147 records isolated staff decisions and enforces grants, draft status, roles and current versions', async t => {
   const db = await database();
   t.after(() => db.close());
   await db.exec("alter table public.users add column full_name text; update public.users set full_name = 'Review Owner'; alter table public.bot_api_keys add column revoked_at timestamptz");
