@@ -38,9 +38,12 @@ const pages = [
     '',
 ];
 
-test('migration 141 is appended verbatim to the schema', () => {
+test('migration 141 is mirrored verbatim and starts with a lock timeout without a backfill or index build', () => {
     assert.match(migration141, /NOT APPLIED — needs owner approval/);
-    assert.ok(schema.endsWith(migration141));
+    assert.ok(schema.includes(`${migration141}\n-- Migration 142:`));
+    const sql = migration141.replace(/--[^\n]*/g, '').trimStart();
+    assert.match(sql, /^set local lock_timeout = '5s';/i);
+    assert.doesNotMatch(sql, /\bdo\s+\$\$|\bcreate\s+index\b|\bbackfill_gsc_history_page_key\(/i);
 });
 
 test('migration 141 matches migration 140 with stored keys, fallback, and backfill', async () => {
@@ -53,6 +56,7 @@ test('migration 141 matches migration 140 with stored keys, fallback, and backfi
     const selectedDays = dayIds.slice(0, -1);
     const rpc140 = 'select * from public.seo_change_rest_position_v140($1, $2, $3, $4, $5)';
     const rpc141 = 'select * from public.seo_change_rest_position($1, $2, $3, $4, $5)';
+    const procedure = 'call public.run_gsc_history_page_key_backfill';
     const exclusions = [[], ['example.com/'], ['example.com/about'], ['example.com/café'], ['example.com/about', null], null];
 
     const addFact = (dayId: string, page: string, impressions: number, surface: string | null = 'organic', grain = 'page') =>
@@ -60,6 +64,15 @@ test('migration 141 matches migration 140 with stored keys, fallback, and backfi
             insert into public.gsc_history_facts (day_id, grain, page, clicks, impressions, position, surface)
             values ($1, $2, $3, 1, $4, 2.5, $5) returning id
         `, [dayId, grain, page, impressions, surface]);
+
+    const pendingPageIds = async () => (await db.query<{ id: number }>(`
+        select id from public.gsc_history_facts where grain = 'page' and page_gbp_tagged is null order by id
+    `)).rows.map(row => row.id);
+
+    const backfill = async (afterId: number | null, limit: number | null) => (await db.query<{
+        updated: number;
+        last_id: number | null;
+    }>('select * from public.backfill_gsc_history_page_key_batch($1, $2)', [afterId, limit])).rows[0];
 
     const expectSameResults = async () => {
         for (const keys of exclusions) {
@@ -111,15 +124,14 @@ test('migration 141 matches migration 140 with stored keys, fallback, and backfi
             values (100001, $1, 'page', 'https://example.com/%61bout', 2, 20, 3.5, 'organic')
         `, [dayIds[1]]);
 
-        await db.exec(migration141);
-        const wrongBackfill = await db.query(`
-            select id from public.gsc_history_facts
-            where (grain = 'page' and (
-                page_key is distinct from public.seo_change_page_key(page)
-                or page_gbp_tagged is distinct from public.seo_change_page_gbp_tagged(page)
-            )) or (grain <> 'page' and (page_key is not null or page_gbp_tagged is not null))
-        `);
-        assert.deepEqual(wrongBackfill.rows, []);
+        const originalPageIds = (await db.query<{ id: number }>(`
+            select id from public.gsc_history_facts where grain = 'page' order by id
+        `)).rows.map(row => row.id);
+        await db.exec(`begin; ${migration141} commit;`);
+        assert.deepEqual(await pendingPageIds(), originalPageIds);
+        assert.deepEqual((await db.query(`
+            select id from public.gsc_history_facts where page_key is not null or page_gbp_tagged is not null
+        `)).rows, []);
 
         // Project the inline 140 expressions over the URL corpus, without the RPC filters.
         const legacyKey = migration140.match(/and \(\s*(regexp_replace[\s\S]+?)\s*= any\(p_excluded_page_keys\)/)?.[1];
@@ -151,7 +163,8 @@ test('migration 141 matches migration 140 with stored keys, fallback, and backfi
             await assert.rejects(db.query(rpc141, [organization, client, property, selectedDays, []]), /permission denied for function/);
             await assert.rejects(db.query("select public.seo_change_page_key('https://example.com')"), /permission denied for function/);
             await assert.rejects(db.query("select public.seo_change_page_gbp_tagged('https://example.com')"), /permission denied for function/);
-            await assert.rejects(db.query('select public.backfill_gsc_history_page_key(1, 2)'), /permission denied for function/);
+            await assert.rejects(backfill(null, 2), /permission denied for function/);
+            await assert.rejects(db.exec(`${procedure}(null::bigint, 2, 1)`), /permission denied for procedure/);
             await assert.rejects(db.query('select public.set_gsc_history_page_key()'), /permission denied for function/);
         }
         await db.exec('set role service_role');
@@ -163,24 +176,86 @@ test('migration 141 matches migration 140 with stored keys, fallback, and backfi
             assert.deepEqual((await db.query(rpc141, args)).rows, legacy);
         }
 
-        const backfill = async (from: number, to: number) =>
-            (await db.query<{ count: number }>('select public.backfill_gsc_history_page_key($1, $2) as count', [from, to])).rows[0].count;
-        assert.equal(await backfill(1, 100001), 0);
-        await assert.rejects(backfill(1, 100002), /positive span of at most 100000 ids/);
+        for (const limit of [0, 5001, null]) {
+            await assert.rejects(backfill(null, limit), /limit must be between 1 and 5000/);
+        }
 
-        const missing = await db.query(`
-            update public.gsc_history_facts set page_key = null, page_gbp_tagged = null
-            where grain = 'page' and day_id = $1 returning id
-        `, [dayIds[0]]);
-        await db.exec('update public.gsc_history_facts set page_key = null, page_gbp_tagged = null where id = 100001');
+        // A freshly ingested URL can have a null key while its tag marks it as computed.
+        const computed = (await addFact(dayIds[7], 'not a URL', 1)).rows[0];
+        const untouchedRows = async () => (await db.query(`
+            select id, page_key, page_gbp_tagged, xmin::text as transaction_id
+            from public.gsc_history_facts where grain <> 'page' or id = $1 order by id
+        `, [computed.id])).rows;
+        const beforeBackfill = await untouchedRows();
+        assert.deepEqual(beforeBackfill.map(({ page_key, page_gbp_tagged }) => [page_key, page_gbp_tagged]), [
+            [null, null], [null, null], [null, false],
+        ]);
+
+        // A cursor above pending IDs leaves those rows for the next pass.
+        assert.deepEqual(await backfill(100000, 2), { updated: 1, last_id: 100001 });
+        const remaining = originalPageIds.slice(0, -1);
+        assert.deepEqual(await pendingPageIds(), remaining);
         await expectSameResults();
-        assert.equal(await backfill(1, 100001), missing.rows.length);
-        assert.equal(await backfill(1, 100001), 0);
-        assert.equal(await backfill(100001, 100002), 1);
+
+        let lastId: number | null = null;
+        for (let offset = 0; offset < 6; offset += 2) {
+            const batch = await backfill(lastId, 2);
+            assert.deepEqual(batch, { updated: 2, last_id: remaining[offset + 1] });
+            lastId = batch.last_id;
+            assert.deepEqual(await pendingPageIds(), remaining.slice(offset + 2));
+            await expectSameResults();
+        }
+        assert.deepEqual(await backfill(lastId, 5000), { updated: remaining.length - 6, last_id: remaining.at(-1) });
+        assert.deepEqual(await pendingPageIds(), []);
+        assert.deepEqual(await backfill(null, 2), { updated: 0, last_id: null });
         await expectSameResults();
+        assert.deepEqual(await untouchedRows(), beforeBackfill);
         assert.deepEqual((await db.query(`
-            select distinct page_key, page_gbp_tagged from public.gsc_history_facts where grain <> 'page'
-        `)).rows, [{ page_key: null, page_gbp_tagged: null }]);
+            select id from public.gsc_history_facts
+            where grain = 'page' and (
+                page_key is distinct from public.seo_change_page_key(page)
+                or page_gbp_tagged is distinct from public.seo_change_page_gbp_tagged(page)
+            )
+        `)).rows, []);
+
+        const retryIds = originalPageIds.slice(0, 5);
+        await db.query(`
+            update public.gsc_history_facts set page_key = null, page_gbp_tagged = null where id = any($1::bigint[])
+        `, [retryIds]);
+        for (const maxBatches of [0, 201, null]) {
+            await assert.rejects(db.query(`${procedure}(null, 2, $1)`, [maxBatches]), /max batches must be between 1 and 200/);
+        }
+        await assert.rejects(db.exec(`${procedure}(null, 0, 1)`), /limit must be between 1 and 5000/);
+        assert.deepEqual(await pendingPageIds(), retryIds);
+
+        const notices: (string | undefined)[] = [];
+        const onNotice = ({ message }: { message: string | undefined }) => { notices.push(message); };
+        await db.exec(`${procedure}(p_batch_size => 2, p_max_batches => 2)`, { onNotice });
+        assert.deepEqual(await pendingPageIds(), retryIds.slice(4));
+        const { rows: batches } = await db.query<{ ids: number[] }>(`
+            select array_agg(id order by id) as ids from public.gsc_history_facts
+            where id = any($1::bigint[]) and page_gbp_tagged is not null
+            group by xmin::text order by min(id)
+        `, [retryIds]);
+        assert.deepEqual(batches.map(row => row.ids), [retryIds.slice(0, 2), retryIds.slice(2, 4)]);
+        await expectSameResults();
+        const resumeAfter = notices[0]?.match(/last id (\d+)$/)?.[1];
+        assert.ok(resumeAfter);
+        // Model a row left pending by SKIP LOCKED below the reported cursor.
+        const skippedId = retryIds[0];
+        await db.query(`
+            update public.gsc_history_facts set page_key = null, page_gbp_tagged = null where id = $1
+        `, [skippedId]);
+        await db.exec(`${procedure}(p_after_id => ${resumeAfter}, p_batch_size => 2)`, { onNotice });
+        assert.deepEqual(await pendingPageIds(), [skippedId]);
+        await db.exec(`${procedure}(p_after_id => null, p_batch_size => 2)`, { onNotice });
+        assert.deepEqual(await pendingPageIds(), []);
+        assert.deepEqual(notices, [
+            `page key backfill: 2 batches, 4 rows, last id ${retryIds[3]}`,
+            `page key backfill: 1 batches, 1 rows, last id ${retryIds[4]}`,
+            `page key backfill: 1 batches, 1 rows, last id ${skippedId}`,
+        ]);
+        await expectSameResults();
 
         const stored = await db.query(`
             select public.seo_change_page_key('http://www.example.com/Start/') as page_key,
