@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useRef, useState, type FormEvent } from 'react';
+import React, { useRef, useState, type FormEvent } from 'react';
+import { PhotoGallery } from '@/components/gbp-approvals/PhotoGallery';
 import { isCalendarDate } from '@/lib/gbp-approvals/registry';
 import { UNAVAILABLE_REVIEW, feedbackLabel, reviewDecisions, type InternalReviewPost, type InternalReviewView } from '@/lib/internal-review/model';
 
@@ -37,20 +38,6 @@ export function InternalReview({ view, token }: { view: InternalReviewView | nul
     );
 }
 
-function Photo({ src }: { src: string }) {
-    const [failed, setFailed] = useState(false);
-    const image = useRef<HTMLImageElement>(null);
-    useEffect(() => {
-        if (image.current?.complete && !image.current.naturalWidth) setFailed(true);
-    }, []);
-    if (failed) return (
-        <a href={src} target="_blank" rel="noopener noreferrer" className="inline-block text-sm font-medium text-teal-800 underline">Open photo</a>
-    );
-    // The browser loads the URL directly, including Drive thumbnails.
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img ref={image} src={src} alt="Draft post photo" referrerPolicy="no-referrer" loading="lazy" onError={() => setFailed(true)} className="block h-auto w-full rounded-lg border border-slate-200" />;
-}
-
 function ReviewPost({ post, token, reviewerName, onNameChange }: {
     post: InternalReviewPost;
     token?: string;
@@ -58,11 +45,14 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
     onNameChange: (name: string) => void;
 }) {
     const [decision, setDecision] = useState<keyof typeof reviewDecisions>('approved');
+    const [photoPosition, setPhotoPosition] = useState<number | null>(null);
     const [feedback, setFeedback] = useState(post.feedback);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
     const lastAttempt = useRef<{ body: string; key: string } | null>(null);
+    const sources = post.photoSrcs ?? (post.photoSrc ? [post.photoSrc] : []);
+    const commentRequired = decision !== 'approved' || photoPosition !== null;
     const { scheduledDate, offerStart, offerEnd } = post;
     const showScheduledDate = Boolean(scheduledDate && isCalendarDate(scheduledDate));
     const showOfferDates = Boolean(
@@ -79,6 +69,7 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
             reviewerName: reviewerName.trim(),
             decision: decision === 'comment' ? null : decision,
             comment: String(new FormData(form).get('comment') ?? '').trim() || null,
+            photoPosition,
         };
         const body = JSON.stringify(entry);
         if (lastAttempt.current?.body !== body) lastAttempt.current = { body, key: crypto.randomUUID() };
@@ -100,6 +91,7 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
             lastAttempt.current = null;
             form.reset();
             setDecision('approved');
+            setPhotoPosition(null);
             setNotice('Feedback saved.');
         } catch {
             setError('Feedback could not be saved. Try again.');
@@ -110,7 +102,7 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
 
     return (
         <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className={`grid gap-5 p-5 sm:p-6 ${post.photoSrc ? 'sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : ''}`}>
+            <div className={`grid gap-5 p-5 sm:p-6 ${sources.length ? 'sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : ''}`}>
                 <div className="min-w-0 space-y-3">
                     <p className="text-sm font-medium text-teal-800">Post {post.position}{post.postType && <> · <span className="capitalize">{post.postType}</span></>}</p>
                     <h3 className="text-xl font-semibold wrap-break-word">{post.title}</h3>
@@ -127,14 +119,14 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
                         </p>
                     )}
                 </div>
-                {post.photoSrc && <Photo key={post.photoSrc} src={post.photoSrc} />}
+                {sources.length > 0 && <PhotoGallery sources={sources} />}
             </div>
             <div className="space-y-4 border-t border-slate-200 bg-[#fafcfb] p-5 sm:p-6">
                 {feedback.length > 0 && (
                     <ul className="space-y-2" aria-label="Internal feedback">
                         {feedback.map((entry, index) => (
                             <li className="rounded-lg border border-slate-200 bg-white p-3 text-sm wrap-break-word" key={index}>
-                                <p><strong>{entry.reviewerName}</strong> · {feedbackLabel(entry.decision)}</p>
+                                <p><strong>{entry.reviewerName}</strong> · {feedbackLabel(entry.decision)}{entry.photoPosition && ` · Photo ${entry.photoPosition}`}</p>
                                 {entry.comment && <p className="mt-1 whitespace-pre-wrap text-slate-700">{entry.comment}</p>}
                             </li>
                         ))}
@@ -153,9 +145,16 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
                             </select>
                         </label>
                     </div>
+                    {sources.some(Boolean) && <label className="grid gap-1 text-sm font-medium">
+                        Comment on
+                        <select className={field} value={photoPosition ?? ''} onChange={event => setPhotoPosition(Number(event.target.value) || null)}>
+                            <option value="">Whole post</option>
+                            {sources.map((src, index) => <option key={index} value={index + 1} disabled={!src}>Photo {index + 1}</option>)}
+                        </select>
+                    </label>}
                     <label className="grid gap-1 text-sm font-medium">
-                        {decision === 'approved' ? 'Comment (optional)' : 'Comment'}
-                        <textarea className={field} name="comment" rows={2} maxLength={4000} required={decision !== 'approved'} />
+                        {commentRequired ? 'Comment' : 'Comment (optional)'}
+                        <textarea className={field} name="comment" rows={2} maxLength={4000} required={commentRequired} />
                     </label>
                     <button disabled={!token || busy} className="min-h-10 rounded-lg bg-[#123331] px-4 text-sm font-semibold text-white hover:bg-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50">
                         {busy ? 'Saving…' : 'Save internal feedback'}

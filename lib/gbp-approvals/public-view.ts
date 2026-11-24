@@ -1,8 +1,14 @@
 import { createHash } from 'node:crypto';
+import { versionPhotoPaths } from './photos';
 
 export { PUBLIC_REVIEW_HEADERS } from './public-headers';
 
 export type ReviewState = 'active' | 'expired' | 'revoked';
+
+export interface GbpPhotoComment {
+    body: string;
+    photoPosition: number | null;
+}
 
 export interface PublicPostView {
     id: string;
@@ -21,8 +27,10 @@ export interface PublicPostView {
     ctaLabel: string;
     terms: string;
     photoSrc: string | null;
+    photoSrcs: (string | null)[];
+    comments: GbpPhotoComment[];
     changeNote: string | null;
-    previous: { body: string; photoSrc: string | null } | null;
+    previous: { body: string; photoSrc: string | null; photoSrcs: (string | null)[] } | null;
     decision: { decision: string; comment: string | null; suggestedTitle: string | null; suggestedBody: string | null } | null;
 }
 
@@ -115,6 +123,25 @@ function text(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
 }
 
+export function publicVersionPhotoPaths(value: unknown): readonly string[] {
+    const version = asRecord(value);
+    const paths = version?.photoPaths;
+    return versionPhotoPaths(Array.isArray(paths) && paths.every(path => typeof path === 'string') ? paths : undefined,
+        text(version?.photoPath));
+}
+
+/** Paths returned by an active review RPC, including the legacy replacement suggestion. */
+export function publicReviewPhotoPaths(raw: unknown): string[] {
+    const review = asRecord(raw);
+    if (review?.ok === false || review?.state !== 'active' || !Array.isArray(review.items)) return [];
+    return [...new Set(review.items.flatMap(value => {
+        const item = asRecord(value);
+        const version = asRecord(item?.version);
+        const replacement = text(asRecord(item?.decision)?.replacementPhotoPath);
+        return [...publicVersionPhotoPaths(version), ...publicVersionPhotoPaths(version?.previous), ...(replacement ? [replacement] : [])];
+    }))];
+}
+
 /**
  * Copies only the fields the client page is allowed to render.
  * Storage paths, tokens, organization ids, emails, and IP hashes never leave here.
@@ -137,8 +164,17 @@ export function projectPublicReview(
             const previous = asRecord(version.previous);
             const previousPayload = asRecord(previous?.payload);
             const decision = asRecord(record.decision);
-            const photoPath = text(version.photoPath);
-            const previousPhoto = text(previous?.photoPath);
+            const photoSrcs = publicVersionPhotoPaths(version).map(photoSrcFor);
+            const previousPhotoSrcs = publicVersionPhotoPaths(previous).map(photoSrcFor);
+            const comments = Array.isArray(record.comments) ? record.comments.flatMap<GbpPhotoComment>(value => {
+                const comment = asRecord(value);
+                const body = text(comment?.body);
+                const position = comment?.photoPosition;
+                if (!body) return [];
+                if (position == null) return [{ body, photoPosition: null }];
+                if (typeof position !== 'number' || !Number.isInteger(position) || position < 1 || position > photoSrcs.length) return [];
+                return [{ body, photoPosition: position }];
+            }) : [];
             const replacement = text(decision?.replacementPhotoPath);
             return [{
                 id: String(record.id),
@@ -156,11 +192,14 @@ export function projectPublicReview(
                 ctaUrl: text(payload.ctaUrl) ?? '',
                 ctaLabel: text(payload.ctaLabel) ?? 'View offer',
                 terms: text(payload.terms) ?? '',
-                photoSrc: photoPath ? photoSrcFor(photoPath) : replacement ? photoSrcFor(replacement) : null,
+                photoSrc: photoSrcs.length ? photoSrcs[0] : replacement ? photoSrcFor(replacement) : null,
+                photoSrcs,
+                comments,
                 changeNote: text(version.changeNote),
                 previous: previousPayload ? {
                     body: text(previousPayload.body) ?? '',
-                    photoSrc: previousPhoto ? photoSrcFor(previousPhoto) : null,
+                    photoSrc: previousPhotoSrcs[0] ?? null,
+                    photoSrcs: previousPhotoSrcs,
                 } : null,
                 decision: decision ? {
                     decision: text(decision.decision) ?? '',

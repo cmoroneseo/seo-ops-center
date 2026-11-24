@@ -2,7 +2,7 @@ import { parsePagePayload } from './page-body';
 import { uuid } from './list';
 import { sqlStatus } from './staff';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
-import { parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
+import { parseGbpPhotoPaths, parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
 import { createAdminClient } from '@/lib/supabase/admin';
 export function createStaffApproval(dependencies = {
   agencyActor,
@@ -78,6 +78,7 @@ export function createStaffApproval(dependencies = {
         position?: number;
         payload?: unknown;
         photoPath?: string | null;
+        photoPaths?: unknown;
       };
       const parsed = body.itemType === 'page' ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
       if (!parsed.ok) return Response.json({
@@ -86,11 +87,17 @@ export function createStaffApproval(dependencies = {
       }, {
         status: 400
       });
+      const photoPaths = 'photoPaths' in item ? parseGbpPhotoPaths(item.photoPaths, true) : undefined;
+      if (photoPaths === null || (body.itemType === 'page' && photoPaths)) return Response.json({
+        error: 'A GBP post can include up to 10 HTTPS photo URLs.',
+        code: 'invalid_request'
+      }, { status: 400 });
       items.push({
         position: item.position,
         payload: parsed.payload,
         ...('outline' in parsed ? { outline: parsed.outline } : {}),
-        photoPath: item.photoPath ?? null
+        photoPath: item.photoPath ?? null,
+        ...(photoPaths ? { photoPaths } : {})
       });
     }
     const created = await admin.rpc('create_approval_request', {

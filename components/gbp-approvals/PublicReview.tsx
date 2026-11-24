@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import type { GbpPhotoComment } from '@/lib/gbp-approvals/public-view';
 import { diffWords } from '@/lib/gbp-approvals/diff';
 
 import './public-review.css';
-import { monthDay, weekday, type SamplePost } from './sample';
+import { PhotoGallery } from './PhotoGallery';
+import { postOfferRange } from './post-dates';
+import { weekday, type SamplePost } from './sample';
 
 export interface ReviewQuestion {
     id: string;
@@ -14,7 +17,11 @@ export interface ReviewQuestion {
     answer: string | null;
 }
 
-export interface ReviewPost extends SamplePost {
+export interface ReviewPost extends Omit<SamplePost, 'offerStart' | 'offerEnd'> {
+    offerStart: string | null;
+    offerEnd: string | null;
+    photoSrcs?: (string | null)[];
+    photoComments?: GbpPhotoComment[];
     itemId?: string;
     versionId?: string;
     locked?: boolean;
@@ -53,6 +60,7 @@ export function PublicReview({
     const [choices, setChoices] = useState<Record<number, 'approved' | 'changes_requested' | undefined>>({});
     const [openChanges, setOpenChanges] = useState<number | null>(null);
     const [comments, setComments] = useState<Record<number, string>>({});
+    const [photoComments, setPhotoComments] = useState<Record<number, Record<number, string>>>({});
     const [suggestions, setSuggestions] = useState<Record<number, { title?: string; body?: string }>>({});
     const [answers, setAnswers] = useState<Record<string, string>>({});
     const [full, setFull] = useState<Record<number, boolean>>({});
@@ -117,6 +125,12 @@ export function PublicReview({
 
     const kept = mode === 'revision' ? posts.filter(post => post.status === 'approved' && !post.previousBody) : [];
 
+    function updatePhotoComment(postPosition: number, photoPosition: number, body: string) {
+        setPhotoComments(current => ({
+            ...current, [postPosition]: { ...current[postPosition], [photoPosition]: body },
+        }));
+    }
+
     function approveAll() {
         const next: Record<number, 'approved'> = {};
         for (const post of posts) if (!post.locked) next[post.position] = 'approved';
@@ -158,6 +172,11 @@ export function PublicReview({
         setBusy(true);
         try {
             if (!token) throw new Error('This preview cannot save a review. Open your review link.');
+            const photoNotes = posts.flatMap(post => Object.entries(photoComments[post.position] ?? {}).flatMap(([position, body]) => {
+                if (!body.trim() || !post.itemId || !post.versionId) return [];
+                return [{ itemId: post.itemId, versionId: post.versionId, anchorKind: 'page', photoPosition: Number(position), body: body.trim() }];
+            }));
+            if (photoNotes.length > 100) throw new Error('Send up to 100 photo comments per review.');
             const payload = {
                 respondentName: name.trim(), respondentEmail: email.trim() || null,
                 displayedVersionIds: posts.map(post => post.versionId),
@@ -169,6 +188,7 @@ export function PublicReview({
                     reservationId: choices[post.position] === 'changes_requested' ? uploads[post.position] : undefined,
                 })),
                 answers: Object.entries(answers).map(([questionId, answer]) => ({ questionId, answer })),
+                ...(photoNotes.length ? { comments: photoNotes } : {}),
             };
             const serialized = JSON.stringify(payload);
             if (!attempt.current || attempt.current.payload !== serialized) attempt.current = { key: crypto.randomUUID(), payload: serialized };
@@ -254,12 +274,21 @@ export function PublicReview({
                             onApprove={() => setChoices(current => ({ ...current, [post.position]: 'approved' }))}
                             onRequest={() => { setOpenChanges(post.position); setChoices(current => ({ ...current, [post.position]: 'changes_requested' })); }}
                             onComment={value => setComments(current => ({ ...current, [post.position]: value }))}
+                            photoComments={photoComments[post.position]}
+                            onPhotoComment={token ? (position, body) => updatePhotoComment(post.position, position, body) : undefined}
                             onToggleFull={() => setFull(current => ({ ...current, [post.position]: !current[post.position] }))}
                         />
                     ))}
                     {mode === 'revision' && kept.length > 0 && <h2 style={{ marginTop: 28 }}>Already approved</h2>}
                     {kept.map(post => (
-                        <article className="ritem" key={post.position}><div className="collapsed"><div className="t">Post {post.position} <span>{post.title}</span></div><span className="chip chip-approved">Approved</span></div></article>
+                        <article className="ritem" key={post.position}>
+                            <div className="collapsed"><div className="t">Post {post.position} <span>{post.title}</span></div><span className="chip chip-approved">Approved</span></div>
+                            {(post.photo || post.photoSrcs?.length) && <details className="ch-panel">
+                                <summary className="cursor-pointer">View post photos</summary>
+                                <PhotoGallery sources={previewPhotos(post)} alt={`Photo for ${post.title}`} />
+                                <PhotoComments post={post} drafts={photoComments[post.position]} onChange={token ? (position, body) => updatePhotoComment(post.position, position, body) : undefined} />
+                            </details>}
+                        </article>
                     ))}
                 </div>
                 <aside className="side">
@@ -340,7 +369,7 @@ function Shell({ children, clientName, logoSrc, active = false }: { children: Re
 }
 
 function PostCard({
-    post, total, choice, open, comment, suggestedTitle, suggestedBody, onSuggest, showFull, onApprove, onRequest, onComment, onToggleFull, clientName, logoSrc, onUpload, uploading, uploaded,
+    post, total, choice, open, comment, suggestedTitle, suggestedBody, onSuggest, showFull, onApprove, onRequest, onComment, onToggleFull, clientName, logoSrc, onUpload, uploading, uploaded, photoComments, onPhotoComment,
 }: {
     post: ReviewPost;
     clientName: string;
@@ -348,6 +377,8 @@ function PostCard({
     onUpload: (file: File) => void;
     uploading: boolean;
     uploaded: boolean;
+    photoComments?: Record<number, string>;
+    onPhotoComment?: (position: number, body: string) => void;
     total: number;
     choice?: 'approved' | 'changes_requested';
     open: boolean;
@@ -363,6 +394,7 @@ function PostCard({
 }) {
     const [suggestOpen, setSuggestOpen] = useState(false);
     const status = choice ?? post.status;
+    const range = postOfferRange(post);
     const parts = post.previousBody ? diffWords(post.previousBody, post.body) : [];
     return (
         <article className={open ? 'ritem sel' : 'ritem'} aria-label={`Post ${post.position}`}>
@@ -401,10 +433,10 @@ function PostCard({
                     </div>
                     <dl className="det">
                         <dt>Planned for</dt><dd>{weekday(post.scheduled)}</dd>
-                        <dt>Offer runs</dt><dd>{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</dd>
+                        {range && <><dt>Offer runs</dt><dd>{range}</dd></>}
                         <dt>Button</dt><dd>{post.ctaLabel ?? 'View offer'}</dd>
                         <dt>Opens</dt><dd>{post.ctaUrl}</dd>
-                        <dt>Photo</dt><dd>{post.photo ? 'Included' : 'Needed'}</dd>
+                        <dt>Photo</dt><dd>{previewPhotos(post).length > 1 ? `${previewPhotos(post).length} included` : post.photo ? 'Included' : 'Needed'}</dd>
                     </dl>
                 </div>
             </div>
@@ -413,6 +445,7 @@ function PostCard({
                 <button className={status === 'approved' ? 'btn btn-primary sel-ok' : 'btn btn-primary'} type="button" disabled={post.locked} onClick={onApprove}><Check />{post.previousBody ? 'Approve v2' : 'Approve'}</button>
                 <button className={status === 'changes_requested' ? 'btn btn-secondary sel-ch' : 'btn btn-secondary'} type="button" disabled={post.locked} onClick={onRequest}>Request changes</button>
             </div>
+            <PhotoComments post={post} drafts={photoComments} onChange={onPhotoComment} />
             {open && !post.locked && (
                 <div className="ch-panel">
                     <h3>What should we change?</h3>
@@ -442,17 +475,46 @@ function PostCard({
     );
 }
 
+function previewPhotos(post: ReviewPost): (string | null)[] {
+    return post.photoSrcs?.length ? post.photoSrcs : post.photo ? [post.photo] : [];
+}
+
+function PhotoComments({ post, drafts, onChange }: {
+    post: ReviewPost;
+    drafts?: Record<number, string>;
+    onChange?: (position: number, body: string) => void;
+}) {
+    return <>
+        {!!post.photoComments?.length && <ul className="ch-panel" aria-label="Saved comments">
+            {post.photoComments.map(({ body, photoPosition }, index) => <li key={index}>
+                <strong>{photoPosition ? `Photo ${photoPosition}` : 'Whole post'}</strong> · {body}
+            </li>)}
+        </ul>}
+        {onChange && post.photoSrcs?.some(Boolean) && <details className="ch-panel">
+            <summary className="cursor-pointer">Comment on a photo</summary>
+            {post.photoSrcs.map((src, index) => src && <label key={index} className="label">
+                Comment on photo {index + 1}
+                <textarea className="input ta" maxLength={4000} value={drafts?.[index + 1] ?? ''}
+                    onChange={event => onChange(index + 1, event.target.value)} />
+            </label>)}
+            <p className="hint">Use Review and send to share your photo comments.</p>
+        </details>}
+    </>;
+}
+
 export function GbpPostPreview({ post, clientName, logoSrc, showFull = true }: { post: ReviewPost; clientName: string; logoSrc?: string; showFull?: boolean }) {
  const { logoRef, failedLogo, setFailedLogo } = useLogoFailure(logoSrc);
+ const sources = previewPhotos(post);
+ const range = postOfferRange(post);
  return (<article className="gbp">
-                            <div className={post.photo ? 'g-photo' : 'g-photo g-photo-missing'}>
-                                {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}
-                            </div>
+                            {sources.length > 0
+                                ? <PhotoGallery sources={sources} layout="gbp" alt={`Photo for ${post.title}`} />
+                                : <div className="g-photo g-photo-missing"><div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div></div>}
                             <div className="g-body">
                                 <div className="g-head"><span className="g-av">{logoSrc && failedLogo !== logoSrc ? <img ref={logoRef} src={logoSrc} alt="" onError={() => setFailedLogo(logoSrc)} /> : <span className="g-av-initial" aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}</span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
                                 <div className="g-offer">{post.postType ?? 'Offer'}</div>
                                 <h3 className="g-title">{post.title}</h3>
-                                <div className="g-date">{monthDay(post.offerStart)} – {monthDay(post.offerEnd)}</div>
+                                {range && <div className="g-date">{range}</div>}
                                 <p className="g-desc">{showFull ? post.body : `${post.body.slice(0, 140)}…`} <span className="g-more">More</span></p>
                                 <div className="g-cta"><span className="g-btn">{post.ctaLabel ?? 'View offer'}</span></div>
                             </div>

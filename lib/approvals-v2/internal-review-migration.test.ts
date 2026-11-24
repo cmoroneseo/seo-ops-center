@@ -49,7 +49,7 @@ const missing = { ok: false, code: 'not_found' };
 test('144 mirrors schema, protects tables and RPCs, and enforces link and feedback constraints', async t => {
     const db = await setup();
     t.after(() => db.close());
-    assert.ok(readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8').endsWith(migration));
+    assert.ok(readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8').includes(migration));
     const { rows } = await db.query(`select relname, relrowsecurity from pg_class where relname in
         ('approval_internal_links', 'approval_internal_feedback') order by relname`);
     assert.deepEqual(rows, [
