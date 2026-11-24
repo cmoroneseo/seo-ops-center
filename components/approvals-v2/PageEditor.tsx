@@ -21,7 +21,8 @@ export function PageEditor({
   sent,
   versionNo,
   busy,
-  onSave
+  onSave,
+  expanded = false
 }: {
   domain?: string;
   requestId: string;
@@ -31,6 +32,7 @@ export function PageEditor({
   photoUrl: string | null;
   images: Record<string, string | null>;
   sent: boolean;
+  expanded?: boolean;
   versionNo: number;
   busy: boolean;
   onSave: (item: {
@@ -120,7 +122,7 @@ export function PageEditor({
       setUploading(false);
     }
   }
-  return <details className="rounded-xl border p-4">
+  return <details open={expanded || undefined} className="rounded-xl border p-4">
     <summary className="min-h-11 cursor-pointer font-semibold">Edit page{sent ? ` · Editing creates version ${versionNo + 1}` : ''}</summary>
     <form className="mt-3 space-y-4" onSubmit={event => {
       event.preventDefault();

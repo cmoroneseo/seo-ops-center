@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronLeft, Search } from 'lucide-react';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { UserMenu } from '@/components/dashboard/UserMenu';
 
-export function TopNav() {
+export function TopNav({ approvalReview = false }: { approvalReview?: boolean }) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // Global shortcuts. Single owner: moved here from Sidebar.
@@ -27,10 +28,11 @@ export function TopNav() {
   }, []);
 
   return (
-    <header className="hidden lg:flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
+    <header className={approvalReview ? 'ar-shell-header' : 'hidden lg:flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4'}>
+      {approvalReview && <Link href="/approvals" className="ar-shell-back"><ChevronLeft size={20} aria-hidden />Approvals</Link>}
       <button
         onClick={() => setIsSearchOpen(true)}
-        className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
+        className={`flex w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors ${approvalReview ? 'ar-shell-search' : ''}`}
       >
         <Search className="h-4 w-4" />
         <span className="flex-1 text-left">Search or jump to…</span>
@@ -39,8 +41,8 @@ export function TopNav() {
         </kbd>
       </button>
 
-      <div className="ml-auto flex items-center gap-1">
-        <NotificationBell />
+      <div className={`ml-auto flex items-center gap-1 ${approvalReview ? 'ar-shell-user-actions' : ''}`}>
+        <NotificationBell approvalReview={approvalReview} />
         <UserMenu />
       </div>
 

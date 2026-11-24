@@ -98,15 +98,43 @@ export function TaskApprovalsPanel({
 export function RevisionEditor({
   item,
   busy,
-  onPost
+  onPost,
+  staffDraftRequestId
 }: {
   item: ApprovalItem;
   busy: boolean;
-  onPost: (entry: unknown) => Promise<void>;
+  onPost: (entry: unknown) => Promise<unknown>;
+  staffDraftRequestId?: string;
 }) {
   const version = item.version!;
   const [body, setBody] = useState(version.payload.body);
   const [note, setNote] = useState('');
+  const [title, setTitle] = useState(version.payload.title);
+  const [ctaUrl, setCtaUrl] = useState(version.payload.ctaUrl);
+  const [photoPath, setPhotoPath] = useState(version.photo_path);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  async function uploadPhoto(file?: File) {
+    if (!staffDraftRequestId || !file) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      const response = await fetch(`/api/approval-requests/${staffDraftRequestId}/assets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: item.id, contentType: file.type, size: file.size }),
+      });
+      const asset = await response.json();
+      if (!response.ok) throw new Error(asset.error);
+      const upload = await fetch(asset.signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+      if (!upload.ok) throw new Error('Photo upload failed. Try again.');
+      setPhotoPath(asset.objectKey);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Photo upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  }
   const response = item.response;
   const hasSuggestion = Boolean(response?.suggested_title || response?.suggested_body || response?.replacement_photo_path);
   function post(accept: boolean) {
@@ -117,16 +145,25 @@ export function RevisionEditor({
         body: response.suggested_body
       }) : {
         ...version.payload,
+        ...(staffDraftRequestId ? { title, ctaUrl } : {}),
         body
       },
-      photoPath: accept ? response?.replacement_photo_path ?? version.photo_path : version.photo_path,
+      photoPath: accept ? response?.replacement_photo_path ?? photoPath : photoPath,
       changeNote: note,
       source: accept ? 'accepted_suggestion' : 'manual',
       sourceResponseId: accept ? response?.id : null
     });
   }
-  return <details className="space-y-2 text-sm">
-    <summary className="cursor-pointer font-medium">Revise post · v{version.version_no + 1}</summary>
+  const fields = <>
+    {staffDraftRequestId && <>
+      <label className="block">Post title<input value={title} maxLength={80} onChange={event => setTitle(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border p-2" /></label>
+      <label className="block">Button URL<input type="url" value={ctaUrl} onChange={event => setCtaUrl(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border p-2" /></label>
+      <label className="block">Upload photo (JPG, PNG or WebP, up to 10 MB)<input type="file" accept="image/jpeg,image/png,image/webp"
+        disabled={uploading || busy} onChange={event => void uploadPhoto(event.target.files?.[0])} className="mt-1 block w-full rounded-md border p-2" /></label>
+      {uploading && <p role="status">Uploading photo…</p>}
+      {photoPath && photoPath !== version.photo_path && <p role="status">Photo uploaded. Save the revision to use it.</p>}
+      {uploadError && <p role="alert">{uploadError}</p>}
+    </>}
     <label className="block">Post text<textarea
       value={body}
       maxLength={2000}
@@ -141,7 +178,7 @@ export function RevisionEditor({
       <Button
         type="button"
         variant="outline"
-        disabled={busy || !note.trim() || !body.trim()}
+        disabled={busy || uploading || (staffDraftRequestId ? !title.trim() : !note.trim()) || !body.trim()}
         onClick={() => void post(false)}>Post v{version.version_no + 1}</Button>
       {hasSuggestion && <Button
         type="button"
@@ -149,6 +186,10 @@ export function RevisionEditor({
         disabled={busy || !note.trim()}
         onClick={() => void post(true)}>Accept suggestion into v{version.version_no + 1}</Button>}
     </div>
-    <p className="text-xs text-muted-foreground">Client suggestions become a revision only when accepted. Re-share the same review link for approval.</p>
+    {!staffDraftRequestId && <p className="text-xs text-muted-foreground">Client suggestions become a revision only when accepted. Re-share the same review link for approval.</p>}
+  </>;
+  return staffDraftRequestId ? <div className="space-y-3 text-sm">{fields}</div> : <details className="space-y-2 text-sm">
+    <summary className="cursor-pointer font-medium">Revise post · v{version.version_no + 1}</summary>
+    {fields}
   </details>;
 }

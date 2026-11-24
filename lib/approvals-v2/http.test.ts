@@ -61,6 +61,10 @@ function query(data: unknown, inspect?: (method: string, args: unknown[]) => voi
       inspect?.('order', args);
       return chain;
     },
+    limit: (...args: unknown[]) => {
+      inspect?.('limit', args);
+      return chain;
+    },
     range: (...args: unknown[]) => {
       inspect?.('range', args);
       return chain;
@@ -345,6 +349,11 @@ test('detail returns released/current versions, decisions, link facts and signs 
       decision: 'approved',
       comment: 'Ready to send'
     }],
+    approval_staff_reviews: [
+      { id: 3, item_id: task, version_id: released, decision: 'approved', note: null, tags: [], reviewer_id: id, reviewer: { full_name: 'Staff reviewer' }, created_at: '2026-11-19' },
+      { id: 2, item_id: task, version_id: current, decision: 'changes_requested', note: 'Check the date.', tags: ['dates'], reviewer_id: id, reviewer: { full_name: 'Staff reviewer' }, created_at: '2026-11-18' },
+      { id: 1, item_id: task, version_id: current, decision: 'approved', note: null, tags: [], reviewer_id: id, reviewer: { full_name: 'Staff reviewer' }, created_at: '2026-11-17' },
+    ],
     approval_bot_actors: null
   };
   const handler = createStaffDetail({
@@ -371,6 +380,12 @@ test('detail returns released/current versions, decisions, link facts and signs 
   assert.equal(data.items[0].version.id, current);
   assert.equal(data.items[0].releasedVersion.id, released);
   assert.equal(data.items[0].response.decision, 'approved');
+  assert.deepEqual(data.items[0].staffReview, {
+    version_id: current, decision: 'changes_requested', note: 'Check the date.', tags: ['dates'],
+    reviewer_id: id, reviewer_name: 'Staff reviewer', created_at: '2026-11-18',
+  });
+  assert.equal(data.staffReviewHistory.length, 3);
+  assert.equal(data.staffReviewUnavailable, false);
   assert.deepEqual(data.internalFeedback, [{
     id: 'internal-feedback', itemId: task, versionNo: null,
     reviewerName: 'Internal reviewer', decision: 'approved', comment: 'Ready to send'
@@ -383,6 +398,8 @@ test('detail returns released/current versions, decisions, link facts and signs 
     item_type: string;
   }).item_type = 'page';
   signed.length = 0;
-  await handler(new Request('https://local.test'), context);
+  records.approval_staff_reviews = (records.approval_staff_reviews as unknown[]).slice(0, 1);
+  const pageResponse = await handler(new Request('https://local.test'), context);
+  assert.equal((await pageResponse.json()).items[0].staffReview, null);
   assert.equal(signed.length, 2);
 });

@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { Image as ImageIcon, Phone } from 'lucide-react';
+import { isPhoneCta } from '@/lib/approvals-v2/staff-review';
 import { diffWords } from '@/lib/gbp-approvals/diff';
 
 import './public-review.css';
-import { offerRange, weekday, type SamplePost } from './sample';
+import { monthDay, offerRange, weekday, type SamplePost } from './sample';
 
 export interface ReviewQuestion {
     id: string;
@@ -442,9 +444,43 @@ function PostCard({
     );
 }
 
-export function GbpPostPreview({ post, clientName, logoSrc, showFull = true }: { post: ReviewPost; clientName: string; logoSrc?: string; showFull?: boolean }) {
+export function GbpPostPreview({ post, clientName, logoSrc, showFull = true, staff }: {
+    post: ReviewPost;
+    clientName: string;
+    logoSrc?: string;
+    showFull?: boolean;
+    staff?: { itemNumber: number; onEnlarge: (trigger: HTMLButtonElement) => void; onAddPhoto?: (trigger: HTMLButtonElement) => void; onPhotoLoad: (width: number, height: number) => void };
+}) {
  const { logoRef, failedLogo, setFailedLogo } = useLogoFailure(logoSrc);
  const range = offerRange(post);
+ if (staff) {
+    const kind = post.postType ?? 'offer';
+    const planned = monthDay(post.scheduled);
+    return <article className="ar-google" aria-label="Google Business Profile post preview">
+        <div className="ar-google-header">
+            <span className="ar-google-logo">
+                {logoSrc && failedLogo !== logoSrc
+                    // eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL.
+                    ? <img ref={logoRef} src={logoSrc} alt="" onError={() => setFailedLogo(logoSrc)} />
+                    : clientName.slice(0, 1).toUpperCase()}
+            </span>
+            <div><strong>{clientName}</strong><small>{kind}{planned && ` · ${planned}, ${post.scheduled.slice(0, 4)}`}</small></div>
+        </div>
+        {post.photo ? <button type="button" className="ar-google-photo" onClick={event => staff.onEnlarge(event.currentTarget)} aria-label={`Enlarge photo for item ${staff.itemNumber}`}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL. */}
+            <img src={post.photo} alt="" onLoad={event => staff.onPhotoLoad(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} />
+        </button> : <div className="ar-google-placeholder">
+            <ImageIcon size={20} aria-hidden /><strong>Photo needed</strong>
+            {staff.onAddPhoto && <button type="button" className="ar-button ar-compact" onClick={event => staff.onAddPhoto?.(event.currentTarget)}>Add photo</button>}
+        </div>}
+        <div className="ar-google-body">
+            <h3>{post.title}</h3>
+            {range && <p className="ar-google-date">Valid {range}</p>}
+            <p className="ar-google-copy">{post.body}</p>
+            {post.ctaLabel && <span className="ar-google-cta">{isPhoneCta(post.ctaLabel) && <Phone size={16} aria-hidden />}{post.ctaLabel}</span>}
+        </div>
+    </article>;
+ }
  return (<article className="gbp">
                             <div className={post.photo ? 'g-photo' : 'g-photo g-photo-missing'}>
                                 {post.photo ? <img src={post.photo} alt="" /> : <div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div>}

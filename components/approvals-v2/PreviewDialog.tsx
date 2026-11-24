@@ -12,11 +12,13 @@ export function PreviewDialog({
   domain,
   clientName,
   logoSrc,
+  trigger,
   items
 }: {
   domain?: string;
   clientName: string;
   logoSrc?: string;
+  trigger?: React.ReactNode;
   items: {
     id: string;
     payload: GbpPostPayload | PagePayload;
@@ -26,7 +28,7 @@ export function PreviewDialog({
 }) {
   return <Dialog>
     <DialogTrigger asChild>
-      <Button variant="outline"><Eye size={16} />Preview as client</Button>
+      {trigger ?? <Button variant="outline"><Eye size={16} />Preview as client</Button>}
     </DialogTrigger>
     <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-3xl">
       <DialogTitle>Prepared for {clientName}</DialogTitle>
