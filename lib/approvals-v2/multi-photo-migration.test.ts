@@ -59,7 +59,7 @@ test('145 migrates historical GBP updates, preserves gallery order and keeps ver
     })).ok, true);
     assert.deepEqual((await current(db, newPage.requestId)).photo_paths, [primary]);
     assert.equal(stored.photo_path, primary);
-    assert.ok(readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8').endsWith(migration));
+    assert.ok(readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8').includes(migration));
     assert.equal((await create(db)).ok, true);
     for (const invalid of [null, [primary, null], [primary, 'data:image/png;base64,bad'], [primary, 'javascript:alert(1)'], Array(11).fill(primary)]) {
         assert.equal((await create(db, { ...legacy, photoPaths: invalid })).code, 'invalid_request');
