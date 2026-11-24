@@ -5,6 +5,7 @@ import { database, call, post, org, otherOrg, owner, member, viewer, client, tas
 
 const internalLinksMigration = readFileSync(new URL('../../migrations/144_approval_internal_review_links.sql', import.meta.url), 'utf8');
 const multiPhotoMigration = readFileSync(new URL('../../migrations/145_gbp_approval_multi_photo.sql', import.meta.url), 'utf8');
+const commentOnlyNotificationsMigration = readFileSync(new URL('../../migrations/146_gbp_comment_only_notifications.sql', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('../../migrations/147_approval_staff_reviews.sql', import.meta.url), 'utf8');
 
 test('147 records isolated staff decisions and enforces grants, draft status, roles and current versions', async t => {
@@ -13,9 +14,10 @@ test('147 records isolated staff decisions and enforces grants, draft status, ro
   await db.exec("alter table public.users add column full_name text; update public.users set full_name = 'Review Owner'; alter table public.bot_api_keys add column revoked_at timestamptz");
   await db.exec(internalLinksMigration);
   await db.exec(multiPhotoMigration);
+  await db.exec(commentOnlyNotificationsMigration);
   await db.exec(migration);
   const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
-  assert.ok(schema.endsWith(multiPhotoMigration + '\n' + migration));
+  assert.ok(schema.endsWith(commentOnlyNotificationsMigration + '\n' + migration));
 
   const grants = await db.query(`select relrowsecurity, roles.role,
     has_table_privilege(roles.role, 'public.approval_staff_reviews', 'SELECT') can_read,
