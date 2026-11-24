@@ -1,15 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Phone } from 'lucide-react';
-import { isPhoneCta } from '@/lib/approvals-v2/staff-review';
 import type { GbpPhotoComment } from '@/lib/gbp-approvals/public-view';
 import { diffWords } from '@/lib/gbp-approvals/diff';
 
 import './public-review.css';
-import { PhotoGallery } from './PhotoGallery';
-import { monthDay, offerRange, weekday, type SamplePost } from './sample';
+import { GbpPostPreview, previewPhotos, useLogoFailure } from './GbpPostPreview';
+import { PhotoCommentTarget, usePhotoCommentTarget } from './PhotoCommentTarget';
+import { offerRange, weekday, type SamplePost } from './sample';
 
 export interface ReviewQuestion {
     id: string;
@@ -63,7 +62,6 @@ export function PublicReview({
     const [photoComments, setPhotoComments] = useState<Record<number, Record<number, string>>>({});
     const [suggestions, setSuggestions] = useState<Record<number, { title?: string; body?: string }>>({});
     const [answers, setAnswers] = useState<Record<string, string>>({});
-    const [full, setFull] = useState<Record<number, boolean>>({});
     const [askName, setAskName] = useState(false);
     const [name, setName] = useState('');
     const [nameError, setNameError] = useState(false);
@@ -125,9 +123,9 @@ export function PublicReview({
 
     const kept = mode === 'revision' ? posts.filter(post => post.status === 'approved' && !post.previousBody) : [];
 
-    function updatePhotoComment(postPosition: number, photoPosition: number, body: string) {
+    function updatePhotoComment(postPosition: number, photoPosition: number | null, body: string) {
         setPhotoComments(current => ({
-            ...current, [postPosition]: { ...current[postPosition], [photoPosition]: body },
+            ...current, [postPosition]: { ...current[postPosition], [photoPosition ?? 0]: body },
         }));
     }
 
@@ -174,9 +172,9 @@ export function PublicReview({
             if (!token) throw new Error('This preview cannot save a review. Open your review link.');
             const photoNotes = posts.flatMap(post => Object.entries(photoComments[post.position] ?? {}).flatMap(([position, body]) => {
                 if (!body.trim() || !post.itemId || !post.versionId) return [];
-                return [{ itemId: post.itemId, versionId: post.versionId, anchorKind: 'page', photoPosition: Number(position), body: body.trim() }];
+                return [{ itemId: post.itemId, versionId: post.versionId, anchorKind: 'page', photoPosition: Number(position) || null, body: body.trim() }];
             }));
-            if (photoNotes.length > 100) throw new Error('Send up to 100 photo comments per review.');
+            if (photoNotes.length > 100) throw new Error('Send up to 100 comments per review.');
             const payload = {
                 respondentName: name.trim(), respondentEmail: email.trim() || null,
                 displayedVersionIds: posts.map(post => post.versionId),
@@ -256,7 +254,7 @@ export function PublicReview({
                     <div className="sec-h"><h2>{mode === 'revision' ? 'Updated posts' : `Your ${posts.length} posts`}</h2></div>
                     {(mode === 'revision' ? posts.filter(post => !kept.includes(post)) : posts).map(post => (
                         <PostCard
-                            key={post.position}
+                            key={post.versionId ?? post.position}
                             post={post}
                             total={posts.length}
                             clientName={clientName}
@@ -270,25 +268,18 @@ export function PublicReview({
                             suggestedTitle={suggestions[post.position]?.title ?? post.title}
                             suggestedBody={suggestions[post.position]?.body ?? post.body}
                             onSuggest={(field, value) => setSuggestions(current => ({ ...current, [post.position]: { ...current[post.position], [field]: value } }))}
-                            showFull={full[post.position] === true}
                             onApprove={() => setChoices(current => ({ ...current, [post.position]: 'approved' }))}
                             onRequest={() => { setOpenChanges(post.position); setChoices(current => ({ ...current, [post.position]: 'changes_requested' })); }}
                             onComment={value => setComments(current => ({ ...current, [post.position]: value }))}
                             photoComments={photoComments[post.position]}
                             onPhotoComment={token ? (position, body) => updatePhotoComment(post.position, position, body) : undefined}
-                            onToggleFull={() => setFull(current => ({ ...current, [post.position]: !current[post.position] }))}
                         />
                     ))}
                     {mode === 'revision' && kept.length > 0 && <h2 style={{ marginTop: 28 }}>Already approved</h2>}
                     {kept.map(post => (
-                        <article className="ritem" key={post.position}>
-                            <div className="collapsed"><div className="t">Post {post.position} <span>{post.title}</span></div><span className="chip chip-approved">Approved</span></div>
-                            {(post.photo || post.photoSrcs?.length) && <details className="ch-panel">
-                                <summary className="cursor-pointer">View post photos</summary>
-                                <PhotoGallery sources={previewPhotos(post)} alt={`Photo for ${post.title}`} />
-                                <PhotoComments post={post} drafts={photoComments[post.position]} onChange={token ? (position, body) => updatePhotoComment(post.position, position, body) : undefined} />
-                            </details>}
-                        </article>
+                        <ApprovedPost key={post.versionId ?? post.position} post={post} clientName={clientName} logoSrc={logoSrc}
+                            drafts={photoComments[post.position]}
+                            onComment={token ? (position, body) => updatePhotoComment(post.position, position, body) : undefined} />
                     ))}
                 </div>
                 <aside className="side">
@@ -334,16 +325,6 @@ export function PublicReview({
     );
 }
 
-function useLogoFailure(logoSrc?: string) {
-    const logoRef = useRef<HTMLImageElement>(null);
-    const [failedLogo, setFailedLogo] = useState<string>();
-    useEffect(() => {
-        const img = logoRef.current;
-        if (img?.complete && img.naturalWidth === 0) setFailedLogo(logoSrc);
-    }, [logoSrc]);
-    return { logoRef, failedLogo, setFailedLogo };
-}
-
 function Shell({ children, clientName, logoSrc, active = false }: { children: ReactNode; clientName?: string; logoSrc?: string; active?: boolean }) {
     const { logoRef, failedLogo, setFailedLogo } = useLogoFailure(logoSrc);
     return (
@@ -369,7 +350,7 @@ function Shell({ children, clientName, logoSrc, active = false }: { children: Re
 }
 
 function PostCard({
-    post, total, choice, open, comment, suggestedTitle, suggestedBody, onSuggest, showFull, onApprove, onRequest, onComment, onToggleFull, clientName, logoSrc, onUpload, uploading, uploaded, photoComments, onPhotoComment,
+    post, total, choice, open, comment, suggestedTitle, suggestedBody, onSuggest, onApprove, onRequest, onComment, clientName, logoSrc, onUpload, uploading, uploaded, photoComments, onPhotoComment,
 }: {
     post: ReviewPost;
     clientName: string;
@@ -378,7 +359,7 @@ function PostCard({
     uploading: boolean;
     uploaded: boolean;
     photoComments?: Record<number, string>;
-    onPhotoComment?: (position: number, body: string) => void;
+    onPhotoComment?: CommentChange;
     total: number;
     choice?: 'approved' | 'changes_requested';
     open: boolean;
@@ -386,13 +367,13 @@ function PostCard({
     suggestedTitle: string;
     suggestedBody: string;
     onSuggest: (field: 'title' | 'body', value: string) => void;
-    showFull: boolean;
     onApprove: () => void;
     onRequest: () => void;
     onComment: (value: string) => void;
-    onToggleFull: () => void;
 }) {
     const [suggestOpen, setSuggestOpen] = useState(false);
+    const sources = previewPhotos(post);
+    const target = usePhotoCommentTarget(sources, true);
     const status = choice ?? post.status;
     const range = offerRange(post);
     const parts = post.previousBody ? diffWords(post.previousBody, post.body) : [];
@@ -427,16 +408,19 @@ function PostCard({
             <div className="ri-body">
                 <div className="ri-grid">
                     <div>
-                        <GbpPostPreview post={post} clientName={clientName} logoSrc={logoSrc} showFull={showFull} />
-                        <button className="btn btn-ghost" type="button" style={{ marginTop: 8, paddingLeft: 0 }} onClick={onToggleFull}>{showFull ? 'Show the short preview' : 'Show full post and terms'}</button>
-                        {showFull && <p className="hint">{post.terms}</p>}
+                        <GbpPostPreview post={post} clientName={clientName} logoSrc={logoSrc} sources={sources}
+                            photoIndex={target.photoIndex} onPhotoChange={target.selectSlide} />
+                        {post.terms && <details className="post-terms">
+                            <summary>Offer terms</summary>
+                            <p className="hint">{post.terms}</p>
+                        </details>}
                     </div>
                     <dl className="det">
                         <dt>Planned for</dt><dd>{weekday(post.scheduled)}</dd>
                         {range && <><dt>Offer runs</dt><dd>{range}</dd></>}
                         <dt>Button</dt><dd>{post.ctaLabel ?? 'View offer'}</dd>
                         <dt>Opens</dt><dd>{post.ctaUrl}</dd>
-                        <dt>Photo</dt><dd>{previewPhotos(post).length > 1 ? `${previewPhotos(post).length} included` : post.photo ? 'Included' : 'Needed'}</dd>
+                        <dt>Photo</dt><dd>{sources.length > 1 ? `${sources.length} included` : sources[0] ? 'Included' : 'Needed'}</dd>
                     </dl>
                 </div>
             </div>
@@ -445,7 +429,7 @@ function PostCard({
                 <button className={status === 'approved' ? 'btn btn-primary sel-ok' : 'btn btn-primary'} type="button" disabled={post.locked} onClick={onApprove}><Check />{post.previousBody ? 'Approve v2' : 'Approve'}</button>
                 <button className={status === 'changes_requested' ? 'btn btn-secondary sel-ch' : 'btn btn-secondary'} type="button" disabled={post.locked} onClick={onRequest}>Request changes</button>
             </div>
-            <PhotoComments post={post} drafts={photoComments} onChange={onPhotoComment} />
+            <PhotoComments post={post} sources={sources} target={target} drafts={photoComments} onChange={onPhotoComment} />
             {open && !post.locked && (
                 <div className="ch-panel">
                     <h3>What should we change?</h3>
@@ -475,76 +459,52 @@ function PostCard({
     );
 }
 
-function previewPhotos(post: ReviewPost): (string | null)[] {
-    return post.photoSrcs?.length ? post.photoSrcs : post.photo ? [post.photo] : [];
+type CommentChange = (position: number | null, body: string) => void;
+
+function ApprovedPost({ post, clientName, logoSrc, drafts, onComment }: {
+    post: ReviewPost;
+    clientName: string;
+    logoSrc?: string;
+    drafts?: Record<number, string>;
+    onComment?: CommentChange;
+}) {
+    const sources = previewPhotos(post);
+    const target = usePhotoCommentTarget(sources, true);
+    return <article className="ritem">
+        <div className="collapsed"><div className="t">Post {post.position} <span>{post.title}</span></div><span className="chip chip-approved">Approved</span></div>
+        <details className="ch-panel">
+            <summary className="cursor-pointer">View post</summary>
+            <GbpPostPreview post={post} sources={sources} clientName={clientName} logoSrc={logoSrc}
+                photoIndex={target.photoIndex} onPhotoChange={target.selectSlide} />
+            <PhotoComments post={post} sources={sources} target={target} drafts={drafts} onChange={onComment} />
+        </details>
+    </article>;
 }
 
-function PhotoComments({ post, drafts, onChange }: {
+function PhotoComments({ post, sources, target, drafts, onChange }: {
     post: ReviewPost;
+    sources: (string | null)[];
+    target: ReturnType<typeof usePhotoCommentTarget>;
     drafts?: Record<number, string>;
-    onChange?: (position: number, body: string) => void;
+    onChange?: CommentChange;
 }) {
+    const position = target.photoPosition;
     return <>
         {!!post.photoComments?.length && <ul className="ch-panel" aria-label="Saved comments">
             {post.photoComments.map(({ body, photoPosition }, index) => <li key={index}>
                 <strong>{photoPosition ? `Photo ${photoPosition}` : 'Whole post'}</strong> · {body}
             </li>)}
         </ul>}
-        {onChange && post.photoSrcs?.some(Boolean) && <details className="ch-panel">
-            <summary className="cursor-pointer">Comment on a photo</summary>
-            {post.photoSrcs.map((src, index) => src && <label key={index} className="label">
-                Comment on photo {index + 1}
-                <textarea className="input ta" maxLength={4000} value={drafts?.[index + 1] ?? ''}
-                    onChange={event => onChange(index + 1, event.target.value)} />
-            </label>)}
-            <p className="hint">Use Review and send to share your photo comments.</p>
+        {onChange && post.itemId && post.versionId && <details className="ch-panel">
+            <summary className="cursor-pointer">Leave a comment</summary>
+            {sources.some(Boolean) && <PhotoCommentTarget sources={sources} value={position} onChange={target.selectTarget}
+                className="label photo-comment-target" fieldClassName="input" />}
+            <label className="label">
+                {position === null ? 'Whole post comment' : `Comment on photo ${position}`}
+                <textarea className="input ta" maxLength={4000} value={drafts?.[position ?? 0] ?? ''}
+                    onChange={event => onChange(position, event.target.value)} />
+            </label>
+            <p className="hint">Use Review and send to share your comments.</p>
         </details>}
     </>;
-}
-
-export function GbpPostPreview({ post, clientName, logoSrc, showFull = true, staff }: {
-    post: ReviewPost;
-    clientName: string;
-    logoSrc?: string;
-    showFull?: boolean;
-    staff?: { photo: ReactNode };
-}) {
- const { logoRef, failedLogo, setFailedLogo } = useLogoFailure(logoSrc);
- const sources = previewPhotos(post);
- const range = offerRange(post);
- if (staff) {
-    const kind = post.postType ?? 'offer';
-    const planned = monthDay(post.scheduled);
-    return <article className="ar-google" aria-label="Google Business Profile post preview">
-        <div className="ar-google-header">
-            <span className="ar-google-logo">
-                {logoSrc && failedLogo !== logoSrc
-                    // eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL.
-                    ? <img ref={logoRef} src={logoSrc} alt="" onError={() => setFailedLogo(logoSrc)} />
-                    : clientName.slice(0, 1).toUpperCase()}
-            </span>
-            <div><strong>{clientName}</strong><small>{kind}{planned && ` · ${planned}, ${post.scheduled.slice(0, 4)}`}</small></div>
-        </div>
-        {staff.photo}
-        <div className="ar-google-body">
-            <h3>{post.title}</h3>
-            {range && <p className="ar-google-date">Valid {range}</p>}
-            <p className="ar-google-copy">{post.body}</p>
-            {post.ctaLabel && <span className="ar-google-cta">{isPhoneCta(post.ctaLabel) && <Phone size={16} aria-hidden />}{post.ctaLabel}</span>}
-        </div>
-    </article>;
- }
- return (<article className="gbp">
-                            {sources.length > 0
-                                ? <PhotoGallery sources={sources} layout="gbp" alt={`Photo for ${post.title}`} />
-                                : <div className="g-photo g-photo-missing"><div className="miss"><strong>Photo needed</strong><span>We need a photo of a finished remodel for this post.</span></div></div>}
-                            <div className="g-body">
-                                <div className="g-head"><span className="g-av">{logoSrc && failedLogo !== logoSrc ? <img ref={logoRef} src={logoSrc} alt="" onError={() => setFailedLogo(logoSrc)} /> : <span className="g-av-initial" aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}</span><span className="g-meta"><span className="g-biz">{clientName}</span><span className="g-age">Planned for {weekday(post.scheduled)}</span></span></div>
-                                <div className="g-offer">{post.postType ?? 'Offer'}</div>
-                                <h3 className="g-title">{post.title}</h3>
-                                {range && <div className="g-date">{range}</div>}
-                                <p className="g-desc">{showFull ? post.body : `${post.body.slice(0, 140)}…`} <span className="g-more">More</span></p>
-                                <div className="g-cta"><span className="g-btn">{post.ctaLabel ?? 'View offer'}</span></div>
-                            </div>
-                        </article>);
 }

@@ -12,7 +12,8 @@ import type { GbpPostPayload } from './registry';
 
 const require = createRequire(import.meta.url);
 require.extensions['.css'] = () => {};
-const { GbpPostPreview, PublicReview } = require('../../components/gbp-approvals/PublicReview') as typeof import('../../components/gbp-approvals/PublicReview');
+const { PublicReview } = require('../../components/gbp-approvals/PublicReview') as typeof import('../../components/gbp-approvals/PublicReview');
+const { GbpPostPreview } = require('../../components/gbp-approvals/GbpPostPreview') as typeof import('../../components/gbp-approvals/GbpPostPreview');
 const { PreviewDialog } = require('../../components/approvals-v2/PreviewDialog') as typeof import('../../components/approvals-v2/PreviewDialog');
 
 const updatePayload: GbpPostPayload = {
@@ -57,9 +58,9 @@ test('GBP previews omit the date line for updates and keep it for offers', () =>
         return renderToStaticMarkup(createElement(GbpPostPreview, { post, clientName: 'Client' }));
     }
 
-    assert.doesNotMatch(render({ ...update, offerStart: '', offerEnd: '' }), /class="g-date"/);
-    assert.doesNotMatch(render(update), /class="g-date"/);
-    assert.match(render(offer), /<div class="g-date">Dec 1 – Dec 31<\/div>/);
+    assert.doesNotMatch(render({ ...update, offerStart: '', offerEnd: '' }), /class="gbp-post-offer-date"/);
+    assert.doesNotMatch(render(update), /class="gbp-post-offer-date"/);
+    assert.match(render(offer), /<p class="gbp-post-offer-date">Dec 1 – Dec 31<\/p>/);
 });
 
 test('the staff preview dialog and its update item can render', () => {
@@ -74,7 +75,7 @@ test('the staff preview dialog and its update item can render', () => {
         createElement(GbpPostPreview, { post: update, clientName: 'Client' }),
     ));
     assert.match(item, /December update/);
-    assert.doesNotMatch(item, /class="g-date"|role="alert"/);
+    assert.doesNotMatch(item, /class="gbp-post-offer-date"|role="alert"/);
 });
 
 test('an item render error falls back to a titled alert', () => {

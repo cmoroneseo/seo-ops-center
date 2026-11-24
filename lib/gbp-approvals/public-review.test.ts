@@ -8,7 +8,8 @@ import { renderToStaticMarkup, renderToString } from 'react-dom/server';
 
 const require = createRequire(import.meta.url);
 require.extensions['.css'] = () => {};
-const { PublicReview, GbpPostPreview } = require('../../components/gbp-approvals/PublicReview') as typeof import('../../components/gbp-approvals/PublicReview');
+const { PublicReview } = require('../../components/gbp-approvals/PublicReview') as typeof import('../../components/gbp-approvals/PublicReview');
+const { GbpPostPreview } = require('../../components/gbp-approvals/GbpPostPreview') as typeof import('../../components/gbp-approvals/GbpPostPreview');
 const post = {
     position: 1, title: 'Actual title', scheduled: '2026-12-01',
     offerStart: '2026-12-01', offerEnd: '2026-12-31', body: 'Current agency text',
@@ -132,9 +133,9 @@ test('suggested edits are prefilled, optional, and require a comment before subm
 
 test('GBP avatar renders the client logo or falls back to its initial', () => {
     const logo = renderToStaticMarkup(createElement(GbpPostPreview, { post, clientName: 'Real client', logoSrc: '/client-logo.png' }));
-    assert.match(logo, /class="g-av"><img src="\/client-logo.png"/);
+    assert.match(logo, /class="gbp-post-avatar"><img src="\/client-logo.png"/);
     const initial = renderToStaticMarkup(createElement(GbpPostPreview, { post, clientName: 'Real client' }));
-    assert.match(initial, /class="g-av-initial" aria-hidden="true">R<\/span>/);
+    assert.match(initial, /aria-hidden="true">R<\/span>/);
     assert.doesNotMatch(initial, /<img/);
 });
 
@@ -149,14 +150,14 @@ test('failed client logos disappear from the header and fall back to the avatar 
     try {
         await act(async () => root.render(createElement(PublicReview, { mode: 'review', clientName: 'Real client', logoSrc: '/client-logo.png', posts: [post], questions: [] })));
         assert.ok(document.querySelector('.prep img'));
-        assert.ok(document.querySelector('.g-av img'));
+        assert.ok(document.querySelector('.gbp-post-avatar img'));
         await act(async () => {
             document.querySelector('.prep img')!.dispatchEvent(new dom.window.Event('error'));
-            document.querySelector('.g-av img')!.dispatchEvent(new dom.window.Event('error'));
+            document.querySelector('.gbp-post-avatar img')!.dispatchEvent(new dom.window.Event('error'));
         });
         assert.equal(document.querySelector('.prep img'), null);
-        assert.equal(document.querySelector('.g-av img'), null);
-        assert.equal(document.querySelector('.g-av-initial')?.textContent, 'R');
+        assert.equal(document.querySelector('.gbp-post-avatar img'), null);
+        assert.equal(document.querySelector('.gbp-post-avatar span')?.textContent, 'R');
     } finally {
         await act(async () => root.unmount());
         Object.assign(globalThis, saved);
@@ -174,7 +175,7 @@ test('avatar logos that failed before hydration fall back to the initial', async
     const { hydrateRoot } = await import('react-dom/client');
     const { act } = await import('react');
     const container = document.getElementById('root')!;
-    const logos = container.querySelectorAll('.g-av img');
+    const logos = container.querySelectorAll('.gbp-post-avatar img');
     assert.equal(logos.length, 1);
     for (const img of logos) {
         Object.defineProperties(img, { complete: { value: true }, naturalWidth: { value: 0 } });
@@ -182,8 +183,8 @@ test('avatar logos that failed before hydration fall back to the initial', async
     let root: ReturnType<typeof hydrateRoot> | undefined;
     try {
         await act(async () => { root = hydrateRoot(container, view); });
-        assert.ok(!document.querySelector('.g-av img'));
-        assert.equal(document.querySelector('.g-av-initial')?.textContent, 'R');
+        assert.ok(!document.querySelector('.gbp-post-avatar img'));
+        assert.equal(document.querySelector('.gbp-post-avatar span')?.textContent, 'R');
     } finally {
         await act(async () => root?.unmount());
         Object.assign(globalThis, saved);
@@ -191,7 +192,7 @@ test('avatar logos that failed before hydration fall back to the initial', async
     }
 });
 
-test('a client can send a comment on photo two of a null-date update without changing its decision', async () => {
+test('the client carousel follows photo targets and submits separate photo and whole-post drafts', async () => {
     const { JSDOM } = await import('jsdom');
     const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
     const saved = { window: globalThis.window, document: globalThis.document, fetch: globalThis.fetch };
@@ -202,7 +203,7 @@ test('a client can send a comment on photo two of a null-date update without cha
     const first = 'https://drive.google.com/thumbnail?id=client-fixture';
     const second = 'https://example.com/photo-2.jpg';
     const galleryPost = { ...post, postType: 'update', offerStart: null, offerEnd: null, itemId: 'item', versionId: 'version',
-        photo: first, photoSrcs: [first, second], photoComments: [{ body: 'Previously reviewed', photoPosition: 2 }] };
+        photo: first, photoSrcs: [first, second, '/third.jpg'], photoComments: [{ body: 'Previously reviewed', photoPosition: 2 }] };
     const submissions: { comments: unknown[]; decisions: unknown[] }[] = [];
     globalThis.fetch = async (_url, options) => {
         submissions.push(JSON.parse(options!.body as string));
@@ -211,18 +212,40 @@ test('a client can send a comment on photo two of a null-date update without cha
     try {
         await act(async () => root.render(createElement(PublicReview, { mode: 'review', posts: [galleryPost], token: 'test-token' })));
         assert.doesNotMatch(document.body.textContent!, /Offer runs|Invalid Date/);
-        const photos = document.querySelectorAll<HTMLImageElement>('[aria-label="Post photos"] img');
-        assert.deepEqual([...photos].map(image => image.getAttribute('src')), [first, second]);
-        assert.equal(photos[1].alt, 'Photo for Actual title 2 of 2');
-        assert.equal(photos[0].getAttribute('referrerpolicy'), 'no-referrer');
-        await act(async () => photos[0].dispatchEvent(new dom.window.Event('error')));
-        assert.equal(document.querySelector<HTMLAnchorElement>('[aria-label="Open photo for actual title 1 of 2"]')?.textContent, 'Open photo');
-        const secondComment = [...document.querySelectorAll('label')].find(label => label.textContent?.includes('Comment on photo 2'))!;
-        const textarea = secondComment.querySelector('textarea')!;
+        const carousel = document.querySelector('[aria-roledescription="carousel"]')!;
+        const photo = carousel.querySelector('img')!;
+        assert.equal(carousel.querySelectorAll('img').length, 1);
+        assert.equal(carousel.querySelectorAll('figcaption').length, 0);
+        assert.equal(photo.getAttribute('src'), first);
+        assert.equal(photo.getAttribute('referrerpolicy'), 'no-referrer');
+        assert.match(document.querySelector('[aria-label="Saved comments"]')!.textContent!, /Photo 2 · Previously reviewed/);
+        await act(async () => photo.dispatchEvent(new dom.window.Event('error')));
+        assert.equal(carousel.querySelector('[aria-label="Open photo for actual title 1 of 3"]')?.textContent, 'Open photo');
+        const picker = document.querySelector<HTMLSelectElement>('.photo-comment-target select')!;
+        await act(async () => carousel.querySelector<HTMLButtonElement>('[aria-label="Next photo"]')!.click());
+        assert.equal(picker.value, '2');
+        assert.equal(carousel.querySelector('img')?.alt, 'Photo for Actual title 2 of 3');
+        assert.equal(carousel.querySelector('img')?.getAttribute('src'), second);
+        const textarea = document.querySelector<HTMLTextAreaElement>('.ch-panel textarea')!;
+        async function write(value: string) {
+            await act(async () => {
+                Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, value);
+                textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+            });
+        }
+        await write('Use the daytime photo.');
         await act(async () => {
-            Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Use the daytime photo.');
-            textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+            picker.value = '';
+            picker.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         });
+        assert.equal(textarea.value, '');
+        await write('Please check the hours.');
+        await act(async () => carousel.querySelector<HTMLButtonElement>('[aria-label="Show photo 3 of 3"]')!.click());
+        assert.equal(picker.value, '3');
+        assert.equal(textarea.value, '');
+        await act(async () => carousel.querySelector<HTMLButtonElement>('[aria-label="Previous photo"]')!.click());
+        assert.equal(picker.value, '2');
+        assert.equal(textarea.value, 'Use the daytime photo.');
         const review = [...document.querySelectorAll('button')].find(button => button.textContent === 'Review and send')!;
         await act(async () => review.click());
         await act(async () => {
@@ -235,7 +258,10 @@ test('a client can send a comment on photo two of a null-date update without cha
         });
         assert.equal(submissions.length, 1);
         assert.deepEqual(submissions[0].decisions, []);
-        assert.deepEqual(submissions[0].comments, [{ itemId: 'item', versionId: 'version', anchorKind: 'page', photoPosition: 2, body: 'Use the daytime photo.' }]);
+        assert.deepEqual(submissions[0].comments, [
+            { itemId: 'item', versionId: 'version', anchorKind: 'page', photoPosition: null, body: 'Please check the hours.' },
+            { itemId: 'item', versionId: 'version', anchorKind: 'page', photoPosition: 2, body: 'Use the daytime photo.' },
+        ]);
     } finally {
         await act(async () => root.unmount());
         Object.assign(globalThis, saved);
@@ -295,6 +321,54 @@ test('a staff replacement of photo two uploads through the assets route and stag
         assert.equal(posted.length, 1);
         assert.deepEqual((posted[0] as { photoPaths: string[] }).photoPaths, [first, key]);
         assert.equal((posted[0] as { expectedVersionId: string }).expectedVersionId, 'version');
+    } finally {
+        await act(async () => root.unmount());
+        Object.assign(globalThis, saved);
+        dom.window.close();
+    }
+});
+
+test('the shared preview renders a single photo without controls and Call now has a phone icon', () => {
+    const html = renderToStaticMarkup(createElement(GbpPostPreview, {
+        post: { ...post, ctaLabel: 'Call now' }, clientName: 'Real client', sources: ['/one.jpg'],
+    }));
+    assert.match(html, /gbp-post-header[\s\S]*Real client[\s\S]*gbp-post-slide[\s\S]*\/one.jpg[\s\S]*gbp-post-body[\s\S]*Actual title/);
+    assert.match(html, /class="gbp-post-cta"><svg[^>]*lucide-phone[\s\S]*Call now/);
+    assert.doesNotMatch(html, /Previous photo|Next photo|gbp-post-dots|gbp-post-count|<figcaption/);
+});
+
+test('swiping changes one slide and More expands the copy in place', async () => {
+    const { JSDOM } = await import('jsdom');
+    const dom = new JSDOM('<div id="root"></div>', { url: 'https://example.test' });
+    const saved = { window: globalThis.window, document: globalThis.document };
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
+    const { createRoot } = await import('react-dom/client');
+    const { act } = await import('react');
+    const root = createRoot(document.getElementById('root')!);
+    try {
+        await act(async () => root.render(createElement(GbpPostPreview, {
+            post: { ...post, body: 'A long post. '.repeat(20) }, clientName: 'Client', sources: ['/one.jpg', '/two.jpg', '/three.jpg'],
+        })));
+        const slide = document.querySelector('.gbp-post-slide')!;
+        function pointer(type: string, clientX: number, clientY: number) {
+            const event = new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX, clientY });
+            Object.assign(event, { isPrimary: true, pointerId: 1, pointerType: 'touch' });
+            slide.querySelector('img')!.dispatchEvent(event);
+        }
+        await act(async () => { pointer('pointerdown', 120, 60); pointer('pointerup', 115, 125); });
+        assert.equal(slide.querySelector('img')?.getAttribute('src'), '/one.jpg');
+        await act(async () => { pointer('pointerdown', 120, 60); pointer('pointerup', 50, 65); });
+        assert.equal(slide.querySelector('img')?.getAttribute('src'), '/two.jpg');
+        assert.equal(slide.querySelectorAll('img').length, 1);
+        const copy = document.querySelector('.gbp-post-copy')!;
+        const more = document.querySelector<HTMLButtonElement>('.gbp-post-more')!;
+        assert.equal(copy.getAttribute('data-expanded'), 'false');
+        assert.equal(more.textContent, 'More');
+        await act(async () => more.click());
+        assert.equal(copy.getAttribute('data-expanded'), 'true');
+        assert.equal(more.textContent, 'Less');
+        await act(async () => more.click());
+        assert.equal(copy.getAttribute('data-expanded'), 'false');
     } finally {
         await act(async () => root.unmount());
         Object.assign(globalThis, saved);

@@ -220,39 +220,48 @@ test('Option B selects gallery photos by keyboard, shows versioned comments, and
     assert.equal(get('.ar-approve').getAttribute('aria-disabled'), 'false');
     const gallery = get('.ar-item-details [role="group"][aria-label="Post photos"]');
     assert.equal(gallery.querySelectorAll('button[aria-pressed]').length, 3);
-    assert.equal(get('.ar-google-photo img').getAttribute('src'), first);
+    assert.equal(get('.gbp-post-slide img').getAttribute('src'), first);
     assert.equal(get('[aria-label="Client comments"] a').getAttribute('href'), 'https://example.test/old-photo.jpg');
     assert.match(get('[aria-label="Internal feedback"]').textContent ?? '', /Version 1 · Photo 3/);
 
-    const preview = get('.ar-google');
+    const preview = get('.gbp-post');
     const navigation = preview.querySelector('[role="group"][aria-label="Preview photos"]');
     assert.ok(navigation);
-    const count = get('.ar-google [aria-live="polite"]');
+    const count = get('.gbp-post [aria-live="polite"]');
     assert.equal(count.textContent, '1 / 3');
-    const next = get<HTMLButtonElement>('.ar-google [aria-label="Next photo"]');
-    const previous = get<HTMLButtonElement>('.ar-google [aria-label="Previous photo"]');
+    const next = get<HTMLButtonElement>('.gbp-post [aria-label="Next photo"]');
+    const previous = get<HTMLButtonElement>('.gbp-post [aria-label="Previous photo"]');
     await act(async () => next.click());
     assert.equal(count.textContent, '2 / 3');
-    assert.equal(get('.ar-google-photo img').getAttribute('src'), second);
-    assert.equal(gallery.querySelector('[aria-pressed="true"]')?.getAttribute('aria-label'), 'Show photo 2 of 3');
+    assert.equal(get('.gbp-post-slide img').getAttribute('src'), second);
+    assert.equal(gallery.querySelector('[aria-pressed="true"]')?.getAttribute('aria-label'), 'Select photo 2 of 3');
     await act(async () => previous.click());
     previous.focus();
     await act(async () => key(previous, 'ArrowLeft'));
     assert.equal(count.textContent, '3 / 3');
-    assert.equal(get('.ar-google-photo img').getAttribute('src'), third);
+    assert.equal(get('.gbp-post-slide img').getAttribute('src'), third);
     assert.equal(document.activeElement, previous);
     next.focus();
     await act(async () => key(next, 'ArrowRight'));
     assert.equal(count.textContent, '1 / 3');
     assert.equal(document.activeElement, next);
+    const thirdDot = get<HTMLButtonElement>('.gbp-post [aria-label="Show photo 3 of 3"]');
+    await act(async () => thirdDot.click());
+    assert.equal(count.textContent, '3 / 3');
+    assert.equal(thirdDot.getAttribute('aria-pressed'), 'true');
+    assert.equal(navigation.querySelectorAll('img').length, 1);
+    assert.equal(navigation.querySelector('figcaption'), null);
+    (navigation as HTMLElement).focus();
+    await act(async () => key(navigation, 'ArrowRight'));
+    assert.equal(count.textContent, '1 / 3');
 
-    const firstThumb = get<HTMLButtonElement>('[aria-label="Show photo 1 of 3"]');
+    const firstThumb = get<HTMLButtonElement>('[aria-label="Select photo 1 of 3"]');
     firstThumb.focus();
     await act(async () => key(firstThumb, 'ArrowRight'));
-    assert.equal(document.activeElement, get('[aria-label="Show photo 2 of 3"]'));
+    assert.equal(document.activeElement, get('[aria-label="Select photo 2 of 3"]'));
     assert.equal(document.activeElement?.getAttribute('aria-pressed'), 'true');
     assert.equal(count.textContent, '2 / 3');
-    const image = get<HTMLImageElement>('.ar-google-photo img');
+    const image = get<HTMLImageElement>('.gbp-post-slide img');
     assert.equal(image.getAttribute('src'), second);
     await act(async () => {
       Object.defineProperties(image, { naturalWidth: { value: 1200 }, naturalHeight: { value: 900 } });
@@ -267,10 +276,10 @@ test('Option B selects gallery photos by keyboard, shows versioned comments, and
     await act(async () => new Promise(resolve => requestAnimationFrame(resolve)));
     assert.equal(document.activeElement, enlarge);
     await act(async () => image.dispatchEvent(new dom.window.Event('error')));
-    assert.equal(get('.ar-google-unavailable a').getAttribute('href'), second);
+    assert.equal(get('.gbp-post-unavailable a').getAttribute('href'), second);
     assert.match(get('.ar-facts').textContent ?? '', /PhotoPreview unavailable/);
     await act(async () => next.click());
-    assert.equal(get('.ar-google-photo img').getAttribute('src'), third);
+    assert.equal(get('.gbp-post-slide img').getAttribute('src'), third);
     assert.equal(get('.ar-approve').getAttribute('aria-disabled'), 'false');
     assert.doesNotMatch(get('.ar-facts').textContent ?? '', /1200 × 900/);
 
@@ -293,6 +302,28 @@ test('Option B selects gallery photos by keyboard, shows versioned comments, and
     }] });
   } finally {
     globalThis.fetch = fetchOriginal;
+    await act(async () => root.unmount());
+  }
+});
+
+test('Preview as client opens a three-photo GBP carousel', async () => {
+  const { PreviewDialog } = require('@/components/approvals-v2/PreviewDialog') as typeof import('@/components/approvals-v2/PreviewDialog');
+  const payload = draftData().items[1].version!.payload;
+  const root = createRoot(get('#review'));
+  try {
+    await act(async () => root.render(createElement(PreviewDialog, {
+      clientName: 'Example', items: [{ id: 'item', payload, photoUrl: '/one.jpg', photoUrls: ['/one.jpg', '/two.jpg', '/three.jpg'] }],
+    })));
+    await act(async () => get<HTMLButtonElement>('#review button').click());
+    const dialog = get('[role="dialog"]');
+    assert.ok(dialog.querySelector('.gbp-post-header'));
+    assert.equal(dialog.querySelectorAll('.gbp-post-slide img').length, 1);
+    assert.equal(dialog.querySelector('.gbp-post-count')?.textContent, '1 / 3');
+    await act(async () => get<HTMLButtonElement>('[role="dialog"] [aria-label="Show photo 3 of 3"]').click());
+    assert.equal(dialog.querySelector('.gbp-post-count')?.textContent, '3 / 3');
+    assert.equal(dialog.querySelector('.gbp-post-slide img')?.getAttribute('src'), '/three.jpg');
+    assert.equal(dialog.querySelector('figcaption'), null);
+  } finally {
     await act(async () => root.unmount());
   }
 });
