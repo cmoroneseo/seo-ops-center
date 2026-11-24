@@ -55,6 +55,14 @@ export function pageDaysFromFacts(
         && loggedUrls.some(url => pageMatchesChange(fact.page, url))));
 }
 
+export function pickedDaysFromFacts(
+    days: readonly HistoryDayRow[],
+    facts: readonly GscFactRow[],
+    urls: readonly string[],
+): DayPoint[] {
+    return addCompletePageZeros(days, pageDaysFromFacts(days, facts, urls));
+}
+
 /** Search Console keeps tag variants. GA4 strips the query string and includes GBP in the same landing page. */
 export function gbpDaysFromFacts(
     days: readonly HistoryDayRow[],
@@ -66,9 +74,12 @@ export function gbpDaysFromFacts(
     const tagged = facts.filter(fact => dayIds.has(fact.dayId) && fact.grain === 'page' && isGbpTaggedUrl(fact.page)
         && keys.has(normalizeResultUrl(fact.page)) && !loggedUrls.some(url => pageMatchesChange(fact.page, url)));
     if (tagged.length === 0) return [];
-    const measured = groupFactDays(days, tagged);
+    return addCompletePageZeros(days, groupFactDays(days, tagged));
+}
+
+/** A missing page row counts as zero only when the page import is complete. */
+function addCompletePageZeros(days: readonly HistoryDayRow[], measured: DayPoint[]): DayPoint[] {
     const seen = new Set(measured.map(day => day.date));
-    // An absent variant is zero only when the day has a complete page-grain import.
     for (const day of days) {
         if (day.preliminary || day.pageLimited !== false || seen.has(day.date)) continue;
         measured.push({
@@ -196,7 +207,8 @@ export function isMissingRelation(error: { code?: string; message?: string } | n
     if (!error) return false;
     if (error.code === '42P01' || error.code === 'PGRST205') return true;
     const message = error.message ?? '';
-    return /seo_change/i.test(message) && /does not exist|schema cache/i.test(message) && !/test_kind|treatment/i.test(message);
+    return /seo_change/i.test(message) && /does not exist|schema cache/i.test(message)
+        && !/test_kind|treatment|control_urls/i.test(message);
 }
 
 /** Migration 129 has not been applied, so test_kind / treatment are not columns yet. */

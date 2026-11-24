@@ -1,7 +1,9 @@
 import { dateOffset } from '@/lib/gsc/history';
 import { eachDate } from '@/lib/search-reporting/range';
+import { proofHost } from '@/lib/search-reporting/proof';
+import { normalizeResultUrl } from '@/lib/search-reporting/result-url';
 
-import { controlDayValue, controlFor } from './control';
+import { controlDayValue, controlFor, controlModeLabel } from './control';
 import { dayKpi, isGaKpi, moveFor, sumWindow } from './metrics';
 import {
     CAUSATION,
@@ -39,6 +41,9 @@ export interface ImpactSource {
     pageDays: readonly DayPoint[];
     gscPageDays?: readonly DayPoint[];
     sitewideDays: readonly DayPoint[];
+    restPositionDays?: readonly DayPoint[];
+    pickedControlDays?: readonly DayPoint[];
+    pickedGa4Days?: readonly DayPoint[];
     yoyPageDays?: readonly DayPoint[];
     yoySitewideDays?: readonly DayPoint[];
     queries?: readonly { query: string; days: readonly DayPoint[] }[];
@@ -60,7 +65,7 @@ export function buildImpact(source: ImpactSource): ImpactModel {
     const kpi = lowClickBaseline == null ? source.kpi : 'impressions';
     const scored = { ...source, kpi };
     const connected = isGaKpi(kpi) ? source.ga4Connected : source.gscConnected;
-    const siteBaseline = sumWindow(source.sitewideDays, baselineSpan.start, baselineSpan.end, through);
+    const before = readControls(scored, baseline, baselineSpan, through);
 
     const checkpoints = CHECKPOINTS.map(days => readCheckpoint({
         days,
@@ -69,7 +74,7 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         lagNote,
         baseline,
         baselineReady,
-        siteBaseline,
+        baselineControl: before.control,
         connected,
     }));
     const ready = checkpoints.filter(item => item.ready);
@@ -81,9 +86,6 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         ? readYoy(source, through)
         : null;
 
-    const baselineControlWindow = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, 'clicks');
-    const baselineControl = baselineControlWindow.mode === 'untouched' ? baselineControlWindow.read : null;
-    const control = controlFor(baseline, siteBaseline.measured ? siteBaseline : null, kpi);
     const windowEnd = afterWindow(source.liveOn, 56).end;
     const lagEnd = dateOffset(through, GSC_LAG_DAYS);
     const seriesEnd = windowEnd < lagEnd ? windowEnd : lagEnd;
@@ -96,8 +98,8 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         finalThrough: through,
         lagDays: GSC_LAG_DAYS,
         baseline,
-        baselineControl,
-        baselineSite: siteBaseline.measured ? siteBaseline : null,
+        baselineControl: before.pickedClicks ?? before.restOfSite,
+        baselineSite: before.site,
         baselineReady,
         yoy: yoy?.read ?? null,
         yoyNote: source.compareLastYear
@@ -111,8 +113,25 @@ export function buildImpact(source: ImpactSource): ImpactModel {
         gscConnected: source.gscConnected,
         ga4Connected: source.ga4Connected,
         causation: CAUSATION,
-        controlLabel: control.label,
+        controlLabel: source.pickedControlDays ? controlModeLabel('picked')
+            : controlModeLabel(before.site || before.control.read ? 'untouched' : 'none'),
         sources: sourceLines(source),
+    };
+}
+
+function readControls(source: ImpactSource, page: MetricRead, span: { start: string; end: string }, through: string) {
+    const sum = (days: readonly DayPoint[]) => sumWindow(days, span.start, span.end, through);
+    const siteRead = sum(source.sitewideDays);
+    const site = siteRead.measured ? siteRead : null;
+    const restPosition = source.restPositionDays && sum(source.restPositionDays);
+    const pickedClicks = source.pickedControlDays && sum(source.pickedControlDays);
+    const picked = pickedClicks && (isGaKpi(source.kpi) ? sum(source.pickedGa4Days ?? []) : pickedClicks);
+    const rest = controlFor(page, site, 'clicks', restPosition);
+    return {
+        control: controlFor(page, site, source.kpi, restPosition, picked),
+        site,
+        restOfSite: rest.mode === 'untouched' ? rest.read : null,
+        pickedClicks,
     };
 }
 
@@ -123,40 +142,34 @@ function readCheckpoint(input: {
     lagNote: string;
     baseline: ReturnType<typeof sumWindow>;
     baselineReady: boolean;
-    siteBaseline: ReturnType<typeof sumWindow>;
+    baselineControl: ReturnType<typeof controlFor>;
     connected: boolean;
 }): CheckpointRead {
     const span = afterWindow(input.source.liveOn, input.days);
     const page = sumWindow(input.source.pageDays, span.start, span.end, input.through);
-    const site = sumWindow(input.source.sitewideDays, span.start, span.end, input.through);
     const covered = page.daysExpected > 0 && page.daysPresent / page.daysExpected >= VERDICT_THRESHOLDS.minAfterCoverage;
     const finished = span.end <= input.through && covered;
     const partial = page.measured && page.daysPresent < page.daysExpected;
     const baselinePartial = input.baseline.measured && input.baseline.daysPresent < input.baseline.daysExpected;
-    const control = controlFor(page, site.measured ? site : null, input.source.kpi);
-    const restWindow = controlFor(page, site.measured ? site : null, 'clicks');
-    const restOfSite = restWindow.mode === 'untouched' ? restWindow.read : null;
-    const baselineControl = controlFor(
-        input.baseline,
-        input.siteBaseline.measured ? input.siteBaseline : null,
-        input.source.kpi,
-    );
+    const { control, site, restOfSite, pickedClicks } = readControls(input.source, page, span, input.through);
+    const baselineControl = input.baselineControl;
     const pageMove = moveFor(input.source.kpi, input.baseline, page);
-    const controlMove = control.read && baselineControl.read
+    const controlMove = control.mode === baselineControl.mode && control.read && baselineControl.read
         ? moveFor(input.source.kpi, baselineControl.read, control.read)
         : null;
+    const controlUnreliable = control.unreliable || baselineControl.unreliable;
     const lowData = isLowData(input.source.kpi, input.baseline, page);
     const classified = classifyCheckpoint({
         kpi: input.source.kpi,
         ready: finished,
         baselineReady: input.baselineReady,
         connected: input.connected,
-        partial: partial || baselinePartial || control.unreliable,
+        partial: partial || baselinePartial,
         lowData,
         page: pageMove,
         control: controlMove,
         controlMode: control.mode,
-        controlUnreliable: control.unreliable,
+        controlUnreliable,
         lagNote: input.lagNote,
     });
     return {
@@ -169,12 +182,13 @@ function readCheckpoint(input: {
         page,
         control: control.read,
         controlMode: control.mode,
-        controlUnreliable: control.unreliable,
+        controlUnreliable,
         pageMove,
         controlMove,
         lift: classified.lift,
         restOfSite,
-        sitewide: site.measured ? site : null,
+        pickedControlClicks: pickedClicks,
+        sitewide: site,
     };
 }
 
@@ -199,21 +213,12 @@ function pageCounts(day: DayPoint | undefined, preliminary: boolean) {
     };
 }
 
-function controlCounts(page: DayPoint | undefined, site: DayPoint | undefined, preliminary: boolean) {
-    if (preliminary) {
-        return { controlClicks: null, controlImpressions: null, controlCtr: null, controlPosition: null };
-    }
-    return {
-        controlClicks: controlDayValue(page, site, 'clicks'),
-        controlImpressions: controlDayValue(page, site, 'impressions'),
-        controlCtr: controlDayValue(page, site, 'ctr'),
-        controlPosition: controlDayValue(page, site, 'avg_position'),
-    };
-}
-
 function chartSeries(source: ImpactSource, through: string, start: string, end: string): ChartPoint[] {
     const pageByDate = new Map(source.pageDays.map(day => [day.date, day]));
     const siteByDate = new Map(source.sitewideDays.map(day => [day.date, day]));
+    const restByDate = new Map(source.restPositionDays?.map(day => [day.date, day]));
+    const pickedByDate = new Map(source.pickedControlDays?.map(day => [day.date, day]));
+    const pickedGa4ByDate = new Map(source.pickedGa4Days?.map(day => [day.date, day]));
     const points: ChartPoint[] = [];
     const last = end < start ? start : end;
     for (const date of eachDate(start, last)) {
@@ -221,14 +226,23 @@ function chartSeries(source: ImpactSource, through: string, start: string, end: 
         const pageDay = date === source.liveOn ? undefined : pageByDate.get(date);
         const siteDay = date === source.liveOn ? undefined : siteByDate.get(date);
         const measuredPage = !preliminary && pageDay && !pageDay.preliminary ? pageDay : undefined;
+        const controlValue = (kpi: Kpi) => {
+            if (preliminary || date === source.liveOn) return null;
+            if (!source.pickedControlDays) return controlDayValue(pageDay, siteDay, kpi, restByDate.get(date));
+            const picked = (isGaKpi(kpi) ? pickedGa4ByDate : pickedByDate).get(date);
+            return picked && !picked.preliminary ? dayKpi(picked, kpi) : null;
+        };
         points.push({
             date,
             page: measuredPage ? dayKpi(measuredPage, source.kpi) : null,
-            control: preliminary ? null : controlDayValue(pageDay, siteDay, source.kpi),
+            control: controlValue(source.kpi),
             live: date === source.liveOn,
             preliminary,
             ...pageCounts(pageDay, preliminary),
-            ...controlCounts(pageDay, siteDay, preliminary),
+            controlClicks: controlValue('clicks'),
+            controlImpressions: controlValue('impressions'),
+            controlCtr: controlValue('ctr'),
+            controlPosition: controlValue('avg_position'),
         });
     }
     if (!points.some(point => point.date === source.liveOn)) {
@@ -366,16 +380,21 @@ export function timelineItem(change: SeoChange, impact: ImpactModel): TimelineIt
 }
 
 export function findConfounders(
-    changes: readonly Pick<SeoChange, 'id' | 'title' | 'changeType' | 'liveAt' | 'liveOn'>[],
-    focus: Pick<SeoChange, 'id' | 'liveOn'>,
-    checkpointDays: CheckpointDays = 28,
+    changes: readonly SeoChange[],
+    focus: SeoChange,
 ): Confounder[] {
     const before = baselineWindow(focus.liveOn);
-    const after = afterWindow(focus.liveOn, checkpointDays);
+    const after = afterWindow(focus.liveOn, 56);
+    const testSites = new Set(focus.pages.map(page => proofHost(page.url)).filter(Boolean));
+    const testKeys = new Set(focus.pages.map(page => normalizeResultUrl(page.url)).filter(Boolean));
+    const controlKeys = new Set(focus.controlUrls?.map(normalizeResultUrl).filter(Boolean));
     const rows: Confounder[] = [];
     for (const change of changes) {
-        if (change.id === focus.id) continue;
+        if (change.id === focus.id || change.clientId !== focus.clientId) continue;
         if (change.liveOn < before.start || change.liveOn > after.end) continue;
+        const sameSitePages = change.pages.filter(page => testSites.has(proofHost(page.url)));
+        if (sameSitePages.length === 0) continue;
+        const keys = sameSitePages.map(page => normalizeResultUrl(page.url));
         const overlap = change.liveOn === focus.liveOn
             ? 'same_day'
             : change.liveOn < focus.liveOn
@@ -388,6 +407,8 @@ export function findConfounders(
             liveAt: change.liveAt,
             liveOn: change.liveOn,
             overlap,
+            touchesTestPage: keys.some(key => testKeys.has(key)),
+            touchesControlPage: keys.some(key => controlKeys.size > 0 ? controlKeys.has(key) : !testKeys.has(key)),
         });
     }
     rows.sort((a, b) => a.liveOn.localeCompare(b.liveOn) || a.title.localeCompare(b.title));
@@ -396,8 +417,8 @@ export function findConfounders(
 
 export function overlapLabel(overlap: Confounder['overlap']): string {
     if (overlap === 'same_day') return 'Same day';
-    if (overlap === 'baseline') return 'In the starting point';
-    return 'After it went live';
+    if (overlap === 'baseline') return 'Baseline window';
+    return 'After window';
 }
 
 export function verdictRank(verdict: Verdict): number {

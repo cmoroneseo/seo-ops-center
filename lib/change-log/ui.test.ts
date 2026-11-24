@@ -39,6 +39,7 @@ test('the example list shows one result pill per row', () => {
     assert.match(markup, /Example data/);
     assert.match(markup, /Homepage main heading/);
     assert.match(markup, /El Niño promo banner/);
+    assert.match(markup, /Overlapping changes/);
     assert.match(markup, /<table/);
     assert.match(markup, /data-went-live="all"/);
     assert.match(markup, /aria-label="Went live: All time"/);
@@ -58,7 +59,6 @@ test('the example list shows one result pill per row', () => {
     assert.match(markup, /Jan 6, 2027/);
     assert.match(markup, /of 2 changes/);
     assert.match(markup, /newest first/);
-    assert.match(markup, /pages we didn(?:'|&#x27;|&apos;)t change/);
     assert.equal(markup.split('Improved').length - 1, 2);
     assert.match(markup, /No clear change/);
     assert.match(markup, /Too early to tell/);
@@ -324,6 +324,7 @@ test('empty and loading states are real screens', () => {
 
 test('the log form is filled with the Ecoworkz H1', () => {
     const markup = html('form');
+    assert.match(markup, /Control page URLs \(optional\)/);
     assert.match(markup, /Hardscape &amp; Landscape Contractors in Corona, CA|Hardscape & Landscape Contractors in Corona, CA/);
     assert.match(markup, /2026-11-10T14:04/);
     assert.match(markup, /Saved copy of the old homepage heading/);

@@ -14,6 +14,55 @@ import { exampleBoard, exampleConfounders, EXAMPLE_TODAY } from './fixture.ts';
 const board = exampleBoard();
 const h1 = board.changes[0];
 
+test('detail shows selected control pages, overlapping windows and an editor for the saved URLs', async () => {
+    const controlUrl = 'https://www.ecoworkz.net/pavers/';
+    const saved: string[][] = [];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+        root.render(createElement(ChangeLogView, {
+            clientName: 'Ecoworkz',
+            mode: 'detail',
+            example: false,
+            items: board.items,
+            detail: {
+                change: { ...h1, controlUrls: [controlUrl] },
+                impact: { ...board.impacts[h1.id], controlLabel: 'Selected control pages' },
+                confounders: [
+                    { id: 'before', title: 'Homepage link edit', changeType: 'internal_links', liveAt: '', liveOn: '2026-11-02',
+                        overlap: 'baseline', touchesTestPage: true, touchesControlPage: false },
+                    { id: 'after', title: 'Pavers heading', changeType: 'h1', liveAt: '', liveOn: '2026-11-16',
+                        overlap: 'after', touchesTestPage: false, touchesControlPage: true },
+                ],
+                baselineNote: null,
+            },
+            onLog: () => undefined,
+            onOpen: () => undefined,
+            onBack: () => undefined,
+            onSubmit: () => undefined,
+            onRemove: () => undefined,
+            onSaveControlPages: async urls => { saved.push(urls); },
+        }));
+    });
+    const controls = container.querySelector('[aria-label="Control pages"]');
+    assert.match(controls?.textContent ?? '', /Compared with selected control pages/);
+    const renderedControlUrls = Array.from(controls?.querySelectorAll('ul > li') ?? [], item => item.textContent);
+    assert.deepEqual(renderedControlUrls, [controlUrl]);
+    const warning = container.querySelector('[aria-label="Overlapping changes"]');
+    assert.match(warning?.textContent ?? '', /Homepage link edit.*Nov 2, 2026.*Baseline window.*Touched a test page/);
+    assert.match(warning?.textContent ?? '', /Pavers heading.*Nov 16, 2026.*After window.*Touched a control page/);
+
+    const edit = [...controls?.querySelectorAll('button') ?? []].find(button => button.textContent === 'Edit control pages');
+    assert.ok(edit);
+    await act(async () => { edit.click(); });
+    assert.equal(controls?.querySelector('textarea')?.value, controlUrl);
+    await act(async () => { controls?.querySelector<HTMLButtonElement>('button[type="submit"]')?.click(); });
+    assert.deepEqual(saved, [[controlUrl]]);
+    act(() => root.unmount());
+    container.remove();
+});
+
 test('download and more menus open, and remove asks before it deletes', async () => {
     const removed: string[] = [];
     const container = document.createElement('div');

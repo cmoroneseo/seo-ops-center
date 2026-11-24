@@ -18,11 +18,12 @@ export function impactCsv(change: SeoChange, impact: ImpactModel): string {
         ["What we're watching", KPI_LABEL[impact.kpi]],
         ...(impact.kpi === change.kpi ? [] : [['Saved metric', KPI_LABEL[change.kpi]]]),
         ['Pages', change.pages.map(page => page.url).join(' ')],
+        ...(change.controlUrls?.length ? [['Selected control pages', change.controlUrls.join(' ')]] : []),
         ['Result', resultLabel(impact.headline.verdict, impact.headline.estimate)],
         ['Note', impact.headline.note],
         ['Keep in mind', impact.causation],
         [],
-        ['Check', 'Ready', 'Result', 'Early estimate', 'This page', 'Rest of the site'],
+        ['Check', 'Ready', 'Result', 'Early estimate', 'This page', 'Comparison'],
     ];
     for (const checkpoint of impact.checkpoints) {
         lines.push([

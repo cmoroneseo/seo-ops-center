@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { dateOffset } from '@/lib/gsc/history';
 import { queryDaysFromFacts } from './facts';
-import { getChange } from './store';
+import { buildResultsTable } from './results';
+import { ControlMigrationRequired, getChange, listChanges, updateControlPages } from './store';
 
 type Row = Record<string, unknown>;
 const now = new Date('2026-11-23T20:00:00Z');
@@ -10,10 +11,22 @@ const scope = { organization_id: 'org', client_id: 'client' };
 const url = 'https://example.com/';
 const baselineDates = Array.from({ length: 28 }, (_, i) => dateOffset('2026-10-13', i));
 
-function database(tables: Record<string, Row[]>, maxRows = 1000, beforeBaselineUpdate?: () => void) {
+function database(tables: Record<string, Row[]>, options: {
+    controlColumn?: boolean;
+    maxRows?: number;
+    beforeBaselineUpdate?: () => void;
+    positionRows?: Row[];
+    positionError?: { code?: string; message?: string };
+} = {}) {
+    const { controlColumn = true, maxRows = 1000, beforeBaselineUpdate } = options;
     const writes: Row[] = [];
-    const ranges: { table: string; start: number; order: string[]; grain?: unknown; inFilters: Record<string, unknown[]> }[] = [];
+    const ranges: { table: string; start: number; order: string[]; grain?: unknown; inFilters: Record<string, unknown[]>; tagged: boolean }[] = [];
+    const rpcCalls: { name: string; args: Row }[] = [];
     const db = {
+        async rpc(name: string, args: Row) {
+            rpcCalls.push({ name, args });
+            return { data: options.positionRows ?? [], error: options.positionError ?? null };
+        },
         from(table: string) {
             const filters: ((row: Row) => boolean)[] = [];
             const order: string[] = [];
@@ -22,7 +35,11 @@ function database(tables: Record<string, Row[]>, maxRows = 1000, beforeBaselineU
             let to = 999;
             let patch: Row | undefined;
             let grain: unknown;
+            let tagged = false;
             function result() {
+                if (!controlColumn && patch && 'control_urls' in patch) {
+                    return { data: [], error: { code: 'PGRST204', message: 'Could not find control_urls in the schema cache' } };
+                }
                 if (patch && table === 'seo_change_baselines') beforeBaselineUpdate?.();
                 const matched = (tables[table] ?? []).filter(row => filters.every(filter => filter(row)));
                 matched.sort((a, b) => order.reduce((cmp, key) => cmp || String(a[key]).localeCompare(String(b[key])), 0));
@@ -46,28 +63,37 @@ function database(tables: Record<string, Row[]>, maxRows = 1000, beforeBaselineU
                     return query;
                 },
                 ilike(key: string, pattern: string) {
+                    tagged = key === 'page';
                     const expression = new RegExp(pattern.split('%').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'), 'i');
                     filters.push(row => expression.test(String(row[key])));
                     return query;
                 },
                 gte(key: string, value: string) { filters.push(row => String(row[key]) >= value); return query; },
                 lte(key: string, value: string) { filters.push(row => String(row[key]) <= value); return query; },
+                lt(key: string, value: string) { filters.push(row => String(row[key]) < value); return query; },
                 order(key: string) { order.push(key); return query; },
                 limit(value: number) { to = Math.min(value, 1000) - 1; return query; },
                 range(start: number, end: number) {
-                    ranges.push({ table, start, order: [...order], grain, inFilters: { ...inFilters } });
+                    ranges.push({ table, start, order: [...order], grain, inFilters: { ...inFilters }, tagged });
                     from = start;
                     to = end;
                     return query;
                 },
                 update(values: Row) { patch = values; return query; },
-                async maybeSingle() { return { data: result().data[0] ?? null, error: null }; },
+                async maybeSingle() { const { data, error } = result(); return { data: data[0] ?? null, error }; },
                 then(resolve: (value: ReturnType<typeof result>) => unknown) { return Promise.resolve(result()).then(resolve); },
             };
             return query;
         },
     } as unknown as NonNullable<Parameters<typeof getChange>[4]>;
-    return { read: () => getChange('org', 'client', 'change', now, db), writes, ranges };
+    return {
+        read: (readAt = now) => getChange('org', 'client', 'change', readAt, db),
+        list: () => listChanges('org', 'client', now, db),
+        saveControls: (urls: unknown, client = 'client') => updateControlPages('org', client, 'change', urls, db),
+        writes,
+        ranges,
+        rpcCalls,
+    };
 }
 
 function seed(service: 'gsc' | 'ga4') {
@@ -152,10 +178,12 @@ test('a saved 26-day baseline advances to 27 and then 28 final days, with no upd
 test('a concurrent complete baseline wins over a stale partial refresh', async () => {
     const { tables, days, snapshot } = baselineSeed();
     days[26].is_incomplete = false;
-    const db = database(tables, 1000, () => Object.assign(snapshot, {
-        captured_at: '2026-11-23T20:00:00Z', status: 'captured', estimate: false,
-        note: 'Complete baseline', payload: { daysPresent: 28, daysExpected: 28 }, data_through: '2026-11-09',
-    }));
+    const db = database(tables, {
+        beforeBaselineUpdate: () => Object.assign(snapshot, {
+            captured_at: '2026-11-23T20:00:00Z', status: 'captured', estimate: false,
+            note: 'Complete baseline', payload: { daysPresent: 28, daysExpected: 28 }, data_through: '2026-11-09',
+        }),
+    });
     assert.equal((await db.read()).baselineNote, 'Complete baseline');
     assert.equal(db.writes.length, 0);
 });
@@ -164,10 +192,12 @@ test('a complete baseline refresh retries if a concurrent partial refresh wins f
     const { tables, days, snapshot } = baselineSeed();
     days[26].is_incomplete = false;
     days[27].is_incomplete = false;
-    const db = database(tables, 1000, () => {
-        if (snapshot.payload.daysPresent === 26) Object.assign(snapshot, {
-            captured_at: '2026-11-23T20:00:00.000Z', payload: { daysPresent: 27, daysExpected: 28 },
-        });
+    const db = database(tables, {
+        beforeBaselineUpdate: () => {
+            if (snapshot.payload.daysPresent === 26) Object.assign(snapshot, {
+                captured_at: '2026-11-23T20:00:00.000Z', payload: { daysPresent: 27, daysExpected: 28 },
+            });
+        },
     });
     assert.match((await db.read()).baselineNote ?? '', /^Starting point saved from stored/);
     assert.equal(snapshot.payload.daysPresent, 28);
@@ -184,7 +214,7 @@ test('change-log GSC and GA4 page reads advance by the returned rows until an em
         gsc_history_facts: Array.from({ length: 601 }, (_, i) => ({
             day_id: day.id, row_key: `row-${i}`, grain: 'page', page: url, clicks: 1, impressions: 2, position: 3,
         })),
-    }, 300);
+    }, { maxRows: 300 });
     assert.equal((await gsc.read()).impact?.baseline.clicks, 601);
     assert.deepEqual(gsc.ranges.filter(range => range.grain === 'page' && range.inFilters.page).map(range => [range.start, range.order]),
         [0, 300, 600, 601].map(start => [start, ['day_id', 'row_key']]));
@@ -195,10 +225,10 @@ test('change-log GSC and GA4 page reads advance by the returned rows until an em
         ga4_landing_page_days: Array.from({ length: 601 }, (_, id) => ({
             ...scope, id, day_id: 'final', day: baselineDates[0], landing_page_norm: '/', organic_sessions: 1,
         })),
-    }, 300);
+    }, { maxRows: 300 });
     assert.equal((await ga4.read()).impact?.baseline.organicSessions, 601);
-    assert.deepEqual(ga4.ranges.map(range => [range.table, range.start, range.order]), [0, 300, 600, 601]
-        .map(start => ['ga4_landing_page_days', start, ['id']]));
+    assert.deepEqual(ga4.ranges.filter(range => range.table === 'ga4_landing_page_days').map(range => [range.start, range.order]),
+        [0, 300, 600, 601].map(start => [start, ['id']]));
 });
 
 test('query facts keep a day preliminary if any matched row is preliminary', () => {
@@ -332,4 +362,174 @@ test('GBP-tagged page facts are visible separately from the main page, including
         [impact?.gbp?.before, impact?.gbp?.after].map(read => [read?.clicks, read?.impressions, read?.position, read?.daysPresent]),
         [[18, 1378, 8, 28], [7, 245, 7, 7]],
     );
+});
+
+const pavers = 'https://example.com/pavers';
+const landscaping = 'https://example.com/landscaping';
+
+function controlsSeed(kpi = 'avg_position') {
+    const tables = seed('gsc');
+    const after = Array.from({ length: 7 }, (_, i) => dateOffset('2026-11-11', i));
+    const days = [...baselineDates, '2026-11-10', ...after];
+    return {
+        ...tables,
+        seo_changes: [{ ...tables.seo_changes[0], title: 'Homepage heading', kpi, control_urls: [] as string[], compare_last_year: false }],
+        gsc_history_days: days.map(data_date => ({
+            ...scope, id: data_date, data_date, property: 'sc-domain:example.com', search_type: 'web', page_limited: false,
+        })),
+        gsc_history_facts: days.flatMap(day_id => [
+            { day_id, grain: 'property', clicks: 100, impressions: 5000, position: 8 },
+            { day_id, grain: 'page', page: url, clicks: 20, impressions: 1000, position: 2 },
+            { day_id, grain: 'page', page: 'http://www.example.com/about/', clicks: 5, impressions: 500, position: 5 },
+            { day_id, grain: 'page', page: 'https://www.example.com/ABOUT?ref=test', clicks: 5, impressions: 500, position: 1 },
+            { day_id, grain: 'page', page: pavers, clicks: 2, impressions: 100, position: 20 },
+            { day_id, grain: 'page', page: landscaping, clicks: 6, impressions: 300, position: 40 },
+        ]),
+    };
+}
+
+function positionRows(dates: string[]) {
+    return dates.map(data_date => ({ data_date, clicks: 8, impressions: 400, position_weight: 14000 }));
+}
+
+test('the detail reads position once for at most 84 final days and makes no unfiltered page reads', async () => {
+    const tables = controlsSeed();
+    tables.seo_change_pages.push({ change_id: 'change', url: 'https://example.com/about', url_key: 'example.com/about' });
+    tables.seo_changes[0].compare_last_year = true;
+    const days = [...baselineDates, ...Array.from({ length: 56 }, (_, i) => dateOffset('2026-11-11', i))];
+    tables.gsc_history_days.push(...['2025-11-01', ...days.slice(35), '2027-01-06'].map(data_date => ({
+        ...tables.gsc_history_days[0], id: data_date, data_date,
+    })));
+    const position = positionRows(days);
+    position[0] = { data_date: days[0], clicks: 8, impressions: 1200, position_weight: 18000 };
+    const small = database(tables, { positionRows: position });
+    const readAt = new Date('2027-01-10T20:00:00Z');
+    const { impact } = await small.read(readAt);
+    assert.equal(impact?.controlLabel, 'Rest of the site');
+    assert.equal(impact?.headline.controlMode, 'untouched');
+    assert.equal(impact?.headline.controlMove?.before, 33);
+    assert.equal(impact?.headline.controlMove?.after, 35);
+    assert.equal(impact?.headline.sitewide?.position, 8);
+    assert.equal(impact?.series.find(point => point.date === '2026-11-11')?.controlPosition, 35);
+    assert.equal(impact?.series.find(point => point.date === '2026-11-10')?.control, null);
+    assert.deepEqual(small.rpcCalls, [{
+        name: 'seo_change_rest_position',
+        args: {
+            p_organization_id: 'org', p_client_id: 'client', p_property: 'sc-domain:example.com',
+            p_day_ids: days, p_excluded_page_keys: ['example.com/', 'example.com/about'],
+        },
+    }]);
+
+    tables.gsc_history_facts.push(...Array.from({ length: 5000 }, (_, i) => ({
+        day_id: days[0], grain: 'page', page: `https://example.com/unrelated-${i}`,
+        clicks: 1, impressions: 20, position: 50,
+    })));
+    const large = database(tables, { positionRows: position });
+    await large.read(readAt);
+    const factReads = (db: typeof small) => db.ranges.filter(range => range.table === 'gsc_history_facts');
+    assert.equal(factReads(large).length, factReads(small).length);
+    assert.ok(factReads(large).every(range => range.grain !== 'page' || range.inFilters.page || range.tagged));
+    assert.deepEqual(large.rpcCalls, small.rpcCalls);
+});
+
+test('a missing position RPC leaves control position unavailable without loading all pages', async () => {
+    for (const positionError of [
+        { code: 'PGRST202' }, { code: '42883' },
+        { message: 'Could not find the function public.seo_change_rest_position in the schema cache' },
+    ]) {
+        const db = database(controlsSeed(), { positionError });
+        const { impact, setup } = await db.read();
+        assert.equal(setup, 'ready');
+        assert.equal(impact?.headline.page.position, 2);
+        assert.equal(impact?.headline.controlMode, 'none');
+        assert.equal(impact?.headline.control, null);
+        assert.equal(impact?.headline.sitewide?.position, 8);
+        assert.ok(impact?.series.every(point => point.controlPosition === null));
+        assert.equal(db.rpcCalls.length, 1);
+        assert.ok(db.ranges.every(range => range.grain !== 'page' || range.inFilters.page || range.tagged));
+    }
+});
+
+test('a non-position list skips the RPC while its detail loads it for the position chart', async () => {
+    const tables = controlsSeed('clicks');
+    const db = database(tables, { positionRows: positionRows(['2026-11-11']) });
+    await db.list();
+    assert.equal(db.rpcCalls.length, 0);
+    const { impact } = await db.read();
+    assert.equal(impact?.series.find(point => point.date === '2026-11-11')?.controlPosition, 35);
+    assert.equal(db.rpcCalls.length, 1);
+
+    tables.seo_changes[0].kpi = 'avg_position';
+    await db.list();
+    assert.equal(db.rpcCalls.length, 2);
+});
+
+test('saved controls replace the default in the checkpoint, the results table and the chart', async () => {
+    const tables = controlsSeed('clicks');
+    const db = database(tables);
+    assert.deepEqual(await db.saveControls([pavers, landscaping]), { status: 'saved' });
+    const { change, impact } = await db.read();
+    assert.ok(impact);
+    assert.deepEqual(change?.controlUrls, [pavers, landscaping]);
+    assert.equal(impact.controlLabel, 'Selected control pages');
+    assert.equal(impact.headline.controlMode, 'picked');
+    assert.deepEqual([impact.headline.control?.clicks, impact.headline.control?.impressions, impact.headline.control?.position], [56, 2800, 35]);
+    assert.equal(impact.headline.controlMove?.after, 8);
+    const comparison = buildResultsTable(impact).rows.find(row => row.id === 'rest_clicks');
+    assert.deepEqual([comparison?.label, comparison?.before, comparison?.after], ['Selected control page clicks', 8, 8]);
+    const point = impact.series.find(item => item.date === '2026-11-11');
+    assert.deepEqual([point?.control, point?.controlPosition], [8, 35]);
+    assert.equal(db.rpcCalls.length, 0);
+    await db.saveControls([]);
+    assert.equal((await db.read()).impact?.headline.controlMove?.after, 80);
+});
+
+test('edits reject test and off-site pages and scope the write to the client', async () => {
+    const db = database(controlsSeed());
+    assert.deepEqual(await db.saveControls(['http://www.example.com/?ref=other']), {
+        status: 'invalid', error: "A control page can't be a page in this test.",
+    });
+    assert.deepEqual(await db.saveControls(['https://other.example.com/pavers']), {
+        status: 'invalid', error: 'Control pages must be on the same site as the test pages.',
+    });
+    assert.deepEqual(await db.saveControls([pavers], 'other-client'), { status: 'missing' });
+    assert.deepEqual(db.writes, []);
+});
+
+test('an older schema reads the default control and asks for the migration only when saving picks', async () => {
+    const db = database(seed('gsc'), { controlColumn: false });
+    assert.deepEqual((await db.read()).change?.controlUrls, []);
+    await assert.rejects(db.saveControls([pavers]), ControlMigrationRequired);
+    assert.deepEqual(await db.saveControls([]), { status: 'saved' });
+});
+
+test('detail overlap includes both windows, matches the logged site and labels the affected pages', async () => {
+    const tables = controlsSeed();
+    tables.seo_changes[0].control_urls = [pavers];
+    const changes = [
+        { id: 'early', date: '2026-10-12', page: url },
+        { id: 'baseline-edge', date: '2026-10-13', page: url },
+        { id: 'redirect', date: '2026-11-02', page: 'http://www.example.com/?one=two' },
+        { id: 'pavers', date: '2026-11-16', page: 'https://www.example.com/pavers/' },
+        { id: 'off-site', date: '2026-11-16', page: 'https://other.example.com/pavers' },
+        { id: 'other-client', date: '2026-11-16', page: pavers, client_id: 'other' },
+        { id: 'after-edge', date: '2027-01-05', page: landscaping },
+        { id: 'late', date: '2027-01-06', page: url },
+    ];
+    for (const item of changes) {
+        tables.seo_changes.push({
+            ...tables.seo_changes[0], id: item.id, title: item.id, live_at: `${item.date}T20:00:00Z`,
+            client_id: item.client_id ?? scope.client_id,
+        });
+        tables.seo_change_pages.push({ change_id: item.id, url: item.page, url_key: item.page });
+    }
+    const { confounders } = await database(tables).read();
+    assert.deepEqual(confounders.map(item => [item.id, item.overlap, item.touchesTestPage, item.touchesControlPage]), [
+        ['baseline-edge', 'baseline', true, false],
+        ['redirect', 'baseline', true, false],
+        ['pavers', 'after', false, true],
+        ['after-edge', 'after', false, false],
+    ]);
+    tables.seo_changes[0].control_urls = [];
+    assert.equal((await database(tables).read()).confounders.find(item => item.id === 'after-edge')?.touchesControlPage, true);
 });

@@ -45,6 +45,7 @@ function impactFor(input: {
     queries?: { query: string; days: DayPoint[] }[];
     pageDays?: DayPoint[];
     siteDays?: DayPoint[];
+    restPositionDays?: DayPoint[];
 }): ImpactModel {
     const beforeStart = dateOffset(input.liveOn, -28);
     const beforeEnd = dateOffset(input.liveOn, -1);
@@ -68,6 +69,7 @@ function impactFor(input: {
         ga4Connected: true,
         pageDays,
         sitewideDays: siteDays,
+        restPositionDays: input.restPositionDays,
         queries: input.queries,
     });
 }
@@ -143,7 +145,7 @@ test('the results table averages the starting point and the latest finished chec
     assert.equal(rest.before, 40);
     assert.equal(rest.after, 40);
     assert.equal(rest.change, 0);
-    assert.match(answerLine('clicks', impact), /Clicks from Google are up .+ compared with pages we didn't change, 28 days after going live\./);
+    assert.match(answerLine('clicks', impact), /Clicks from Google are up .+ compared with the rest of the site, 28 days after going live\./);
     assert.equal(answerLine('clicks', impact).includes("It's an early sign."), false);
 });
 
@@ -155,6 +157,7 @@ test('a short finished check is an early sign, and a lower position that got wor
         pageAfter: { ...DAY, clicks: 14, impressions: 400, position: 11 },
         siteBefore: { ...DAY, clicks: 40, impressions: 800, position: 12 },
         siteAfter: { ...DAY, clicks: 40, impressions: 800, position: 12 },
+        restPositionDays: fill('2026-10-04', '2026-11-20', { ...DAY, position: 13 }),
         kpi: 'avg_position',
     });
     assert.equal(early.headline.ready, true);

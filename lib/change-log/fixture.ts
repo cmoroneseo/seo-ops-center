@@ -123,6 +123,10 @@ export function exampleBoard(now: Date = EXAMPLE_AS_OF): ExampleBoard {
         ...fill(beforeStart, beforeEnd, siteBefore),
         ...fill(afterStart, afterEnd, siteAfter),
     ];
+    const restPosition = [
+        ...fill(beforeStart, beforeEnd, { ...siteBefore, impressions: 1900, position: 20 }),
+        ...fill(afterStart, afterEnd, { ...siteAfter, impressions: 1920, position: 20.5 }),
+    ];
     const h1Page = [
         ...fill(beforeStart, beforeEnd, { clicks: 8, impressions: 200, position: 22, organicSessions: 4, keyEvents: 0.5 }),
         ...fill(afterStart, afterEnd, { clicks: 12, impressions: 210, position: 16, organicSessions: 6, keyEvents: 0.8 }),
@@ -158,6 +162,7 @@ export function exampleBoard(now: Date = EXAMPLE_AS_OF): ExampleBoard {
         ga4Connected: true,
         pageDays: h1Page,
         sitewideDays: sitewide,
+        restPositionDays: restPosition,
         yoyPageDays: yoyPage,
         queries: queries(1),
     });
@@ -170,6 +175,7 @@ export function exampleBoard(now: Date = EXAMPLE_AS_OF): ExampleBoard {
         ga4Connected: true,
         pageDays: promoPage,
         sitewideDays: sitewide,
+        restPositionDays: restPosition,
     });
     const changes = [h1, promo];
     const impacts = { [h1.id]: h1Impact, [promo.id]: promoImpact };
@@ -179,7 +185,7 @@ export function exampleBoard(now: Date = EXAMPLE_AS_OF): ExampleBoard {
         changes,
         impacts,
         items: changes
-            .map(change => timelineItem(change, impacts[change.id]))
+            .map(change => ({ ...timelineItem(change, impacts[change.id]), hasOverlap: findConfounders(changes, change).length > 0 }))
             .sort((a, b) => b.liveAt.localeCompare(a.liveAt) || a.title.localeCompare(b.title)),
     };
 }
@@ -249,6 +255,7 @@ export function exampleGroupBoard(now: Date = EXAMPLE_AS_OF): ExampleBoard {
         ga4Connected: true,
         pageDays: sumDaySeries(series),
         sitewideDays: sitewide,
+        restPositionDays: sitewide.map(day => ({ ...day, impressions: day.impressions - 400, position: 21 })),
     });
     impact.pageRows = buildPageImpactRows({
         pages: change.pages,
@@ -269,5 +276,5 @@ export function exampleGroupBoard(now: Date = EXAMPLE_AS_OF): ExampleBoard {
 export function exampleConfounders(board: ExampleBoard, id: string) {
     const focus = board.changes.find(change => change.id === id);
     if (!focus) return [];
-    return findConfounders(board.changes, focus, 28);
+    return findConfounders(board.changes, focus);
 }

@@ -64,7 +64,8 @@ test('chart titles name the metric and the comparison is the rest of the site', 
     assert.equal(chartHeading('impressions'), 'Times shown in Google, day by day');
     assert.equal(chartHeading('organic_sessions'), 'Visits from search, day by day');
     assert.equal(controlModeLabel('untouched'), 'Rest of the site');
-    assert.equal(controlModeLabel('sitewide'), 'Rest of the site');
+    assert.equal(controlModeLabel('sitewide'), 'Whole site');
+    assert.equal(controlModeLabel('picked'), 'Selected control pages');
     assert.equal(controlModeLabel('none'), 'No comparison');
     assert.equal(controlFor(READ, { ...READ, clicks: 80, impressions: 900 }, 'clicks').label, 'Rest of the site');
     assert.equal(controlFor(READ, null, 'clicks').label, 'No comparison');

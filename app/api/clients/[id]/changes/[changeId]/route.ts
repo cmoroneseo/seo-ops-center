@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { CHANGE_LOG_READ_ONLY, canEditChangeLog } from '@/lib/change-log/access';
-import { deleteChange, getChange, missingTable } from '@/lib/change-log/store';
+import { ControlMigrationRequired, deleteChange, getChange, missingTable, updateControlPages } from '@/lib/change-log/store';
 import { requireClientOrgMember } from '@/lib/security/tenant-authz';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +30,25 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     } catch (error) {
         if (missingTable(error)) return json({ setup: 'missing' });
         return json({ error: 'Unable to load this change.' }, 500);
+    }
+}
+
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string; changeId: string }> }) {
+    const { id, changeId } = await params;
+    const access = await requireClientOrgMember(id);
+    if (!access.ok) return json({ error: access.error }, access.status);
+    if (!canEditChangeLog(access.role)) return json({ error: CHANGE_LOG_READ_ONLY }, 403);
+    const body = await request.json().catch(() => null);
+    if (!Array.isArray(body?.controlUrls)) return json({ error: 'Enter control page addresses, one per line.' }, 400);
+    try {
+        const result = await updateControlPages(access.organizationId, access.clientId, changeId, body.controlUrls);
+        if (result.status === 'missing') return json({ error: 'Change not found.' }, 404);
+        if (result.status === 'invalid') return json({ error: result.error }, 400);
+        return json({ ok: true });
+    } catch (error) {
+        if (missingTable(error)) return json({ error: 'The change log table is not in the database yet.' }, 409);
+        if (error instanceof ControlMigrationRequired) return json({ error: error.message }, 409);
+        return json({ error: 'Unable to save the control pages.' }, 500);
     }
 }
 

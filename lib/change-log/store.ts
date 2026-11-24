@@ -1,5 +1,7 @@
-import { createAdminClient } from '@/lib/supabase/admin';
+import { dateOffset } from '@/lib/gsc/history';
 import { chunkList } from '@/lib/search-reporting/fact-read';
+import { normalizeResultUrl } from '@/lib/search-reporting/result-url';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 import { impactsFromRows } from './assemble';
 import { addDetailContext } from './detail-context';
@@ -12,16 +14,17 @@ import {
     type HistoryDayRow,
 } from './facts';
 import { ga4PathFor, gscPageCandidates } from './match';
-import { afterWindow, baselineWindow, finalThrough, ptDate, shiftWindowLastYear } from './time';
+import { afterWindow, baselineWindow, finalThrough, ptDate, ptLocalToIso, shiftWindowLastYear } from './time';
 import { GSC_LAG_DAYS } from './thresholds';
 import { samePageMarkers, type ChartMarker } from './chart';
 import { findConfounders, timelineItem } from './impact';
 import { TREATMENTS, type SeoChange, type Treatment } from './types';
-import type { Confounder, ImpactModel, TimelineItem } from './types';
-import type { NormalizedChange } from './validate';
+import type { Confounder, DayPoint, ImpactModel, TimelineItem } from './types';
+import { normalizeControlUrls, type NormalizedChange } from './validate';
 
 type Admin = ReturnType<typeof createAdminClient>;
 type Row = Record<string, unknown>;
+const CHANGE_LIST_LIMIT = 100;
 
 export interface ChangeListResult {
     setup: 'ready' | 'missing';
@@ -81,6 +84,7 @@ export function mapChange(row: Row, pages: Row[], queries: Row[]): SeoChange | n
         compareLastYear: row.compare_last_year === true,
         testKind: text(row.test_kind) === 'group' ? 'group' : 'single',
         treatment: treatmentOf(row.treatment),
+        controlUrls: Array.isArray(row.control_urls) ? row.control_urls.filter(url => typeof url === 'string') : [],
         pages: pages.filter(page => text(page.change_id) === id).map(page => ({
             url: text(page.url),
             urlKey: text(page.url_key),
@@ -217,6 +221,58 @@ async function facts(
     return out;
 }
 
+async function readRestPositions(
+    db: Admin,
+    scope: { organizationId: string; clientId: string; property: string },
+    changes: readonly SeoChange[],
+    days: readonly HistoryDayRow[],
+): Promise<Map<string, DayPoint[]>> {
+    const result = new Map<string, DayPoint[]>();
+    const requests = changes.flatMap(change => {
+        const start = baselineWindow(change.liveOn).start;
+        const end = afterWindow(change.liveOn, 56).end;
+        const dayIds = days.filter(day => !day.preliminary && day.date >= start && day.date <= end && day.date !== change.liveOn)
+            .map(day => day.id);
+        const excludedKeys = [...new Set(change.pages.flatMap(page => normalizeResultUrl(page.url) ?? []))];
+        return dayIds.length && excludedKeys.length ? [{ id: change.id, dayIds, excludedKeys }] : [];
+    });
+    // Lists can have multiple position verdicts. Limit simultaneous site scans.
+    for (const batch of chunkList(requests, 4)) {
+        const entries = await Promise.all(batch.map(async ({ id, dayIds, excludedKeys }) => {
+            const { data, error } = await db.rpc('seo_change_rest_position', {
+                p_organization_id: scope.organizationId,
+                p_client_id: scope.clientId,
+                p_property: scope.property,
+                p_day_ids: dayIds,
+                p_excluded_page_keys: excludedKeys,
+            });
+            if (error) {
+                // Migration 140 enables position for the default control. Leave it
+                // unavailable while the RPC is missing, without loading raw page facts.
+                if (error.code === 'PGRST202' || error.code === '42883'
+                    || /could not find the function|function not found|function .+ does not exist/i.test(error.message)) return null;
+                throw new Error('Unable to read rest-of-site position', { cause: error });
+            }
+            const points: DayPoint[] = ((data ?? []) as Row[]).map(row => {
+                const impressions = num(row.impressions);
+                return {
+                    date: text(row.data_date),
+                    clicks: num(row.clicks),
+                    impressions,
+                    position: impressions > 0 ? num(row.position_weight) / impressions : 0,
+                    organicSessions: null,
+                    keyEvents: null,
+                    preliminary: false,
+                };
+            });
+            return { id, points };
+        }));
+        for (const entry of entries) if (entry) result.set(entry.id, entry.points);
+        if (entries.some(entry => entry === null)) break;
+    }
+    return result;
+}
+
 async function ga4Rows(db: Admin, organizationId: string, clientId: string, property: string, span: { start: string; end: string }, paths: string[]): Promise<{ pages: Ga4PageRow[]; site: Ga4SiteRow[] }> {
     const days = await rows(db.from('ga4_history_days')
         .select('id, day, is_final')
@@ -276,7 +332,8 @@ async function ga4Rows(db: Admin, organizationId: string, clientId: string, prop
     };
 }
 
-async function loadImpacts(db: Admin, organizationId: string, clientId: string, changes: SeoChange[], now: Date, detail?: SeoChange): Promise<{ impacts: Record<string, ImpactModel>; gsc: boolean; ga4: boolean }> {
+async function loadImpacts(db: Admin, organizationId: string, clientId: string, changes: SeoChange[], now: Date, view: 'list' | 'baseline' | SeoChange): Promise<{ impacts: Record<string, ImpactModel>; gsc: boolean; ga4: boolean }> {
+    const detail = typeof view === 'object' ? view : undefined;
     const gscProperty = await propertyFor(db, organizationId, clientId, 'gsc');
     const ga4Property = await propertyFor(db, organizationId, clientId, 'ga4');
     const span = readSpan(changes, now);
@@ -301,6 +358,8 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     const historyDays = gscProperty ? await history(db, organizationId, clientId, gscProperty, span) : [];
     const dayIds = historyDays.map(day => day.id);
     const candidates = [...new Set(changes.flatMap(change => change.pages.flatMap(page => gscPageCandidates(page.url))))];
+    const controlCandidates = [...new Set(changes.flatMap(change => change.controlUrls ?? []).flatMap(gscPageCandidates))];
+    const pageCandidates = [...new Set([...candidates, ...controlCandidates])];
     const queryNeedles = [...new Set(changes.flatMap(change => change.queries.map(query => query.normalized)))];
     const detailBaseline = detail ? baselineWindow(detail.liveOn) : null;
     const detailAfter = detail ? afterWindow(detail.liveOn, 56) : null;
@@ -309,13 +368,15 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     const afterDayIds = detailAfter ? historyDays.filter(day => !day.preliminary
         && day.date >= detailAfter.start && day.date <= detailAfter.end).map(day => day.id) : [];
     const detailDayIds = [...baselineDayIds, ...afterDayIds];
-    const paths = [...new Set(changes.flatMap(change => change.pages.flatMap(page => {
-        const path = ga4PathFor(page.url);
-        return path ? [path] : [];
-    })))];
-    const [pageFacts, propertyFacts, baselineQueryFacts, trackedQueryFacts, ga, siteQueryFacts, taggedPageFacts] = await Promise.all([
-        dayIds.length && candidates.length
-            ? facts(db, dayIds, 'page', { pages: candidates })
+    // Detail lets users switch the comparison chart to position for any KPI.
+    const positionChanges = changes.filter(change => !change.controlUrls?.length
+        && (detail || (view === 'list' && change.kpi === 'avg_position')));
+    const paths = [...new Set(changes.flatMap(change => [
+        ...change.pages.map(page => page.url), ...(change.controlUrls ?? []),
+    ]).flatMap(url => ga4PathFor(url) ?? []))];
+    const [pageFacts, propertyFacts, baselineQueryFacts, trackedQueryFacts, ga, siteQueryFacts, taggedPageFacts, restPositionDays] = await Promise.all([
+        dayIds.length && pageCandidates.length
+            ? facts(db, dayIds, 'page', { pages: pageCandidates })
             : Promise.resolve([]),
         dayIds.length ? facts(db, dayIds, 'property') : Promise.resolve([]),
         baselineDayIds.length && candidates.length && queryNeedles.length
@@ -331,6 +392,9 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
         detailDayIds.length && candidates.length
             ? facts(db, detailDayIds, 'page', { taggedPages: true })
             : Promise.resolve([]),
+        gscProperty && positionChanges.length
+            ? readRestPositions(db, { organizationId, clientId, property: gscProperty }, positionChanges, historyDays)
+            : undefined,
     ]);
     const impacts = impactsFromRows({
         changes,
@@ -339,6 +403,7 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
         ga4Connected: Boolean(ga4Property),
         historyDays,
         pageFacts,
+        restPositionDays,
         propertyFacts,
         queryFacts: [...baselineQueryFacts, ...trackedQueryFacts],
         ga4Pages: ga.pages,
@@ -359,54 +424,61 @@ async function loadImpacts(db: Admin, organizationId: string, clientId: string, 
     };
 }
 
-const CHANGE_COLUMNS = 'id, client_id, change_type, title, before_text, after_text, live_at, approved_by_name, approved_at, backup_reference, revert_instructions, kpi, compare_last_year';
-
-async function loadChanges(db: Admin, organizationId: string, clientId: string): Promise<SeoChange[]> {
-    const changeRows = await loadChangeRows(db, organizationId, clientId);
+async function loadChanges(
+    db: Admin,
+    organizationId: string,
+    clientId: string,
+    scope?: { id: string } | { start: string; end: string },
+): Promise<SeoChange[]> {
+    // Selecting the row lets older databases omit optional group and control columns.
+    const query = () => db.from('seo_changes').select('*').eq('organization_id', organizationId).eq('client_id', clientId);
+    const changeRows: Row[] = [];
+    if (scope && 'id' in scope) {
+        changeRows.push(...await rows(query().eq('id', scope.id)));
+    } else if (scope) {
+        const start = ptLocalToIso(`${scope.start}T00:00`)!;
+        const end = ptLocalToIso(`${dateOffset(scope.end, 1)}T00:00`)!;
+        for await (const batch of rowPages((from, to) => query().gte('live_at', start).lt('live_at', end)
+            .order('live_at').order('id').range(from, to))) {
+            changeRows.push(...batch);
+        }
+    } else {
+        changeRows.push(...await rows(query().order('live_at', { ascending: false }).order('id').limit(CHANGE_LIST_LIMIT)));
+    }
     const ids = changeRows.map(row => text(row.id)).filter(Boolean);
     if (ids.length === 0) return [];
-    const [pageRows, queryRows] = await Promise.all([
-        rows(db.from('seo_change_pages').select('change_id, url, url_key, label, cms_page_id, cms_widget_id').in('change_id', ids)),
-        rows(db.from('seo_change_queries').select('change_id, query, normalized_query').in('change_id', ids)),
-    ]);
+    const pageRows: Row[] = [];
+    const queryRows: Row[] = [];
+    for (const group of chunkList(ids, 40)) {
+        for await (const batch of rowPages((from, to) => db.from('seo_change_pages')
+            .select('change_id, url, url_key, label, cms_page_id, cms_widget_id').in('change_id', group).order('id').range(from, to))) {
+            pageRows.push(...batch);
+        }
+        if (scope && 'start' in scope) continue;
+        queryRows.push(...await rows(db.from('seo_change_queries').select('change_id, query, normalized_query').in('change_id', group)));
+    }
     return changeRows.flatMap(row => {
         const change = mapChange(row, pageRows, queryRows);
         return change ? [change] : [];
     });
 }
 
-/** Reads group columns when migration 129 is present, and falls back when it is not. */
-async function loadChangeRows(db: Admin, organizationId: string, clientId: string): Promise<Row[]> {
-    const query = db.from('seo_changes')
-        .select(`${CHANGE_COLUMNS}, test_kind, treatment`)
-        .eq('organization_id', organizationId)
-        .eq('client_id', clientId)
-        .order('live_at', { ascending: false })
-        .limit(100);
-    const first = await query;
-    if (first.error && isMissingColumn(first.error)) {
-        return rows(db.from('seo_changes')
-            .select(CHANGE_COLUMNS)
-            .eq('organization_id', organizationId)
-            .eq('client_id', clientId)
-            .order('live_at', { ascending: false })
-            .limit(100));
-    }
-    if (first.error) {
-        if (isMissingRelation(first.error)) throw new MissingTable();
-        throw new Error('Unable to read the change log');
-    }
-    return first.data ?? [];
-}
-
-export async function listChanges(organizationId: string, clientId: string, now = new Date()): Promise<ChangeListResult> {
+export async function listChanges(organizationId: string, clientId: string, now = new Date(), db = createAdminClient()): Promise<ChangeListResult> {
     try {
-        const db = createAdminClient();
         const changes = await loadChanges(db, organizationId, clientId);
-        const loaded = changes.length === 0
-            ? { impacts: {} as Record<string, ImpactModel> }
-            : await loadImpacts(db, organizationId, clientId, changes, now);
-        const items = changes.map(change => timelineItem(change, loaded.impacts[change.id])).filter(item => item.id);
+        if (changes.length === 0) return { setup: 'ready', items: [], changes, impacts: {} };
+        const oldest = changes.at(-1);
+        const [loaded, older] = await Promise.all([
+            loadImpacts(db, organizationId, clientId, changes, now, 'list'),
+            oldest && changes.length === CHANGE_LIST_LIMIT
+                ? loadChanges(db, organizationId, clientId, { start: baselineWindow(oldest.liveOn).start, end: oldest.liveOn })
+                : [],
+        ]);
+        const nearby = [...changes, ...older];
+        const items = changes.map(change => ({
+            ...timelineItem(change, loaded.impacts[change.id]),
+            hasOverlap: findConfounders(nearby, change).length > 0,
+        }));
         return { setup: 'ready', items, changes, impacts: loaded.impacts };
     } catch (error) {
         if (error instanceof MissingTable) return { setup: 'missing', items: [], changes: [], impacts: {} };
@@ -498,15 +570,17 @@ async function readBaselineNote(db: Admin, organizationId: string, change: SeoCh
 
 export async function getChange(organizationId: string, clientId: string, changeId: string, now = new Date(), db = createAdminClient()): Promise<ChangeDetailResult> {
     try {
-        const changes = await loadChanges(db, organizationId, clientId);
-        const change = changes.find(item => item.id === changeId) ?? null;
+        const [change] = await loadChanges(db, organizationId, clientId, { id: changeId });
         if (!change) return { setup: 'ready', change: null, impact: null, confounders: [], baselineNote: null, pageMarkers: [] };
-        const loaded = await loadImpacts(db, organizationId, clientId, [change], now, change);
+        const [loaded, changes] = await Promise.all([
+            loadImpacts(db, organizationId, clientId, [change], now, change),
+            loadChanges(db, organizationId, clientId, { start: baselineWindow(change.liveOn).start, end: afterWindow(change.liveOn, 56).end }),
+        ]);
         return {
             setup: 'ready',
             change,
             impact: loaded.impacts[change.id] ?? null,
-            confounders: findConfounders(changes, change, loaded.impacts[change.id]?.headline.ready ? loaded.impacts[change.id].headline.days : 28),
+            confounders: findConfounders(changes, change),
             baselineNote: await readBaselineNote(db, organizationId, change, loaded, now),
             pageMarkers: samePageMarkers(
                 { id: change.id, pageKeys: change.pages.map(page => page.urlKey) },
@@ -529,6 +603,37 @@ export class GroupMigrationRequired extends Error {
         super('Group tests need migration 129, which has not been applied.');
         this.name = 'GroupMigrationRequired';
     }
+}
+
+export class ControlMigrationRequired extends Error {
+    constructor() {
+        super('Selected control pages need migration 139.');
+    }
+}
+
+function missingControlColumn(error: { code?: string; message?: string } | null): boolean {
+    return Boolean(error && /control_urls/i.test(error.message ?? '') && ['42703', 'PGRST204'].includes(error.code ?? ''));
+}
+
+export async function updateControlPages(
+    organizationId: string,
+    clientId: string,
+    changeId: string,
+    input: unknown,
+    db = createAdminClient(),
+): Promise<{ status: 'saved' } | { status: 'missing' } | { status: 'invalid'; error: string }> {
+    const [change] = await loadChanges(db, organizationId, clientId, { id: changeId });
+    if (!change) return { status: 'missing' };
+    const urls = normalizeControlUrls(input, change.pages.map(page => page.url));
+    if (typeof urls === 'string') return { status: 'invalid', error: urls };
+    const { data, error } = await db.from('seo_changes').update({ control_urls: urls })
+        .eq('organization_id', organizationId).eq('client_id', clientId).eq('id', changeId).select('id').maybeSingle();
+    if (missingControlColumn(error)) {
+        if (urls.length === 0) return { status: 'saved' };
+        throw new ControlMigrationRequired();
+    }
+    if (error) throw new Error('Unable to save the control pages');
+    return { status: data ? 'saved' : 'missing' };
 }
 
 export async function createChange(input: {
@@ -561,9 +666,11 @@ export async function createChange(input: {
         payload.test_kind = 'group';
         payload.treatment = input.change.treatment;
     }
+    if (input.change.controlUrls.length > 0) payload.control_urls = input.change.controlUrls;
     const { data, error } = await db.from('seo_changes').insert(payload).select('id').single();
     if (error || !data?.id) {
         if (isMissingRelation(error)) throw new MissingTable();
+        if (missingControlColumn(error)) throw new ControlMigrationRequired();
         if (input.change.testKind === 'group' && isMissingColumn(error)) throw new GroupMigrationRequired();
         throw new Error('Unable to save the change');
     }
@@ -591,7 +698,7 @@ export async function createChange(input: {
             if (queryError) throw new Error('Unable to save the queries');
         }
         const saved: SeoChange = { id, clientId: input.clientId, ...input.change };
-        const loaded = await loadImpacts(db, input.organizationId, input.clientId, [saved], now);
+        const loaded = await loadImpacts(db, input.organizationId, input.clientId, [saved], now, 'baseline');
         const snapshot = baselineSnapshot(saved, loaded, now);
         await db.from('seo_change_baselines').insert({
             change_id: id,

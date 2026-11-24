@@ -30,6 +30,7 @@ export function ChangeLogTab({
     const [setup, setSetup] = useState<'ready' | 'missing' | 'loading'>(example ? 'ready' : 'loading');
     const [error, setError] = useState<string | null>(null);
     const [pending, setPending] = useState(false);
+    const [revision, setRevision] = useState(0);
     const [detail, setDetail] = useState<{
         change: SeoChange;
         impact: ImpactModel;
@@ -72,7 +73,7 @@ export function ChangeLogTab({
                 setSetup('ready');
             });
         return () => controller.abort();
-    }, [clientId, example]);
+    }, [clientId, example, revision]);
 
     useEffect(() => {
         if (!changeId) {
@@ -113,7 +114,7 @@ export function ChangeLogTab({
                 if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : 'Unable to load this change.');
             });
         return () => controller.abort();
-    }, [changeId, clientId, example]);
+    }, [changeId, clientId, example, revision]);
 
     let mode: ChangeLogMode = 'list';
     if (screen === 'loading') mode = 'loading';
@@ -160,6 +161,17 @@ export function ChangeLogTab({
         go({ change: null });
     }
 
+    async function saveControlPages(controlUrls: string[]) {
+        const response = await fetch(`/api/clients/${encodeURIComponent(clientId)}/changes/${encodeURIComponent(changeId ?? '')}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ controlUrls }),
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(body?.error || 'Unable to save the control pages.');
+        setRevision(current => current + 1);
+    }
+
     return (
         <div className="space-y-3">
             {(error || notice) && (
@@ -173,7 +185,7 @@ export function ChangeLogTab({
                 example={example}
                 exampleNote={example ? EXAMPLE_NOTE : undefined}
                 items={items}
-                detail={detail}
+                detail={detail?.change.id === changeId ? detail : null}
                 formInitial={example ? ecoworkzH1Input() : undefined}
                 pending={pending}
                 onLog={() => go({ view: 'new', change: null })}
@@ -181,6 +193,7 @@ export function ChangeLogTab({
                 onBack={() => go({ change: null, view: null })}
                 onSubmit={submit}
                 onRemove={remove}
+                onSaveControlPages={canEdit && !example && changeId ? saveControlPages : undefined}
                 onExample={() => go({ example: true })}
                 today={example ? EXAMPLE_TODAY : undefined}
                 canEdit={canEdit}

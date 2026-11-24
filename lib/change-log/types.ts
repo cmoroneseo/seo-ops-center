@@ -93,7 +93,7 @@ export function chartHeading(kpi: Kpi): string {
 }
 
 export type Verdict = 'improved' | 'flat' | 'declined' | 'too_early';
-export type ControlMode = 'untouched' | 'sitewide' | 'none';
+export type ControlMode = 'untouched' | 'picked' | 'sitewide' | 'none';
 export type BaselineStatus = 'captured' | 'partial' | 'missing';
 
 export const VERDICT_LABEL: Record<Verdict, string> = {
@@ -145,6 +145,8 @@ export interface SeoChange {
     /** Empty on a single change. A group test stores the template slug. */
     treatment: Treatment | '';
     pages: ChangePage[];
+    /** Empty or absent on older changes that use the default control. */
+    controlUrls?: string[];
     queries: ChangeQuery[];
 }
 
@@ -197,6 +199,7 @@ export interface CheckpointRead {
     lift: number | null;
     /** Rest-of-site clicks for this check. Null when the site wasn't measured. Not a stand-in zero. */
     restOfSite: MetricRead | null;
+    pickedControlClicks?: MetricRead | null;
     /** Sitewide totals for this check. Null when the site wasn't measured. Not the untouched remainder. */
     sitewide: MetricRead | null;
 }
@@ -258,8 +261,8 @@ export interface ImpactModel {
     lagDays: number;
     baseline: MetricRead;
     /**
-     * Rest-of-site clicks over the 28 days before go-live.
-     * Null when the site wasn't measured. Never a stand-in zero.
+     * Comparison clicks over the 28 days before go-live, from picked pages or the rest of the site.
+     * Null when there was no measurement.
      */
     baselineControl: MetricRead | null;
     /**
@@ -323,6 +326,7 @@ export interface TimelineItem {
     progressPercent?: number | null;
     progressStatus?: 'in_progress' | 'finished' | null;
     progressDays?: CheckpointDays | null;
+    hasOverlap?: boolean;
 }
 
 export interface Confounder {
@@ -332,4 +336,6 @@ export interface Confounder {
     liveAt: string;
     liveOn: string;
     overlap: 'same_day' | 'baseline' | 'after';
+    touchesTestPage: boolean;
+    touchesControlPage: boolean;
 }
