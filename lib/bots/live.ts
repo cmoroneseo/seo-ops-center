@@ -8,13 +8,8 @@ import { verifyBotKey } from './auth.ts';
 import { BOT_ACTOR_EMAIL } from './keys.ts';
 import { botCreatedTaskRow } from './task-create.ts';
 import { matchBotTask } from './task-lookup.ts';
-import {
-    BOT_TIMER_STRETCHES,
-    closedTimerTime,
-    stretchColumns,
-    trimAuditColumns,
-    writeBotTimer,
-} from './timer-store.ts';
+import { botStretchSegmentId, closedRunningMs } from './timer.ts';
+import { finalizeTrimmedBotTimer, trimAuditColumns } from './timer-trim.ts';
 import {
     basecampStepFromResponse,
     BotTimerLookupError,
@@ -24,6 +19,7 @@ import {
     type BotDeps,
     type BotOperationRecord,
     type BotTaskRecord,
+    type BotTimerStretch,
     type FinalizedBotLog,
     type RunningBotTimer,
 } from './handle.ts';
@@ -73,7 +69,41 @@ function logRecord(row: Record<string, unknown>): FinalizedBotLog {
     };
 }
 
-function timerBase(row: Record<string, unknown>): Omit<RunningBotTimer, 'startedAt' | 'openNote' | 'pausedAt'> | null {
+function stretchRows(value: unknown): BotTimerStretch[] {
+    const rows = Array.isArray(value) ? value : [];
+    return rows.flatMap(item => {
+        if (!item || typeof item !== 'object') return [];
+        const row = item as Record<string, unknown>;
+        const startedAt = typeof row.started_at === 'string' ? row.started_at : null;
+        const endedAt = typeof row.ended_at === 'string' ? row.ended_at : null;
+        if (!startedAt || !endedAt) return [];
+        return [{
+            startedAt,
+            endedAt,
+            note: typeof row.note === 'string' && row.note.trim() ? row.note : null,
+        }];
+    }).sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+}
+
+/**
+ * Stored segment rows with `stretch` present exactly once.
+ * The pause path re-reads segments after inserting the closed stretch, so the
+ * row is normally there already. Postgres returns `+00:00` timestamps, not the
+ * `.000Z` form the handler built, so match on the instant, not the string.
+ */
+export function withStretchRow(rows: unknown, stretch: BotTimerStretch): unknown[] {
+    const stored = Array.isArray(rows) ? rows : [];
+    const startMs = Date.parse(stretch.startedAt);
+    const present = stored.some(item => {
+        if (!item || typeof item !== 'object') return false;
+        const startedAt = (item as Record<string, unknown>).started_at;
+        return typeof startedAt === 'string' && Date.parse(startedAt) === startMs;
+    });
+    if (present) return stored;
+    return [...stored, { started_at: stretch.startedAt, ended_at: stretch.endedAt, note: stretch.note }];
+}
+
+function timerBase(row: Record<string, unknown>, stretches: BotTimerStretch[]): Omit<RunningBotTimer, 'startedAt' | 'openNote' | 'pausedAt'> | null {
     const taskId = typeof row.task_id === 'string' ? row.task_id : null;
     const botKeyId = typeof row.bot_key_id === 'string' ? row.bot_key_id : null;
     if (!taskId || !botKeyId) return null;
@@ -93,18 +123,30 @@ function timerBase(row: Record<string, unknown>): Omit<RunningBotTimer, 'started
         countsTowardBudget: row.counts_toward_budget !== false,
         billable: row.billable !== false,
         projectId: typeof row.project_id === 'string' ? row.project_id : null,
-        ...closedTimerTime(row),
+        stretches,
+        carriedSeconds: carriedSecondsOf(row, stretches),
         elapsedSeconds: Number(row.elapsed_seconds ?? 0),
-        trimmedAt: typeof row.trimmed_at === 'string' ? row.trimmed_at : null,
-        trimmedDescription: typeof row.trimmed_description === 'string' ? row.trimmed_description : null,
         carriedDate: typeof row.date === 'string' && row.date ? row.date : null,
     };
+}
+
+/**
+ * Seconds on `elapsed_seconds` that the stored segments do not cover.
+ * Bot pause writes `elapsed_seconds` as the rounded total of every closed
+ * stretch (plus this carry), so a row with full segment coverage carries 0.
+ * A row paused before bot segments existed carries all of `elapsed_seconds`.
+ */
+export function carriedSecondsOf(row: Record<string, unknown>, stretches: BotTimerStretch[]): number {
+    const elapsed = Number(row.elapsed_seconds);
+    if (!Number.isFinite(elapsed) || elapsed <= 0) return 0;
+    const covered = Math.round(closedRunningMs(stretches) / 1000);
+    return Math.max(0, Math.round(elapsed) - covered);
 }
 
 function runningRecord(row: Record<string, unknown>): RunningBotTimer | null {
     const startedAt = typeof row.timer_started_at === 'string' ? row.timer_started_at : null;
     if (!startedAt) return null;
-    const base = timerBase(row);
+    const base = timerBase(row, stretchRows(row.time_log_segments));
     if (!base) return null;
     return {
         ...base,
@@ -115,13 +157,13 @@ function runningRecord(row: Record<string, unknown>): RunningBotTimer | null {
 }
 
 function pausedRecord(row: Record<string, unknown>): RunningBotTimer | null {
-    const base = timerBase(row);
+    const stretches = stretchRows(row.time_log_segments);
+    const base = timerBase(row, stretches);
     if (!base) return null;
     // A row paused before bot segments existed has none. time_logs has no
     // updated_at, so use created_at: it is never later than the real pause,
     // so the stale-pause review can only flag such a row early, never late.
-    const trimmedPauseAt = typeof row.paused_at === 'string' ? row.paused_at : null;
-    const pausedAt = trimmedPauseAt ?? base.stretches[base.stretches.length - 1]?.endedAt
+    const pausedAt = stretches[stretches.length - 1]?.endedAt
         ?? (typeof row.created_at === 'string' && row.created_at ? row.created_at : null);
     if (!pausedAt) return null;
     return {
@@ -147,7 +189,10 @@ function operationRecord(row: Record<string, unknown>): BotOperationRecord {
     };
 }
 
-const TIMER_COLUMNS = `id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, status, date, created_at, elapsed_seconds, timer_started_at, description, counts_toward_budget, billable, trimmed_at, trimmed_description, paused_at:paused_trim_source->>pausedAt, tasks(title), ${BOT_TIMER_STRETCHES}`;
+// time_log_segments has two foreign keys to time_logs, so PostgREST rejects an
+// unqualified embed. Name the time_log_id relationship. The columns stay the
+// same: started_at, ended_at, note.
+const TIMER_COLUMNS = 'id, organization_id, client_id, project_id, task_id, user_id, bot_key_id, status, date, created_at, elapsed_seconds, timer_started_at, description, counts_toward_budget, billable, tasks(title), time_log_segments!time_log_segments_time_log_id_fkey(started_at, ended_at, note)';
 
 function raiseTimerLookupError(error: { code?: string | null }): never {
     throw new BotTimerLookupError(typeof error.code === 'string' ? error.code : undefined);
@@ -580,46 +625,96 @@ export function liveBotDeps(
             return timer;
         },
         async pauseTimer(input) {
-            const stretches = [...input.timer.stretches, input.stretch];
-            const { data, error } = await writeBotTimer(admin(), input.timer, {
-                status: 'paused',
-                timer_started_at: null,
-                elapsed_seconds: input.elapsedSeconds,
-                hours: input.hours,
-                description: input.description,
-            }, stretches);
+            const { error: segmentError } = await admin().from('time_log_segments').insert({
+                id: botStretchSegmentId(input.timer.id, input.stretch.startedAt),
+                time_log_id: input.timer.id,
+                organization_id: input.timer.organizationId,
+                user_id: input.timer.userId,
+                started_at: input.stretch.startedAt,
+                ended_at: input.stretch.endedAt,
+                note: input.stretch.note,
+            });
+            // A replay inserts the same segment id. The closed row is not an open segment.
+            if (segmentError && segmentError.code !== '23505') throw segmentError;
+            const { data, error } = await admin()
+                .from('time_logs')
+                .update({
+                    status: 'paused',
+                    timer_started_at: null,
+                    elapsed_seconds: input.elapsedSeconds,
+                    hours: input.hours,
+                    description: input.description,
+                })
+                .eq('id', input.timer.id)
+                .eq('status', 'in_progress')
+                .select(TIMER_COLUMNS)
+                .maybeSingle();
             if (error) raiseTimerLookupError(error);
-            if (data?.[0]) {
-                return pausedRecord({
-                    ...data[0],
+            if (data) {
+                // The segment insert above runs first, so the embed already
+                // holds the closed stretch. Build from the stored rows only.
+                const paused = pausedRecord({
+                    ...data,
                     tasks: { title: input.timer.taskTitle },
-                    time_log_segments: stretches.map(stretchColumns),
+                    time_log_segments: withStretchRow(data.time_log_segments, input.stretch),
                 });
+                if (paused) return paused;
             }
-            const { data: existing, error: readError } = await admin().from('time_logs')
-                .select(TIMER_COLUMNS).eq('id', input.timer.id).eq('status', 'paused').maybeSingle();
+            const { data: existing, error: readError } = await admin()
+                .from('time_logs')
+                .select(TIMER_COLUMNS)
+                .eq('id', input.timer.id)
+                .maybeSingle();
             if (readError) raiseTimerLookupError(readError);
-            return existing ? pausedRecord(existing) : null;
+            if (!existing) return null;
+            return pausedRecord({ ...existing, tasks: { title: input.timer.taskTitle } });
         },
         async resumeTimer(input) {
-            const { data, error } = await writeBotTimer(admin(), input.timer, {
-                status: 'in_progress',
-                timer_started_at: input.startedAt,
-                description: input.openNote,
-                paused_trim_source: null,
-            }, input.timer.stretches);
+            const { data, error } = await admin()
+                .from('time_logs')
+                .update({
+                    status: 'in_progress',
+                    timer_started_at: input.startedAt,
+                    description: input.openNote,
+                })
+                .eq('id', input.timer.id)
+                .eq('status', 'paused')
+                .eq('elapsed_seconds', input.timer.elapsedSeconds ?? 0)
+                .select(TIMER_COLUMNS)
+                .maybeSingle();
             if (error?.code === '23505') return 'conflict';
             if (error) raiseTimerLookupError(error);
-            if (!data?.[0]) return null;
-            return runningRecord({
-                ...data[0],
+            if (!data) return null;
+            const timer = runningRecord({
+                ...data,
+                description: input.openNote,
                 tasks: { title: input.timer.taskTitle },
-                time_log_segments: input.timer.stretches.map(stretchColumns),
+                time_log_segments: input.timer.stretches.map(stretch => ({
+                    started_at: stretch.startedAt,
+                    ended_at: stretch.endedAt,
+                    note: stretch.note,
+                })),
             });
+            return timer;
         },
         async finalizeTimer(input) {
             const first = input.slices[0];
             if (!first) return null;
+            const trim = input.trimAudit;
+            for (const stretch of trim ? [] : input.stretches) {
+                // Existing closed intervals may have been restored by a trim.
+                if (input.timer.stretches.includes(stretch)) continue;
+                const { error: segmentError } = await admin().from('time_log_segments').insert({
+                    id: botStretchSegmentId(input.timer.id, stretch.startedAt),
+                    time_log_id: input.timer.id,
+                    organization_id: input.timer.organizationId,
+                    user_id: input.timer.userId,
+                    started_at: stretch.startedAt,
+                    ended_at: stretch.endedAt,
+                    note: stretch.note,
+                });
+                if (segmentError && segmentError.code !== '23505') throw segmentError;
+            }
             const status = input.capped ? 'needs_review' : 'logged';
             const patch: Record<string, unknown> = {
                 date: first.date,
@@ -631,8 +726,6 @@ export function liveBotDeps(
                 timer_started_at: null,
                 elapsed_seconds: first.seconds,
                 operation_id: input.operationId,
-                paused_trim_source: null,
-                ...(input.trimAudit ? trimAuditColumns(input.trimAudit) : {}),
             };
             if (input.botOperationId) patch.bot_operation_id = input.botOperationId;
             if (input.note) {
@@ -642,10 +735,63 @@ export function liveBotDeps(
                     createdAt: input.stoppedAt,
                 }];
             }
-            const { data, error } = await writeBotTimer(admin(), input.timer, patch, input.stretches, input.slices.slice(1));
-            if (error) throw error;
-            if (!data?.length) return 'changed';
-            return (data as Record<string, unknown>[]).map(logRecord).sort((left, right) => left.date.localeCompare(right.date));
+            const columns = 'id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id';
+            let data: Record<string, unknown> | null;
+            if (trim) {
+                data = await finalizeTrimmedBotTimer(admin(), {
+                    ...input.timer,
+                    status: input.timer.startedAt ? 'in_progress' : 'paused',
+                    elapsedSeconds: input.timer.elapsedSeconds ?? 0,
+                }, patch, input.stretches, trim, columns);
+                if (!data) return 'changed';
+            } else {
+                let update = admin().from('time_logs').update(patch)
+                    .eq('id', input.timer.id).in('status', ['in_progress', 'paused']);
+                if (!input.timer.startedAt) {
+                    update = update.eq('status', 'paused').eq('elapsed_seconds', input.timer.elapsedSeconds ?? 0);
+                }
+                const result = await update.select(columns).maybeSingle();
+                if (result.error) throw result.error;
+                data = result.data;
+                if (!data) {
+                    const { data: existing, error } = await admin()
+                        .from('time_logs').select(columns).eq('id', input.timer.id).maybeSingle();
+                    if (error || !existing) return null;
+                    if (existing.status === 'in_progress' || existing.status === 'paused') {
+                        return input.timer.startedAt ? null : 'changed';
+                    }
+                    return [logRecord(existing)];
+                }
+            }
+            const logs = [logRecord(data)];
+            for (const slice of input.slices.slice(1)) {
+                const { data: extra, error: extraError } = await admin()
+                    .from('time_logs')
+                    .insert({
+                        organization_id: input.timer.organizationId,
+                        client_id: input.timer.clientId,
+                        project_id: input.timer.projectId,
+                        task_id: input.timer.taskId,
+                        user_id: input.timer.userId,
+                        date: slice.date,
+                        hours: slice.hours,
+                        description: input.description,
+                        billable: input.billable,
+                        counts_toward_budget: input.countsTowardBudget,
+                        status,
+                        elapsed_seconds: slice.seconds,
+                        operation_id: input.operationId,
+                        category: null,
+                        source: 'seo_pm',
+                        bot_key_id: input.timer.botKeyId,
+                        ...(trim ? trimAuditColumns(trim) : {}),
+                    })
+                    .select('id, task_id, date, hours, description, counts_toward_budget, billable, status, basecamp_entry_id')
+                    .single();
+                if (extraError || !extra) throw extraError ?? new Error('split day insert failed');
+                logs.push(logRecord(extra));
+            }
+            return logs;
         },
         pushTodo: (taskId, actor) => push(actor, taskId, 'create_todo'),
         basecampTasks: {

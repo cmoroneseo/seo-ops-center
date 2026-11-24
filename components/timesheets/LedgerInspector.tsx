@@ -261,7 +261,7 @@ export function LedgerInspector({
                                         </button>
                                     )}
                                 </div>
-                                {pausedBotTimer && onPausedTrimSaved && (
+                                {pausedBotTimer && entry.isBotTimer && onPausedTrimSaved && (
                                     <PausedTimeEdit entry={entry} onSaved={onPausedTrimSaved} />
                                 )}
                             </li>

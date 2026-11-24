@@ -38,6 +38,7 @@ export interface LedgerLog {
     elapsedSeconds?: number;
     /** When a paused bot timer last stopped a stretch. */
     pausedAt?: string;
+    isBotTimer?: boolean;
     pausedRunningSeconds?: number;
     trimmedFromSeconds?: number;
 }

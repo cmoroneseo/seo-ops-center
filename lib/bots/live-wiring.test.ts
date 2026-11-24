@@ -8,7 +8,6 @@ test('bot routes use the shared Basecamp handlers and do not log minutes', () =>
     const pushLive = readFileSync(new URL('../basecamp/push-live.ts', import.meta.url), 'utf8');
     const timesheetLive = readFileSync(new URL('../basecamp/timesheet-live.ts', import.meta.url), 'utf8');
     const botLive = readFileSync(new URL('./live.ts', import.meta.url), 'utf8');
-    const timerStore = readFileSync(new URL('./timer-store.ts', import.meta.url), 'utf8');
     const startRoute = readFileSync(new URL('../../app/api/bots/timer/start/route.ts', import.meta.url), 'utf8');
     const pauseRoute = readFileSync(new URL('../../app/api/bots/timer/pause/route.ts', import.meta.url), 'utf8');
     const resumeRoute = readFileSync(new URL('../../app/api/bots/timer/resume/route.ts', import.meta.url), 'utf8');
@@ -31,7 +30,7 @@ test('bot routes use the shared Basecamp handlers and do not log minutes', () =>
     assert.match(resumeRoute, /handleBotRequest/);
     assert.match(stopRoute, /handleBotRequest/);
     assert.match(botLive, /status: 'paused'/);
-    assert.match(timerStore, /botStretchSegmentId/);
+    assert.match(botLive, /botStretchSegmentId/);
     assert.doesNotMatch(botLive, /ended_at: null/);
     assert.match(taskRoute, /handleBotRequest/);
     assert.match(completeRoute, /handleBotRequest\(request, liveBotDeps\(\)\)/);

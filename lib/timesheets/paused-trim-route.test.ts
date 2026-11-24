@@ -11,14 +11,19 @@ const NOW = '2026-11-24T17:00:00.000Z';
 function world(role: string | null = 'owner', status = 'paused', botKeyId: string | null = 'bot') {
     const writes: Parameters<Deps['save']>[1][] = [];
     const authChecks: string[][] = [];
-    const log: NonNullable<Awaited<ReturnType<Deps['findLog']>>> = {
+    const entry = {
         id: LOG, organizationId: 'canonical-org', botKeyId, status, startedAt: null,
+        elapsedSeconds: 9000, description: 'Original', userId: 'bot-user', createdAt: FIRST.startedAt,
+    };
+    const log: NonNullable<Awaited<ReturnType<Deps['loadTime']>>> = {
+        ...entry, botKeyId: botKeyId ?? 'bot', trimmedAt: null, previousSource: null, segments: [],
         pausedAt: LAST.endedAt, stretches: [FIRST, LAST], carriedSeconds: 1800,
     };
     const deps: Deps = {
         authenticate: async () => ({ id: 'session-user' }),
-        async findLog(id) { return id === log.id ? log : null; },
+        async findLog(id) { return id === entry.id ? entry : null; },
         async membership(orgId, userId) { authChecks.push([orgId, userId]); return role; },
+        async loadTime() { return log; },
         async save(_log, input) {
             writes.push(input);
             Object.assign(log, input.time, { source: input.source });
@@ -94,4 +99,15 @@ test('a pause changed during the edit returns a conflict', async () => {
     const { deps, patch } = world();
     deps.save = async () => false;
     assert.equal((await patch(1)).status, 409);
+});
+
+test('an authorized trim returns 503 before saving when audit columns are missing', async () => {
+    for (const code of ['42703', 'PGRST204']) {
+        const { deps, patch, writes } = world();
+        deps.loadTime = async () => { throw { code }; };
+        const response = await patch(1);
+        assert.equal(response.status, 503);
+        assert.deepEqual(await response.json(), { error: 'Trim needs a database update.' });
+        assert.deepEqual(writes, []);
+    }
 });

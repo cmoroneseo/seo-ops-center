@@ -18,6 +18,7 @@ import {
     type BotTimerStopCommand,
 } from './request.ts';
 import { BOT_TASKS_COMPLETE_PATH, BOT_TIMER_STOP_PATH } from './scope.ts';
+import { isMissingTrimColumn, TRIM_NEEDS_DATABASE_UPDATE } from './timer-trim.ts';
 import { isBuiltInTaskCategory, isSeoManagerBot, TASK_CATEGORY_ERROR, taskCategoryAllowed } from './task-create.ts';
 import type { BotTaskMatch } from './task-lookup.ts';
 import { botTaskLinks } from './task-links.ts';
@@ -146,6 +147,8 @@ export interface BotCreatedTaskResult {
     basecampStepId?: string;
 }
 
+export type { BotTimerStretch } from './timer.ts';
+
 export interface RunningBotTimer {
     id: string;
     organizationId: string;
@@ -174,10 +177,8 @@ export interface RunningBotTimer {
     carriedSeconds?: number;
     /** Local date the carried seconds belong to (`time_logs.date`). */
     carriedDate?: string | null;
-    /** Row version inputs, used to prevent a stale timer write. */
+    /** Stored snapshot used to detect a concurrent paused edit. */
     elapsedSeconds?: number;
-    trimmedAt?: string | null;
-    trimmedDescription?: string | null;
 }
 
 export interface FinalizedBotLog {
@@ -816,8 +817,14 @@ async function closeTimer(
         operationId: randomUUID(),
         botOperationId: input.botOperationId,
         note: input.capped && input.maxMs != null ? capNote(input.maxMs) : null,
-        trimAudit: input.trimAudit,
+        ...(input.trimAudit ? { trimAudit: input.trimAudit } : {}),
+    }).catch((failure: unknown) => {
+        if (input.trimAudit && isMissingTrimColumn(failure)) return 'trim_unavailable' as const;
+        throw failure;
     });
+    if (logs === 'trim_unavailable') {
+        return { status: 503, body: errorBody('trim_unavailable', TRIM_NEEDS_DATABASE_UPDATE) };
+    }
     if (logs === 'changed') {
         return { status: 409, body: errorBody('timer_changed', 'The timer changed while it was being stopped. Try again.') };
     }
@@ -829,7 +836,7 @@ async function capTimer(timer: RunningBotTimer, deps: BotDeps, maxMs: number): P
     const closed = closedStretches(timer, deps.now(), null, maxMs);
     if (!closed.capped) return null;
     const seconds = Math.round(closed.closedMs / 1000);
-    const summary = timer.trimmedDescription ?? botTimerBasecampSummary({
+    const summary = botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(stretch => stretch.note),
         hours: hoursFromSeconds(seconds),
         startedAt: closed.stretches[0]?.startedAt,
@@ -1040,7 +1047,7 @@ async function executePause(
     const closed = closedStretches(running, deps.now(), command.description ?? null, maxMs);
     if (closed.capped && maxMs != null) {
         const seconds = Math.round(closed.closedMs / 1000);
-        const summary = running.trimmedDescription ?? botTimerBasecampSummary({
+        const summary = botTimerBasecampSummary({
             stretchNotes: closed.stretches.map(stretch => stretch.note),
             hours: hoursFromSeconds(seconds),
             startedAt: closed.stretches[0]?.startedAt,
@@ -1085,9 +1092,9 @@ async function executePause(
     }
     const stretch = closed.stretches[closed.stretches.length - 1];
     if (!stretch) return { status: 500, body: errorBody('internal', 'Timer could not be paused.') };
-    const description = running.trimmedDescription ?? (botTimerBasecampSummary({
+    const description = botTimerBasecampSummary({
         stretchNotes: closed.stretches.map(item => item.note),
-    }) || running.taskTitle);
+    }) || running.taskTitle;
     const seconds = Math.round(closed.closedMs / 1000);
     const paused = await deps.pauseTimer({
         timer: running,
@@ -1304,10 +1311,16 @@ async function executeStop(
             botKeyId: key.id,
         };
     }
+    const stretchNotes = stretches.map(stretch => stretch.note);
+    const pausedSummary = botTimerBasecampSummary({ stretchNotes: timer.stretches.map(stretch => stretch.note) });
+    // A regular pause stores its stretch summary or the task title. A
+    // Timesheets edit replaces that description without changing stretch notes.
+    const editedDescription = !timer.startedAt && timer.description != null
+        && timer.description !== (pausedSummary || timer.taskTitle)
+        ? timer.description
+        : null;
     const summary = botTimerBasecampSummary({
-        stretchNotes: timer.trimmedDescription == null
-            ? stretches.map(stretch => stretch.note)
-            : [timer.trimmedDescription],
+        stretchNotes: editedDescription == null ? stretchNotes : [editedDescription],
         stopNote: command.description,
     });
     const finalized = await closeTimer(timer, {

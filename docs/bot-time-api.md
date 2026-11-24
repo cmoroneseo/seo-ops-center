@@ -255,7 +255,7 @@ Stops the running timer, or a paused timer when nothing is running. Stop works f
 | `completedOn` | no | `YYYY-MM-DD`, only with `complete: true`. A future day is rejected. |
 | `timeZone` | no | IANA zone for the calendar day and the midnight split. Defaults to `America/Los_Angeles`. |
 
-A normal stop is sent to Basecamp with `createIfMissing: true`, the same call the drawer makes when Send to Basecamp is on. `basecamp.status` is `pushed`, `skipped`, or `failed`. The timesheet **note** uses retained stretch notes in order, or the description set in Timesheets, followed by the stop note. If the result is empty, the note falls back to the task title. Time stays in the timesheet hours field.
+A normal stop is sent to Basecamp with `createIfMissing: true`, the same call the drawer makes when Send to Basecamp is on. `basecamp.status` is `pushed`, `skipped`, or `failed`. The timesheet **note** uses retained stretch notes in order followed by the stop note. When stopping directly from an edited pause, it uses the saved description before the stop note. If the result is empty, the note falls back to the task title. Time stays in the timesheet hours field.
 
 When `hours` is supplied, stop keeps the earliest running time and removes time from the newest end first. Retained stretches keep their notes. Legacy carried seconds come before timestamped stretches and remain on their original date. Stop splits the retained time by local day after trimming and uses the rounded hours for each day's Basecamp entry. Stretches use millisecond precision with a minimum retained interval of one millisecond. Legacy carry uses whole seconds. Dated logs keep the existing whole-second elapsed totals and hundredth-hour rounding.
 
@@ -329,9 +329,13 @@ The same column on `tasks` marks tasks the bot created. A running timer is `time
 
 Paused and capped bot timers show in Timesheets. A paused entry is in **Paused bot timers** and is not SEO budget time until stop. Each stretch, with its start, end, and note, shows on the task. A human pause is unchanged: the row stays `in_progress`, the open segment is closed, and no `paused` status is written.
 
-An organization owner or admin can use **Edit time** on a paused entry in Timesheets. Saving updates its running time and description and leaves it paused. Basecamp sync happens through the normal stop flow. The original running time bounds re-edits during the same pause, and time can be restored from the original stretches. Resuming commits that correction and starts a new stretch.
+An organization owner or admin can use **Edit time** on a paused bot entry in Timesheets. Saving updates its running time and description and leaves it paused. Basecamp sync happens through the normal stop flow. The original running time bounds re-edits during the same pause, and time can be restored from the original stretches. Resuming carries forward the corrected duration and starts a new stretch. Later notes follow the regular stretch summary rules.
 
-Trim audit on `time_logs` includes `trimmed_from_seconds` (the whole timer's original running seconds before correction, including time above a configured cap), `trimmed_at` (the latest trim timestamp), and the actor in `trimmed_by` (Timesheets session user) or `trimmed_by_bot_key_id` (bot stop key). Stop preserves audit on each finalized day row. Timesheets shows **Trimmed from X h** when audit is present.
+Trim audit on `time_logs` includes `trimmed_from_seconds` (the whole timer's original running seconds before correction, including time above a configured cap), `trimmed_at` (the latest trim timestamp), and the actor in `trimmed_by` (Timesheets session user) or `trimmed_by_bot_key_id` (bot stop key). Stopping with `hours` records audit on each finalized day. A regular stop preserves the audit on the edited row. Timesheets shows **Trimmed from X h** when audit is present.
+
+Migration 143 enables both types of trim. Before it is applied, a valid trim returns **503** with “Trim needs a database update.” Regular timer actions still work, and Timesheets omits the audit label.
+
+Trims use a conditional parent update and a short-lived reservation shared by both trim paths. Segment reductions run before the parent save, and restorations or new segments run after it. These are separate database requests. A conflicting resume or stop can observe the earlier total with fewer stored stretches, which may shift some time to the carried date. An interrupted restoration may leave some of the accepted time without a stretch until it is saved again. A stop interrupted after finalizing the parent can leave its segment history or later day rows incomplete. Basecamp sync starts after the stop save and all its day rows succeed.
 
 ## Idempotency
 
@@ -377,3 +381,4 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 500 | `internal` | The write failed after the key was accepted. A retry of the same body resumes the same operation. |
 | 500 | `client_lookup_failed` | The client lookup could not be read. |
 | 500 | `timer_lookup_failed` | The timer could not be read. This is not a missing timer. Retry the same request. |
+| 503 | `trim_unavailable` | Migration 143 is needed to stop with `hours`. |
