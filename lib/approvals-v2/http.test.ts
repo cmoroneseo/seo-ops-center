@@ -291,6 +291,7 @@ test('detail returns released/current versions, decisions, link facts and signs 
   } = await import('./detail');
   const current = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
   const released = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  const historicPhoto = 'approval-assets/' + id + '/photo';
   const signed: string[] = [];
   let scoped = false;
   const records: Record<string, unknown> = {
@@ -320,7 +321,9 @@ test('detail returns released/current versions, decisions, link facts and signs 
       photo_path: 'https://example.com/current.jpg'
     }, {
       id: released,
-      photo_path: null
+      version_no: 1,
+      photo_path: 'https://example.com/primary.jpg',
+      photo_paths: ['https://example.com/primary.jpg', historicPhoto]
     }],
     approval_responses: [{
       item_id: task,
@@ -337,10 +340,12 @@ test('detail returns released/current versions, decisions, link facts and signs 
       last_viewed_at: null,
       view_count: 0
     },
+    approval_comments: [{ id: 'client-feedback', item_id: task, version_id: released, photo_position: 2, body: 'Use this photo' }],
     approval_internal_feedback: [{
       id: 'internal-feedback',
       item_id: task,
-      version_id: current,
+      version_id: released,
+      photo_position: 2,
       reviewer_name: 'Internal reviewer',
       decision: 'approved',
       comment: 'Ready to send'
@@ -372,17 +377,20 @@ test('detail returns released/current versions, decisions, link facts and signs 
   assert.equal(data.items[0].releasedVersion.id, released);
   assert.equal(data.items[0].response.decision, 'approved');
   assert.deepEqual(data.internalFeedback, [{
-    id: 'internal-feedback', itemId: task, versionNo: null,
-    reviewerName: 'Internal reviewer', decision: 'approved', comment: 'Ready to send'
+    id: 'internal-feedback', itemId: task, versionNo: 1,
+    reviewerName: 'Internal reviewer', decision: 'approved', comment: 'Ready to send',
+    photoPosition: 2, photoUrl: `signed:${historicPhoto}`
   }]);
+  assert.equal(data.comments[0].photoUrl, `signed:${historicPhoto}`);
   assert.equal(data.canSend, false);
   assert.match(data.sendReason, /account manager/);
   assert.equal(data.link.state, 'active');
-  assert.equal(signed.length, 2);
+  assert.equal(signed.length, 4);
   (records.approval_requests as {
     item_type: string;
   }).item_type = 'page';
+  records.approval_comments = [];
   signed.length = 0;
   await handler(new Request('https://local.test'), context);
-  assert.equal(signed.length, 2);
+  assert.equal(signed.length, 4);
 });

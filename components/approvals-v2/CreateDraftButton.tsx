@@ -44,7 +44,9 @@ export function CreateDraftButton({
       length: postCount
     }, (_, index) => ({
       position: index + 1,
-      photoPath: String(values.get(`photo-${index}`) ?? '') || null,
+      ...(itemType === 'page' ? { photoPath: String(values.get(`photo-${index}`) ?? '') || null } : {
+        photoPaths: String(values.get(`photo-${index}`) ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean),
+      }),
       payload: itemType === 'page' ? {
         schemaVersion: 1,
         pageKind: values.get(`kind-${index}`),
@@ -151,12 +153,16 @@ export function CreateDraftButton({
             required
             className={input}
             placeholder="https://" /></label>}
-          <label className="block">Photo URL (optional)<input
+          {itemType === 'gbp_post' ? <label className="block">Photo URLs (optional)<textarea
+            name={`photo-${index}`}
+            className={input}
+            rows={2}
+            placeholder="One HTTPS URL per line, up to 10" /></label> : <label className="block">Photo URL (optional)<input
             type="url"
             name={`photo-${index}`}
             pattern="https://.*"
             className={input}
-            placeholder="https://" /></label>
+            placeholder="https://" /></label>}
         </fieldset>)}
         <Button
           type="button"

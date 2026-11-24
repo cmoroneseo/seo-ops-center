@@ -41,9 +41,9 @@ const fixture: InternalReviewView = {
                 terms: '',
                 ctaUrl: 'https://example.com/projects?utm_source=google',
                 ctaLabel: 'Explore recent projects',
-                // The stored photo_path is already an HTTPS URL, so the view uses it directly.
                 photoSrc: 'https://drive.google.com/thumbnail?id=fixture-thumbnail',
-                feedback: [],
+                photoSrcs: ['https://drive.google.com/thumbnail?id=fixture-thumbnail', '../public/dev/gbp-approvals/post1.jpg'],
+                feedback: [{ reviewerName: 'Jordan Lee', decision: null, comment: 'Use this shot first.', photoPosition: 2 }],
             },
         ],
     }],
@@ -52,7 +52,7 @@ const fixture: InternalReviewView = {
 async function render() {
     const html = renderToStaticMarkup(createElement(InternalReview, { view: fixture }));
     const styles = await postcss([tailwind()]).process(
-        '@import "tailwindcss" source(none); @source "./components/internal-review/InternalReview.tsx";',
+        '@import "tailwindcss" source(none); @source "./components/internal-review/InternalReview.tsx"; @source "./components/gbp-approvals/PhotoGallery.tsx";',
         { from: resolve('internal-review-fixture.css') },
     );
     const output = '.next-internal-review-fixture/index.html';

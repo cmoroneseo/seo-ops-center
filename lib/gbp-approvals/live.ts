@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { hashToken } from '@/lib/approvals/token';
 
-import { hashIp, projectPublicReview, type PublicReviewView } from './public-view';
+import { hashIp, projectPublicReview, publicReviewPhotoPaths, type PublicReviewView } from './public-view';
 
 const PEPPER = process.env.APPROVAL_IP_PEPPER || 'seo-ops-gbp-approval-ip';
 
@@ -12,24 +12,12 @@ export async function loadPublicReview(token: string, photoSrcFor?: (path: strin
         p_now: new Date().toISOString(),
     });
     if (error || !data) return null;
-    const paths = new Map<string, string>();
-    const raw = data as { items?: Array<{ version?: { photoPath?: string; previous?: { photoPath?: string } }; decision?: { replacementPhotoPath?: string } }> };
-    const found = new Set<string>();
-    for (const item of raw.items ?? []) {
-        const photo = item.version?.photoPath;
-        const previous = item.version?.previous?.photoPath;
-        if (photo) found.add(photo);
-        if (previous) found.add(previous);
-        if (item.decision?.replacementPhotoPath) found.add(item.decision.replacementPhotoPath);
-    }
-    for (const path of found) {
-        if (path.startsWith('https://')) paths.set(path, path);
-        else if (photoSrcFor && path.startsWith('gbp-approvals/')) {
-            const signed = await photoSrcFor(path);
-            if (signed) paths.set(path, signed);
-        }
-    }
-    return projectPublicReview(data, path => paths.get(path) ?? (path.startsWith('https://') ? path : null));
+    const sources = new Map(await Promise.all(publicReviewPhotoPaths(data).map(async path => {
+        if (path.startsWith('https://')) return [path, path] as const;
+        const stored = path.startsWith('gbp-approvals/') || path.startsWith('approval-assets/');
+        return [path, stored && photoSrcFor ? await photoSrcFor(path) : null] as const;
+    })));
+    return projectPublicReview(data, path => sources.get(path) ?? null);
 }
 
 export function clientIpHash(request: Request): string | null {

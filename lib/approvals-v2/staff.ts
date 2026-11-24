@@ -3,7 +3,7 @@ import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { generateToken, hashToken } from '@/lib/approvals/token';
 import { approvalGroup, embeddedOne, linkState, parseListQuery, summarizeRows, uuid, type ApprovalRow } from './list';
-import { parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
+import { parseGbpPhotoPaths, parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
 import { isBotKeyToken, bearerToken } from '@/lib/bots/scope';
 export const json = (body: unknown, status = 200) => Response.json(body, {
   status,
@@ -176,6 +176,10 @@ export function mutation(action: string, dependencies = {
         const parsed = item.payload?.pageKind ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
         if (!parsed.ok) return json({
           error: parsed.error,
+          code: 'invalid_request'
+        }, 400);
+        if ('photoPaths' in item && ('outline' in parsed || !parseGbpPhotoPaths(item.photoPaths))) return json({
+          error: 'A GBP post can include up to 10 valid photos.',
           code: 'invalid_request'
         }, 400);
         items.push({

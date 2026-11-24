@@ -11,6 +11,9 @@ export interface AgencyComment {
   pin_target: string | null;
   parent_id: string | null;
   anchor_kind: string;
+  photo_position?: number | null;
+  photoUrl?: string | null;
+  author_kind?: 'staff' | 'client';
   author_name: string;
   body: string;
   quote: string | null;

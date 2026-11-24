@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { hashToken } from '@/lib/approvals/token';
 import { uuid } from '@/lib/approvals-v2/list';
+import { MAX_GBP_PHOTOS, versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import { signApprovalPhoto } from '@/lib/gbp-approvals/live';
 import { PUBLIC_REVIEW_HEADERS } from '@/lib/gbp-approvals/public-headers';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -8,10 +9,12 @@ import { RETRY_KEY_PATTERN, UNAVAILABLE_REVIEW, webUrl, type InternalReviewView 
 
 const id = z.string().regex(uuid);
 const decision = z.enum(['approved', 'changes_requested']);
+const photoPosition = z.number().int().min(1).max(MAX_GBP_PHOTOS).nullish();
 const feedback = z.object({
     reviewerName: z.string(),
     decision: decision.nullable(),
     comment: z.string().nullable(),
+    photoPosition,
 });
 const rawView = z.object({
     ok: z.literal(true),
@@ -33,6 +36,7 @@ const rawView = z.object({
             ctaUrl: z.string().nullable(),
             ctaLabel: z.string().nullable(),
             photoPath: z.string().nullable(),
+            photoPaths: z.array(z.string()).max(MAX_GBP_PHOTOS).optional(),
             feedback: z.array(feedback),
         })).min(1),
     })).min(1),
@@ -73,17 +77,22 @@ export function createInternalReviewLoader(admin = createAdminClient, sign = sig
                 clientName,
                 batches: await Promise.all(batches.map(async ({ title, requestId, posts }) => ({
                     title,
-                    posts: await Promise.all(posts.map(async ({ photoPath, ...post }) => ({
-                        ...post,
-                        title: post.title ?? '',
-                        body: post.body ?? '',
-                        postType: post.postType ?? '',
-                        scheduledDate: post.scheduledDate ?? '',
-                        terms: post.terms ?? '',
-                        ctaUrl: webUrl(post.ctaUrl),
-                        ctaLabel: post.ctaLabel ?? '',
-                        photoSrc: await photoSource(requestId, photoPath, sign),
-                    }))),
+                    posts: await Promise.all(posts.map(async ({ photoPath, photoPaths, ...post }) => {
+                        const photoSrcs = await Promise.all(versionPhotoPaths(photoPaths, photoPath)
+                            .map(path => photoSource(requestId, path, sign)));
+                        return {
+                            ...post,
+                            title: post.title ?? '',
+                            body: post.body ?? '',
+                            postType: post.postType ?? '',
+                            scheduledDate: post.scheduledDate ?? '',
+                            terms: post.terms ?? '',
+                            ctaUrl: webUrl(post.ctaUrl),
+                            ctaLabel: post.ctaLabel ?? '',
+                            photoSrc: photoSrcs[0] ?? null,
+                            photoSrcs,
+                        };
+                    })),
                 }))),
             };
         } catch {
@@ -127,6 +136,7 @@ export function createInternalFeedbackPost(admin = createAdminClient, clock = ()
                 p_comment: value?.comment ?? null,
                 p_idempotency_key: value?.idempotencyKey ?? null,
                 p_now: clock().toISOString(),
+                ...(value?.photoPosition != null ? { p_photo_position: value.photoPosition } : {}),
             });
             if (error || !data) return unavailable();
             if (data.ok === true) return json({ ok: true, ...(data.idempotent === true ? { idempotent: true } : {}) });

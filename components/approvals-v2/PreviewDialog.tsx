@@ -21,6 +21,7 @@ export function PreviewDialog({
     id: string;
     payload: GbpPostPayload | PagePayload;
     photoUrl: string | null;
+    photoUrls?: (string | null)[];
     images?: Record<string, string | null>;
   }[];
 }) {
@@ -32,6 +33,7 @@ export function PreviewDialog({
       <DialogTitle>Prepared for {clientName}</DialogTitle>
       <DialogDescription>Internal preview only. No link is created and no review can be submitted here.</DialogDescription>
       {items.map(({
+        photoUrls,
         id,
         payload,
         photoUrl,
@@ -44,9 +46,8 @@ export function PreviewDialog({
             <GbpPostPreview logoSrc={logoSrc} clientName={clientName} post={{
               ...payload,
               position: index + 1,
+              photoSrcs: photoUrls,
               scheduled: payload.scheduledDate,
-              offerStart: payload.offerStart ?? '',
-              offerEnd: payload.offerEnd ?? '',
               photo: photoUrl,
               status: 'pending'
             }} />

@@ -76,7 +76,7 @@ test('public read projects only allowed fields and signs only request-scoped sto
             ...raw,
             batches: [{ ...raw.batches[0], posts: [
                 rawPost,
-                { ...rawPost, postType: 'update', offerStart: null, offerEnd: null, terms: '', photoPath: external },
+                { ...rawPost, postType: 'update', offerStart: null, offerEnd: null, terms: '', photoPath: external, photoPaths: [external, photoKey] },
                 { ...rawPost, photoPath: 'javascript:alert(1)', ctaUrl: 'data:text/html,example' },
                 { ...rawPost, photoPath: `gbp-approvals/${itemId}/${itemId}` },
             ] }],
@@ -92,12 +92,13 @@ test('public read projects only allowed fields and signs only request-scoped sto
     assert.equal(result.headers.get('x-robots-tag'), 'noindex, nofollow');
     const body = await result.text();
     assert.doesNotMatch(body, /private|requestId|photoPath|hours|createdBy|owner|botKey|staffComments|changeNote|javascript:|data:text/);
-    assert.deepEqual(signed, [photoKey]);
+    assert.deepEqual(signed, [photoKey, photoKey]);
     const view = JSON.parse(body);
     assert.deepEqual(view.batches[0].posts.map((post: { photoSrc: string | null }) => post.photoSrc),
         ['https://storage.example.com/signed', external, null, null]);
     assert.equal(view.batches[0].posts[0].ctaUrl, rawPost.ctaUrl);
     const update = view.batches[0].posts[1];
+    assert.deepEqual(update.photoSrcs, [external, 'https://storage.example.com/signed']);
     assert.deepEqual(
         { postType: update.postType, offerStart: update.offerStart, offerEnd: update.offerEnd, terms: update.terms },
         { postType: 'update', offerStart: null, offerEnd: null, terms: '' },
@@ -277,4 +278,20 @@ test('the anonymous middleware exception is limited to the token page and its tw
     for (const path of ['/ir', '/ir/token/more', '/api/public/internal-review', '/api/public/internal-review/token/revoke', '/api/public/internal-review-alias/token']) {
         assert.equal(publicInternalReviewPath(path), false);
     }
+});
+
+test('internal feedback forwards a numbered photo target through the existing RPC', async () => {
+    const body = { itemId, versionId, reviewerName: 'Reviewer', decision: null, comment: 'Use this photo', idempotencyKey: 'gallery-feedback-1' };
+    const submit = createInternalFeedbackPost(rpcAdmin((name, args) => {
+        assert.equal(name, 'submit_approval_internal_feedback');
+        if (args.p_comment === null) {
+            assert.equal(args.p_photo_position, undefined);
+            return { ok: false, code: 'invalid_request' };
+        }
+        assert.equal(args.p_version_id, versionId);
+        assert.equal(args.p_photo_position, 2);
+        return { ok: true };
+    }));
+    assert.equal((await submit(request('POST', { ...body, photoPosition: 2 }), publicCtx(token))).status, 200);
+    assert.equal((await submit(request('POST', { ...body, photoPosition: 11 }), publicCtx(token))).status, 400);
 });

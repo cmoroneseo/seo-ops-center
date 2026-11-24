@@ -119,3 +119,22 @@ test('v2 rejects all release controls and rejects incomplete page payloads', () 
   assert.ok(!unknown.ok);
   assert.equal(unknown.status, 400);
 });
+
+test('the bot sends ordered HTTPS galleries and includes their order in the retry hash', () => {
+  const photos = ['https://drive.google.com/thumbnail?id=first', 'https://example.com/second.jpg'];
+  const command = (photoPaths: unknown) => parseBotApproval({
+    clientName: 'Client', taskTitle: 'Task', title: 'Posts', idempotencyKey: 'gallery-retry-1',
+    items: [{ position: 1, photoPaths, payload: { ...payload, postType: 'update', offerStart: null, offerEnd: null } }],
+  });
+  const first = command(photos);
+  const reordered = command([...photos].reverse());
+  assert.ok(first.ok && reordered.ok);
+  assert.notEqual(first.command.requestHash, reordered.command.requestHash);
+  const { p_items: [item] } = botApprovalRpcArgs(first.command, 'actor', 'org', 'client', 'task');
+  assert.deepEqual(item.photoPaths, photos);
+  assert.equal(item.photoPath, photos[0]);
+  assert.equal(item.payload.offerEnd, null);
+  for (const invalid of [Array(11).fill(photos[0]), [photos[0], 'javascript:alert(1)'], [photos[0], 'gbp-approvals/private/key']]) {
+    assert.equal(command(invalid).ok, false);
+  }
+});

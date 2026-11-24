@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export { parseGbpPhotoPaths } from './photos';
+
 /** Payload schema carried on every stored GBP post version. */
 export const GBP_POST_SCHEMA_VERSION = 1;
 
@@ -84,7 +86,7 @@ export function applySuggestion(
     };
 }
 
-export function visibleSnapshot(payload: GbpPostPayload, photo: string | null): Record<string, string> {
+export function visibleSnapshot(payload: GbpPostPayload, photo: string | readonly string[] | null): Record<string, string> {
     return {
         postType: payload.postType,
         title: payload.title,
@@ -95,7 +97,7 @@ export function visibleSnapshot(payload: GbpPostPayload, photo: string | null): 
         ctaUrl: payload.ctaUrl,
         ctaLabel: payload.ctaLabel,
         terms: payload.terms,
-        photo: photo ?? '',
+        photo: JSON.stringify(typeof photo === 'string' ? [photo] : photo ?? []),
     };
 }
 

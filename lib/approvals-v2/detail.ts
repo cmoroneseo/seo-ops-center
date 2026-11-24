@@ -9,6 +9,7 @@ import { linkState, uuid } from './list';
 import { canSendApproval, sendPermissionReason } from './permissions';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import type { ReviewDecision } from '@/lib/internal-review/model';
 import { signApprovalPhoto } from '@/lib/gbp-approvals/live';
 export function createStaffDetail(dependencies = {
@@ -67,13 +68,13 @@ export function createStaffDetail(dependencies = {
       admin.from('approval_comments').select('*').eq('request_id', id).order('created_at'),
       admin.from('approval_upload_reservations').select('object_key,preview_key').eq('request_id', id).eq('purpose', 'image_replacement'),
       r.item_type === 'gbp_post' ? admin.from('approval_internal_feedback')
-        .select('id,item_id,version_id,reviewer_name,decision,comment')
+        .select('id,item_id,version_id,reviewer_name,decision,comment,photo_position')
         .eq('organization_id', r.organization_id).eq('request_id', id).order('created_at').order('id') : null,
     ]);
     if ([items, versions, responses, questions, events, link, comments, uploads].some(v => v.error)) return json({
       error: 'Approvals could not be loaded.'
     }, 503);
-    const paths = [...new Set([...(versions.data ?? []).map(v => v.photo_path), ...(responses.data ?? []).map(response => response.replacement_photo_path)].filter((path): path is string => Boolean(path)))];
+    const paths = [...new Set([...(versions.data ?? []).flatMap(v => versionPhotoPaths(v.photo_paths, v.photo_path)), ...(responses.data ?? []).map(response => response.replacement_photo_path)].filter((path): path is string => Boolean(path)))];
     if (r.item_type === 'page') {
       for (const version of versions.data ?? []) {
         try {
@@ -88,6 +89,12 @@ export function createStaffDetail(dependencies = {
     }
     const scopedPaths = [...new Set(paths)].filter(path => path.startsWith('https://') || ['approval-assets', 'gbp-approvals'].some(prefix => path.startsWith(`${prefix}/${id}/`)));
     const photos = Object.fromEntries(await Promise.all(scopedPaths.map(async path => [path, await dependencies.signApprovalPhoto(uploads.data?.find(upload => upload.object_key === path)?.preview_key ?? path)])));
+    function feedbackPhoto(versionId: string, position?: number | null) {
+      if (position == null) return null;
+      const version = versions.data?.find(entry => entry.id === versionId);
+      const path = versionPhotoPaths(version?.photo_paths, version?.photo_path)[position - 1];
+      return photos[path] ?? null;
+    }
     const role = members.find(m => m.organization_id === r.organization_id)?.role;
     const client = r.clients as {
       account_manager_id?: string;
@@ -110,6 +117,8 @@ export function createStaffDetail(dependencies = {
         reviewerName: entry.reviewer_name,
         decision: entry.decision as ReviewDecision,
         comment: entry.comment,
+        photoPosition: entry.photo_position,
+        photoUrl: feedbackPhoto(entry.version_id, entry.photo_position),
       })),
       comments: (comments.data ?? []).map(comment => {
         const item = items.data?.find(item => item.id === comment.item_id);
@@ -121,7 +130,7 @@ export function createStaffDetail(dependencies = {
           state = carried.state;
           carryBlockId = carried.blockId;
         }
-        return { ...comment, state, carryBlockId, versionNo: versions.data?.find(version => version.id === comment.version_id)?.version_no, addressedVersion: versions.data?.find(version => version.id === comment.resolved_in_version_id)?.version_no, previewUrl: photos[uploads.data?.find(upload => upload.object_key === comment.suggested_image_key)?.preview_key ?? ''] ?? null };
+        return { ...comment, state, carryBlockId, photoUrl: feedbackPhoto(comment.version_id, comment.photo_position), versionNo: versions.data?.find(version => version.id === comment.version_id)?.version_no, addressedVersion: versions.data?.find(version => version.id === comment.resolved_in_version_id)?.version_no, previewUrl: photos[uploads.data?.find(upload => upload.object_key === comment.suggested_image_key)?.preview_key ?? ''] ?? null };
       }),
       versions: versions.data,
       responses: responses.data,

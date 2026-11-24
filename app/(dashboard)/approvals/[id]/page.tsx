@@ -16,6 +16,7 @@ import type { PagePayload } from '@/lib/approvals-v2/registry';
 import { Button } from '@/components/ui/button';
 import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
 import { RevisionEditor } from '@/components/gbp-approvals/TaskApprovalsPanel';
+import { versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import { type GbpPostPayload } from '@/lib/gbp-approvals/registry';
 import { approvalGroup } from '@/lib/approvals-v2/list';
 import { InternalLinkControls } from '@/components/internal-review/InternalLinkControls';
@@ -27,6 +28,7 @@ interface Version {
   version_no: number;
   payload: GbpPostPayload | PagePayload;
   photo_path: string | null;
+  photo_paths?: string[];
   change_note: string | null;
   created_at: string;
 }
@@ -138,7 +140,10 @@ export default function Page({
         body: JSON.stringify(body)
       });
       const result = await r.json();
-      if (!r.ok) throw new Error(result.code === 'forbidden' ? 'You do not have permission to make this change.' : result.error);
+      if (!r.ok) {
+        if (result.code === 'conflict') throw new Error('This post changed. Refresh before saving a new version.');
+        throw new Error(result.code === 'forbidden' ? 'You do not have permission to make this change.' : result.error);
+      }
       if (result.url) {
         setUrl(result.url);
         setCopied(false);
@@ -261,7 +266,8 @@ export default function Page({
             id: item.id,
             payload: version.payload,
             images: data.photos,
-            photoUrl: data.photos[version.photo_path ?? ''] ?? null
+            photoUrl: data.photos[version.photo_path ?? ''] ?? null,
+            photoUrls: versionPhotoPaths(version.photo_paths, version.photo_path).map(path => data.photos[path] ?? null)
           }] : [];
         })} />
       </div>
@@ -384,10 +390,11 @@ export default function Page({
                   position: item.position,
                   title: p.title,
                   scheduled: p.scheduledDate,
-                  offerStart: p.offerStart ?? '',
-                  offerEnd: p.offerEnd ?? '',
+                  offerStart: p.offerStart,
+                  offerEnd: p.offerEnd,
                   body: p.body,
                   photo: data.photos[version.photo_path ?? ''] ?? null,
+                  photoSrcs: versionPhotoPaths(version.photo_paths, version.photo_path).map(path => data.photos[path] ?? null),
                   status: item.status,
                   ctaLabel: p.ctaLabel,
                   ctaUrl: p.ctaUrl,
@@ -396,6 +403,8 @@ export default function Page({
               </div>
               {editable && item.version && <RevisionEditor
                 key={item.version.id}
+                requestId={id}
+                images={data.photos}
                 item={{
                   ...item,
                   version: item.version ? {
@@ -408,11 +417,13 @@ export default function Page({
                   items: [entry]
                 })} />}
             </>}
+            {item.item_type === 'gbp_post' && <ClientPostComments comments={data.comments?.filter(comment =>
+              comment.item_id === item.id && !comment.parent_id && comment.author_kind === 'client') ?? []} />}
             {internalFeedback.length > 0 && <section className="space-y-2 rounded-lg border border-border p-3 text-sm">
               <h4 className="font-semibold">Internal feedback</h4>
               <ul className="space-y-3">
                 {internalFeedback.map(entry => <li key={entry.id} className="wrap-break-word">
-                  <p><strong>{entry.reviewerName}</strong> · {feedbackLabel(entry.decision)}{entry.versionNo !== null && ` · Version ${entry.versionNo}`}</p>
+                  <p><strong>{entry.reviewerName}</strong> · {feedbackLabel(entry.decision)}{entry.versionNo !== null && ` · Version ${entry.versionNo}`}<FeedbackPhoto position={entry.photoPosition} url={entry.photoUrl} /></p>
                   {entry.comment && <p className="whitespace-pre-wrap text-muted-foreground">{entry.comment}</p>}
                 </li>)}
               </ul>
@@ -452,4 +463,23 @@ export default function Page({
       {sendButton}
     </div>}
   </div>;
+}
+
+function ClientPostComments({ comments }: { comments: AgencyComment[] }) {
+  if (!comments.length) return null;
+  return <section className="space-y-2 rounded-lg border border-border p-3 text-sm">
+    <h4 className="font-semibold">Client comments</h4>
+    <ul className="space-y-3">
+      {comments.map(comment => <li key={comment.id} className="wrap-break-word">
+        <p><strong>{comment.author_name}</strong>{comment.versionNo && ` · Version ${comment.versionNo}`}
+          {comment.photo_position ? <FeedbackPhoto position={comment.photo_position} url={comment.photoUrl} /> : ' · Whole post'}</p>
+        <p className="whitespace-pre-wrap text-muted-foreground">{comment.body}</p>
+      </li>)}
+    </ul>
+  </section>;
+}
+
+function FeedbackPhoto({ position, url }: { position?: number | null; url?: string | null }) {
+  if (!position) return null;
+  return <> · {url ? <a className="underline" href={url} target="_blank" rel="noopener noreferrer">Photo {position}</a> : `Photo ${position}`}</>;
 }

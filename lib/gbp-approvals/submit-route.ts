@@ -2,6 +2,8 @@ import { validCommentAnchor } from '@/lib/approvals-v2/comment-validation';
 import { replacementPreview } from '@/lib/approvals-v2/replacement-images';
 import { hashToken } from '@/lib/approvals/token';
 import { verifyReservedImage } from '@/lib/gbp-approvals/images';
+import { uuid } from '@/lib/approvals-v2/list';
+import { MAX_GBP_PHOTOS } from '@/lib/gbp-approvals/photos';
 import { clientIpHash } from '@/lib/gbp-approvals/live';
 import { PUBLIC_REVIEW_HEADERS, publicMessage, publicStatus, submissionHash } from '@/lib/gbp-approvals/public-view';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -28,10 +30,12 @@ export function createSubmit(dependencies: { createAdminClient: typeof createAdm
         const displayedVersionIds = Array.isArray(body.displayedVersionIds) ? body.displayedVersionIds.filter((id): id is string => typeof id === 'string') : [];
         const decisions = Array.isArray(body.decisions) ? body.decisions : [];
         const answers = Array.isArray(body.answers) ? body.answers : [];
-        const comments = body.itemType === 'page' ? [...(Array.isArray(body.comments) ? body.comments : []), ...decisions.flatMap(value => {
+        if ('comments' in body && !Array.isArray(body.comments)) return json({ error: publicMessage('invalid_request') }, 400);
+        const rawComments = Array.isArray(body.comments) ? body.comments : [];
+        const comments = body.itemType === 'page' ? [...rawComments, ...decisions.flatMap(value => {
             const decision = value as { itemId?: string; versionId?: string; decision?: string; comment?: string };
             return decision?.decision === 'changes_requested' && typeof decision.comment === 'string' && decision.comment.trim() ? [{ itemId: decision.itemId, versionId: decision.versionId, anchorKind: 'page', body: decision.comment }] : [];
-        })] : [];
+        })] : rawComments;
 
         const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : '';
         const requested = [...new Set([...comments.map(value => value?.suggestedImageReservationId).filter((id): id is string => typeof id === 'string'), ...decisions.flatMap(decision => {
@@ -50,6 +54,19 @@ export function createSubmit(dependencies: { createAdminClient: typeof createAdm
             if (link.expires_at <= now) return json({ error: publicMessage('expired') }, 410);
             if (comments.length > 100) return json({ error: publicMessage('invalid_request') }, 400);
             for (const comment of comments) {
+                if (body.itemType !== 'page') {
+                    if (!comment || typeof comment !== 'object'
+                        || Object.keys(comment).some(key => !['itemId', 'versionId', 'anchorKind', 'photoPosition', 'body'].includes(key))
+                        || typeof comment.itemId !== 'string' || !uuid.test(comment.itemId)
+                        || typeof comment.versionId !== 'string' || !uuid.test(comment.versionId)
+                        || comment.anchorKind !== 'page' || typeof comment.body !== 'string'
+                        || !comment.body.trim() || [...comment.body].length > 4000) return json({ error: publicMessage('invalid_request') }, 400);
+                    const position = comment.photoPosition;
+                    if (position != null && (!Number.isInteger(position) || position < 1 || position > MAX_GBP_PHOTOS)) {
+                        return json({ error: publicMessage('invalid_request') }, 400);
+                    }
+                    continue;
+                }
                 if (!comment || typeof comment !== 'object' || Object.keys(comment).some(key => !['itemId', 'versionId', 'anchorKind', 'pinTarget', 'sectionId', 'blockId', 'targetHash', 'rangeStart', 'rangeEnd', 'quote', 'quotePrefix', 'quoteSuffix', 'body', 'suggestedText', 'suggestedImageReservationId'].includes(key))) return json({ error: publicMessage('invalid_request') }, 400);
                 if (comment.suggestedText && comment.anchorKind !== 'highlight') return json({ error: publicMessage('invalid_request') }, 400);
                 const { data: item } = await admin.from('approval_items').select('released_version_id').eq('id', comment.itemId).eq('request_id', link.request_id).maybeSingle();
@@ -80,7 +97,7 @@ export function createSubmit(dependencies: { createAdminClient: typeof createAdm
                 displayedVersionIds,
                 decisions,
                 answers,
-                ...(body.itemType === 'page' ? { comments } : {}),
+                ...(body.itemType === 'page' || comments.length ? { comments } : {}),
                 verifiedReservationIds: verified,
             };
             const { data, error } = await admin.rpc(body.itemType === 'page' ? 'submit_approval' : 'submit_gbp_approval', {
