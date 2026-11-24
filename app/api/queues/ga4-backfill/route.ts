@@ -6,9 +6,9 @@ export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
 /**
- * One GA4 property, invoked by Vercel Queues. A daily message re-pulls the
- * last three days. A backfill message pulls one calendar month. A payload
- * that is not a run id, a chain number, and a kind is ignored.
+ * One GA4 property, invoked by Vercel Queues. A daily message repairs overdue
+ * preliminary days and pulls the last three days. A backfill message pulls one
+ * calendar month. Messages require a run id, a chain number, and a kind.
  */
 const handleQueueMessage = handleCallback(async (message) => {
     if (!parseGa4QueueMessage(message)) return;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { backfillMonthStarts } from './backfill.ts';
 import { GA4_HISTORY_SANDBOX_ORG_ID } from './flags.ts';
 import { Ga4AuthError, ga4ReleaseUpdate, runGa4Cron, runGa4QueueMessage, type Ga4Job, type Ga4QueueKind, type Ga4QueueSend, type Ga4Release, type Ga4RunDeps, type Ga4Store } from './run.ts';
-import type { Ga4DayWrite } from './sync.ts';
+import type { Ga4DayCoverage, Ga4DayWrite } from './sync.ts';
 
 const ORG = GA4_HISTORY_SANDBOX_ORG_ID;
 const RUN = '11111111-1111-4111-8111-111111111111';
@@ -17,7 +17,7 @@ function onEnv(backfill = false): NodeJS.ProcessEnv {
     } as NodeJS.ProcessEnv;
 }
 
-function memoryStore(seed: { daily?: boolean; backfill?: boolean } = {}): Ga4Store & {
+function memoryStore(seed: { daily?: boolean; backfill?: boolean; nonFinalDates?: string[]; coverage?: Ga4DayCoverage[] } = {}): Ga4Store & {
     days: Ga4DayWrite[];
     releases: Ga4Release[];
     reauths: number;
@@ -50,7 +50,20 @@ function memoryStore(seed: { daily?: boolean; backfill?: boolean } = {}): Ga4Sto
             store.releases.push(input);
             jobs[input.id as Ga4QueueKind] = input.status === 'pending';
         },
-        async replaceDay(_job, _fetchedAt, day) { store.days.push(day); return true; },
+        async overdueNonFinalDates(_job, before) {
+            return (seed.nonFinalDates ?? []).filter(day => day < before);
+        },
+        async recentCoverage() { return seed.coverage ?? []; },
+        async replaceDay(_job, fetchedAt, day) {
+            store.days.push(day);
+            const snapshot = seed.coverage?.find(row => row.day === day.day);
+            if (snapshot) {
+                snapshot.fetched_at = fetchedAt;
+                snapshot.is_final = day.isFinal;
+                snapshot.row_count = day.landingPages.length;
+            }
+            return true;
+        },
         async keyEventOverride() { return null; },
         async markSynced() { return undefined; },
         async markReauth() { store.reauths += 1; },
@@ -111,6 +124,63 @@ test('a daily message writes three zero days when reports succeed with no rows, 
     }
     assert.equal(store.releases[0]?.status, 'idle');
     assert.equal(store.reauths, 0);
+});
+
+test('the daily worker repairs older non-final days in a bounded batch before its regular pull', async () => {
+    const store = memoryStore({ daily: true, nonFinalDates: ['2026-09-21', '2026-09-23', '2026-10-10', '2026-10-12', '2026-10-13'] });
+    const ran = deps(store);
+    const ranges: string[][] = [];
+    await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'daily' }, deps(store, {
+        async readRange(input) {
+            ranges.push([input.start, input.end]);
+            return ran.readRange(input);
+        },
+    }));
+    assert.deepEqual(ranges, [['2026-09-21', '2026-09-23'], ['2026-10-12', '2026-10-14']]);
+    assert.deepEqual(store.days.map(day => [day.day, day.isFinal]), [
+        ['2026-09-21', true], ['2026-09-23', true], ['2026-10-12', true],
+        ['2026-10-13', false], ['2026-10-14', false],
+    ]);
+});
+
+test('a rejected historical write leaves the daily job idle even when the stored day is still non-final', async () => {
+    const repairDate = '2026-09-21';
+    const store = memoryStore({ daily: true, nonFinalDates: [repairDate] });
+    const replaceDay = store.replaceDay;
+    let attempts = 0;
+    store.replaceDay = async (job, fetchedAt, day) => {
+        if (day.day !== repairDate) return replaceDay(job, fetchedAt, day);
+        attempts += 1;
+        return false; // The database can reject a write when it already has a newer snapshot.
+    };
+    const ran = deps(store);
+    const message = { runId: RUN, chain: 1, kind: 'daily' };
+
+    await runGa4QueueMessage(message, ran);
+    await runGa4QueueMessage(message, ran);
+
+    assert.equal(attempts, 1);
+    assert.deepEqual(store.releases.map(({ status, availableAt }) => [status, availableAt]), [['idle', '2026-10-16T07:00:00.000Z']]);
+    assert.deepEqual(ran.sent, []);
+});
+
+test('the daily worker retries an isolated empty final day once, leaving recurring zeros alone', async () => {
+    const coverage: Ga4DayCoverage[] = [3, 4, 5, 6, 7, 8, 9, 10].map(day => ({
+        day: `2026-10-${String(day).padStart(2, '0')}`, is_final: true,
+        fetched_at: `2026-10-${String(day + 3).padStart(2, '0')}T11:00:00Z`,
+        row_count: [4, 5, 8].includes(day) ? 0 : 2,
+    }));
+    const store = memoryStore({ daily: true, coverage });
+    const ran = deps(store);
+    await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'daily' }, ran);
+    assert.deepEqual(store.days.map(day => day.day), ['2026-10-08', '2026-10-12', '2026-10-13', '2026-10-14']);
+    assert.deepEqual(ran.sent, []);
+
+    await store.enqueueDaily(ORG, 'client');
+    store.days.length = 0;
+    const nextDaily = deps(store, { now: () => new Date('2026-10-16T11:00:00Z') });
+    await runGa4QueueMessage({ runId: RUN, chain: 1, kind: 'daily' }, nextDaily);
+    assert.deepEqual(store.days.map(day => day.day), ['2026-10-13', '2026-10-14', '2026-10-15']);
 });
 
 test('HTTP 429 writes nothing and the next message waits out the backoff', async () => {

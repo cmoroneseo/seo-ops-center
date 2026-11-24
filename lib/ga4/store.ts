@@ -2,7 +2,7 @@ import 'server-only';
 
 import { GA4_REAUTH_ERROR } from './connection-health';
 import { ga4ReleaseUpdate, type Ga4ConnectedClient, type Ga4Job, type Ga4QueueKind, type Ga4Release, type Ga4Store } from './run';
-import type { Ga4DayWrite } from './sync';
+import { GA4_DAILY_REPAIR_DAYS, type Ga4DayCoverage, type Ga4DayWrite } from './sync';
 
 const PROPERTY = /^properties\/[0-9]+$/;
 const GA4_SYNC_FAILED = 'GA4 sync failed';
@@ -16,6 +16,11 @@ interface Query {
     select: (columns: string, options?: { count?: 'exact'; head?: boolean }) => Query;
     eq: (column: string, value: unknown) => Query;
     in: (column: string, values: readonly string[]) => Query;
+    lt: (column: string, value: string) => Query;
+    gte: (column: string, value: string) => Query;
+    lte: (column: string, value: string) => Query;
+    order: (column: string, options: { ascending: boolean }) => Query;
+    limit: (count: number) => Query;
     update: (values: Record<string, unknown>) => Query;
     upsert: (values: Record<string, unknown>, options: { onConflict: string }) => Query;
     maybeSingle: () => Promise<{ data: unknown; error: { message?: string } | null }>;
@@ -101,6 +106,20 @@ export function createGa4Store(admin: Admin, now: () => Date = () => new Date())
                 .eq('lease_token', input.leaseToken)
                 .select('id');
             if (error || !Array.isArray(data) || data.length !== 1) fail();
+        },
+        async overdueNonFinalDates(job, before) {
+            const { data, error } = await admin.from('ga4_history_days').select('day')
+                .eq('organization_id', job.organizationId).eq('client_id', job.clientId).eq('property', job.property)
+                .eq('is_final', false).lt('day', before).order('day', { ascending: true }).limit(GA4_DAILY_REPAIR_DAYS);
+            if (error || !Array.isArray(data)) fail();
+            return (data as { day: string }[]).map(row => row.day);
+        },
+        async recentCoverage(job, from, through) {
+            const { data, error } = await admin.from('ga4_history_days').select('day,is_final,row_count,fetched_at')
+                .eq('organization_id', job.organizationId).eq('client_id', job.clientId).eq('property', job.property)
+                .gte('day', from).lte('day', through).order('day', { ascending: true });
+            if (error || !Array.isArray(data)) fail();
+            return data as Ga4DayCoverage[];
         },
         async replaceDay(job, fetchedAt, day: Ga4DayWrite) {
             const { data, error } = await admin.rpc('replace_ga4_day', {

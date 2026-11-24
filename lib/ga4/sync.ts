@@ -2,6 +2,7 @@
 
 export const GA4_DAILY_REPAIR_DAYS = 3;
 export const GA4_FINAL_AFTER_DAYS = 3;
+export const GA4_EMPTY_DAY_LOOKBACK = 30;
 export const GA4_HOURLY_TOKEN_LIMIT = 40_000;
 export const GA4_QUOTA_REMAINING_RATIO = 0.2;
 export const GA4_MAX_CONCURRENT_JOBS = 5;
@@ -42,6 +43,13 @@ export interface Ga4DayWrite {
     landingPages: Ga4LandingWrite[];
 }
 
+export interface Ga4DayCoverage {
+    day: string;
+    is_final: boolean;
+    fetched_at: string;
+    row_count: number;
+}
+
 export interface Ga4LandingWrite {
     landing_page_raw: string;
     landing_page_norm: string;
@@ -68,6 +76,14 @@ export function dailyRepairDates(now: Date): string[] {
 /** A day is final once it is at least three UTC days old. Yesterday stays open. */
 export function isGa4DayFinal(day: string, now: Date): boolean {
     return day <= addUtcDays(utcDay(now), -GA4_FINAL_AFTER_DAYS);
+}
+
+/** Retry an isolated empty snapshot once, after its first eligible final pull. */
+export function isolatedEmptyGa4Day(days: readonly Ga4DayCoverage[], before: string): string | undefined {
+    const populated = new Set(days.filter(row => row.is_final && row.row_count > 0).map(row => row.day));
+    return days.find(row => row.day < before && row.is_final && row.row_count === 0
+        && Date.parse(row.fetched_at) < Date.parse(addUtcDays(row.day, GA4_FINAL_AFTER_DAYS + 1))
+        && populated.has(addUtcDays(row.day, -1)) && populated.has(addUtcDays(row.day, 1)))?.day;
 }
 
 export function eachUtcDate(start: string, end: string): string[] {

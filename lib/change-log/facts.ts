@@ -120,6 +120,7 @@ export function queryDaysFromFacts(
         current.clicks += finite(fact.clicks);
         current.impressions += finite(fact.impressions);
         current.weighted += finite(fact.position) * finite(fact.impressions);
+        current.preliminary = current.preliminary || day.preliminary;
         grouped.set(day.date, current);
     }
     return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, row]) => ({
