@@ -8,9 +8,14 @@ import { botRequestDecision } from './scope.ts';
 
 const token = 'Bearer seo_bot_example';
 
-test('a bot key may POST task create, approvals, and timer controls', () => {
+test('a bot key may POST task create, task completion, approvals, and timer controls', () => {
     assert.equal(botRequestDecision({
         pathname: '/api/bots/tasks',
+        method: 'POST',
+        authorization: token,
+    }), 'allow');
+    assert.equal(botRequestDecision({
+        pathname: '/api/bots/tasks/complete',
         method: 'POST',
         authorization: token,
     }), 'allow');
@@ -79,12 +84,20 @@ test('a bot key may POST task create, approvals, and timer controls', () => {
 test('the client lookup is the only route a bot key can GET', () => {
     const pathname = '/api/bots/clients';
     assert.equal(botRequestDecision({ pathname, method: 'GET', authorization: token }), 'allow');
-    for (const otherPath of ['/api/bots/tasks', '/api/bots/approvals', '/api/bots/keys', `${pathname}/extra`, '/api/clients']) {
+    for (const otherPath of ['/api/bots/tasks', '/api/bots/tasks/complete', '/api/bots/approvals', '/api/bots/keys', `${pathname}/extra`, '/api/clients']) {
         assert.equal(botRequestDecision({ pathname: otherPath, method: 'GET', authorization: token }), 'forbid');
     }
     for (const method of ['POST', 'HEAD', 'DELETE']) {
         assert.equal(botRequestDecision({ pathname, method, authorization: token }), 'forbid');
     }
+});
+
+test('middleware forwards standalone completion to the bot handler', async () => {
+    const response = await runMiddleware(new NextRequest('https://seo-ops.example.test/api/bots/tasks/complete', {
+        method: 'POST', headers: { Authorization: token },
+    }));
+    assert.equal(response.headers.get('x-middleware-next'), '1');
+    assert.equal(response.headers.get('x-middleware-override-headers'), null);
 });
 
 test('middleware forwards client lookup requests to the route for key validation', async () => {

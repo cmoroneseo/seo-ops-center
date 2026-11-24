@@ -8,6 +8,7 @@ import { BOT_ACTOR_TIME_ZONE } from './keys.ts';
 import {
     parseBotRequest,
     type BotCommand,
+    type BotCompleteCommand,
     type BotCreateCommand,
     type BotSubtaskDraft,
     type BotTaskTarget,
@@ -16,8 +17,10 @@ import {
     type BotTimerStartCommand,
     type BotTimerStopCommand,
 } from './request.ts';
+import { BOT_TASKS_COMPLETE_PATH } from './scope.ts';
 import { isBuiltInTaskCategory, isSeoManagerBot, TASK_CATEGORY_ERROR, taskCategoryAllowed } from './task-create.ts';
 import type { BotTaskMatch } from './task-lookup.ts';
+import { botTaskLinks } from './task-links.ts';
 import {
     botTimerBasecampSummary,
     botTimerCloseOpen,
@@ -31,6 +34,21 @@ import {
 } from './timer.ts';
 
 const LOCK_MS = 60_000;
+
+const SEO_TASK_COMPLETION_BOT_NAMES = new Set([
+    'seo-manager',
+    'technical-seo',
+    'on-page-seo',
+    'content-writer',
+    'copy-humanizer',
+    'web-design-cro',
+    'seo-strategist',
+    'seo-revenue-framework',
+    'seo-aeo-desk',
+    'aeo-seo-bot',
+    'ai-search-visibility',
+    'performance-watch',
+]);
 
 const TWO_HOUR_CAP_MS = 2 * 60 * 60 * 1000;
 
@@ -100,6 +118,7 @@ export interface BotTaskRecord {
     organizationId: string;
     clientId: string;
     projectId: string | null;
+    initiativeId: string | null;
     title: string;
     status: string;
     priority?: string | null;
@@ -111,6 +130,13 @@ export interface BotTaskRecord {
     category: string | null;
     dueDate: string | null;
     botOperationId: string | null;
+}
+
+export interface BotCreatedTaskResult {
+    task: BotTaskRecord;
+    created: boolean;
+    descriptionApplied?: boolean;
+    basecampStepId?: string;
 }
 
 export interface BotTimerStretch {
@@ -190,11 +216,12 @@ export interface BotDeps {
         clientId: string,
         command: BotTaskTarget,
     ): Promise<BotTaskRecord | null | 'ambiguous' | (Extract<BotTaskMatch, { ok: false }> & { parentId?: string })>;
-    getTask(taskId: string): Promise<BotTaskRecord | null>;
+    getTask(taskId: string, organizationId?: string): Promise<BotTaskRecord | null>;
     insertTask(input: {
         organizationId: string;
         clientId: string;
         title: string;
+        description?: string;
         category?: string;
         dueDate?: string;
         parentTaskId?: string;
@@ -204,11 +231,12 @@ export interface BotDeps {
         botOperationId: string | null;
         now: string;
     }): Promise<BotTaskRecord | 'conflict'>;
-    saveTask(taskId: string, patch: {
+    saveTask(task: BotTaskRecord, patch: {
         status: string;
         completedAt: string | null;
         statusHistory: TaskStatusHistoryEntryLike[];
     }): Promise<BotTaskRecord | null>;
+    hasOpenTaskTimer(organizationId: string, taskId: string): Promise<boolean>;
     findRunningTimer(botKeyId: string): Promise<RunningBotTimer | null>;
     /** Paused entries for this bot. A paused entry does not occupy the running slot. */
     listPausedTimers(botKeyId: string): Promise<RunningBotTimer[]>;
@@ -351,6 +379,19 @@ function actorBody(actor: BotActor) {
     return { email: actor.email, userId: actor.userId, name: actor.name };
 }
 
+function taskLinks(task: Parameters<typeof botTaskLinks>[0]) {
+    return botTaskLinks(task, process.env.NEXT_PUBLIC_SITE_URL);
+}
+
+function taskBody(task: BotTaskRecord) {
+    return { id: task.id, title: task.title, status: task.status, completedAt: task.completedAt, ...taskLinks(task) };
+}
+
+async function timerTaskBody(deps: BotDeps, taskId: string, organizationId: string) {
+    const task = await deps.getTask(taskId, organizationId);
+    return task?.organizationId === organizationId ? { task: taskBody(task) } : {};
+}
+
 function isRunningTimer(timer: RunningBotTimer): boolean {
     return timer.pausedAt == null && timer.startedAt != null;
 }
@@ -360,6 +401,7 @@ function timerBody(timer: RunningBotTimer, alreadyRunning: boolean) {
         id: timer.id,
         taskId: timer.taskId,
         taskTitle: timer.taskTitle,
+        taskUrl: taskLinks({ id: timer.taskId }).url,
         startedAt: timer.startedAt,
         status: 'running' as const,
         alreadyRunning,
@@ -379,6 +421,7 @@ function pausedBody(timer: RunningBotTimer) {
         id: timer.id,
         taskId: timer.taskId,
         taskTitle: timer.taskTitle,
+        taskUrl: taskLinks({ id: timer.taskId }).url,
         status: 'paused' as const,
         pausedAt: timer.pausedAt,
         elapsedSeconds: seconds,
@@ -404,20 +447,22 @@ async function insertOrFind(input: {
     deps: BotDeps;
     key: BotKeyRecord;
     actor: BotActor;
-        clientId: string;
-        title: string;
+    clientId: string;
+    title: string;
+    description?: string;
     category?: string;
     dueDate?: string;
-        parentTaskId?: string;
-        sortOrder?: number;
-        /** Only one created row in a call can carry the operation id. */
-        botOperationId: string | null;
-        command: BotTaskTarget;
-    }): Promise<{ status: number; body: unknown } | { task: BotTaskRecord; created: boolean }> {
+    parentTaskId?: string;
+    sortOrder?: number;
+    /** Only one created row in a call can carry the operation id. */
+    botOperationId: string | null;
+    command: BotTaskTarget;
+}): Promise<{ status: number; body: unknown } | BotCreatedTaskResult> {
     const inserted = await input.deps.insertTask({
         organizationId: input.key.organizationId,
         clientId: input.clientId,
         title: input.title,
+        description: input.description,
         ...(input.category ? { category: input.category } : {}),
         ...(input.dueDate ? { dueDate: input.dueDate } : {}),
         ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
@@ -427,7 +472,7 @@ async function insertOrFind(input: {
         botOperationId: input.botOperationId,
         now: input.deps.now().toISOString(),
     });
-    if (inserted !== 'conflict') return { task: inserted, created: true };
+    if (inserted !== 'conflict') return { task: inserted, created: true, descriptionApplied: Boolean(input.description) };
     const again = await input.deps.findTask(input.key.organizationId, input.clientId, {
         ...input.command,
         taskTitle: input.title,
@@ -460,6 +505,7 @@ async function findOrInsertSubtask(
     return insertOrFind({
         deps, key, actor, clientId: parent.clientId,
         title: draft.title,
+        description: draft.description,
         category: draft.category,
         dueDate: draft.dueDate,
         parentTaskId: parent.id,
@@ -476,9 +522,10 @@ async function createdTaskResponse(input: {
     actor: BotActor;
     root: BotTaskRecord;
     created: boolean;
+    description?: string;
     linked: boolean;
     basecamp: BasecampStep;
-    children: Array<{ task: BotTaskRecord; created: boolean; basecampStepId?: string }>;
+    children: BotCreatedTaskResult[];
 }): Promise<{ status: number; body: unknown }> {
     const { deps, operation, key, actor, root, created, linked, basecamp, children } = input;
     if (operation.taskId !== root.id) await deps.saveOperation(operation.id, { taskId: root.id });
@@ -493,18 +540,22 @@ async function createdTaskResponse(input: {
                 id: root.id,
                 title: root.title,
                 created,
+                descriptionApplied: created && Boolean(input.description),
                 linked,
                 status: root.status,
                 basecampTodoId: root.basecampTodoId,
                 basecamp,
+                ...taskLinks(root),
             },
             ...(children.length > 0 ? {
                 subtasks: children.map(child => ({
                     id: child.task.id,
                     title: child.task.title,
                     created: child.created,
+                    descriptionApplied: child.descriptionApplied ?? false,
                     parentTaskId: root.id,
                     ...(child.basecampStepId ? { basecampStepId: child.basecampStepId } : {}),
+                    ...taskLinks(child.task),
                 })),
             } : {}),
         },
@@ -548,6 +599,7 @@ async function executeCreate(
         if ('status' in result) return result;
         return createdTaskResponse({
             deps, operation, key, actor, root: result.task, created: result.created, linked: true,
+            description: command.description,
             children: result.children, basecamp: result.basecamp,
         });
     }
@@ -559,7 +611,7 @@ async function executeCreate(
 
     let root: BotTaskRecord;
     let rootCreated = false;
-    const children: Array<{ task: BotTaskRecord; created: boolean }> = [];
+    const children: BotCreatedTaskResult[] = [];
     let operationStamped = false;
     const stamp = () => {
         if (operationStamped) return null;
@@ -579,6 +631,7 @@ async function executeCreate(
             const inserted = await insertOrFind({
                 deps, key, actor, clientId: client.id,
                 title: command.taskTitle!,
+                description: command.description,
                 ...(command.category ? { category: command.category } : {}),
                 ...(command.dueDate ? { dueDate: command.dueDate } : {}),
                 parentTaskId: parent.id,
@@ -587,7 +640,7 @@ async function executeCreate(
             });
             if ('status' in inserted) return inserted;
             root = parent;
-            children.push({ task: inserted.task, created: inserted.created });
+            children.push(inserted);
         } else if (!found) {
             return { status: 404, body: errorBody('task_not_found', 'Task not found.') };
         } else {
@@ -599,6 +652,7 @@ async function executeCreate(
         const inserted = await insertOrFind({
             deps, key, actor, clientId: client.id,
             title: command.taskTitle!,
+            description: command.description,
             ...(command.category ? { category: command.category } : {}),
             ...(command.dueDate ? { dueDate: command.dueDate } : {}),
             botOperationId: stamp(),
@@ -630,6 +684,7 @@ async function executeCreate(
     }));
     return createdTaskResponse({
         deps, operation, key, actor, root, created: rootCreated, linked: false,
+        description: command.description,
         children: childrenWithLinks, basecamp: todo,
     });
 }
@@ -787,6 +842,7 @@ function cappedBody(log: FinalizedBotLog) {
     return {
         id: log.id,
         taskId: log.taskId,
+        taskUrl: taskLinks({ id: log.taskId }).url,
         hours: log.hours,
         minutes: log.minutes,
         status: log.status,
@@ -815,6 +871,7 @@ async function executeStart(
                     bot: key.name,
                     actor: actorBody(actor),
                     timer: timerBody(running, true),
+                    task: taskBody(resolved.task),
                     ...(cappedJustNow ? { cappedTimer: cappedBody(cappedJustNow) } : {}),
                 },
             };
@@ -884,6 +941,7 @@ async function executeStart(
             bot: key.name,
             actor: actorBody(actor),
             timer: timerBody(timer, inserted === 'conflict'),
+            task: taskBody(resolved.task),
             ...(cappedJustNow ? { cappedTimer: cappedBody(cappedJustNow) } : {}),
         },
     };
@@ -947,6 +1005,7 @@ async function executePause(
                         bot: key.name,
                         actor: actorBody(actor),
                         timer: pausedBody(existing),
+                        ...await timerTaskBody(deps, existing.taskId, key.organizationId),
                     },
                 };
             }
@@ -963,6 +1022,7 @@ async function executePause(
             ),
         };
     }
+    const taskResponse = await timerTaskBody(deps, running.taskId, key.organizationId);
     await deps.saveOperation(operation.id, { timeLogId: running.id, taskId: running.taskId });
     const maxMs = botTimerMaxMs();
     const closed = closedStretches(running, deps.now(), command.description ?? null, maxMs);
@@ -994,8 +1054,10 @@ async function executePause(
                 actor: actorBody(actor),
                 capped: true,
                 review: true,
+                ...taskResponse,
                 timeLog: {
                     id: finalized.logs[0].id,
+                    ...(!taskResponse.task ? { taskUrl: taskLinks({ id: running.taskId }).url } : {}),
                     date: finalized.logs[0].date,
                     hours: finalized.logs[0].hours,
                     minutes: finalized.logs[0].minutes,
@@ -1030,6 +1092,7 @@ async function executePause(
             bot: key.name,
             actor: actorBody(actor),
             timer: pausedBody(paused),
+            ...taskResponse,
         },
     };
 }
@@ -1052,6 +1115,7 @@ async function executeResume(
                     bot: key.name,
                     actor: actorBody(actor),
                     timer: timerBody(running, false),
+                    ...await timerTaskBody(deps, running.taskId, key.organizationId),
                     ...(cappedJustNow ? { cappedTimer: cappedBody(cappedJustNow) } : {}),
                 },
             };
@@ -1080,6 +1144,7 @@ async function executeResume(
             ),
         };
     }
+    const taskResponse = await timerTaskBody(deps, paused.taskId, key.organizationId);
     await deps.saveOperation(operation.id, { timeLogId: paused.id, taskId: paused.taskId });
     const resumed = await deps.resumeTimer({
         timer: paused,
@@ -1105,7 +1170,88 @@ async function executeResume(
             bot: key.name,
             actor: actorBody(actor),
             timer: timerBody(resumed, false),
+            ...taskResponse,
             ...(cappedJustNow ? { cappedTimer: cappedBody(cappedJustNow) } : {}),
+        },
+    };
+}
+
+function alreadyCompleted(task: BotTaskRecord) {
+    const completion: BasecampStep = { status: 'skipped', reason: 'Task is already done.' };
+    return { task, completion, alreadyDone: true };
+}
+
+async function completeTask(
+    task: BotTaskRecord,
+    completedAt: string,
+    actor: BotActor,
+    deps: BotDeps,
+    skipIfDone: boolean,
+): Promise<{ status: number; body: unknown } | { task: BotTaskRecord; completion: BasecampStep; alreadyDone: boolean }> {
+    if (skipIfDone && task.status === 'done') return alreadyCompleted(task);
+
+    const write = taskStatusUpdate({
+        previousStatus: task.status,
+        status: 'done',
+        now: deps.now().toISOString(),
+        completedAt,
+        by: actor.userId,
+    });
+    if (!write.ok) return { status: 400, body: errorBody('completion_date', write.error) };
+    if (write.changed) {
+        const saved = await deps.saveTask(task, {
+            status: write.columns.status,
+            completedAt: write.columns.completed_at,
+            statusHistory: [...task.statusHistory, write.historyEntry],
+        });
+        if (!saved) {
+            const current = await deps.getTask(task.id, task.organizationId);
+            if (current?.status === 'done' && current.organizationId === task.organizationId) return alreadyCompleted(current);
+            return { status: 500, body: errorBody('internal', 'Task could not be completed.') };
+        }
+        task = saved;
+    }
+    const completion: BasecampStep = task.basecampTodoId
+        ? await deps.completeTodo(task.id, actor)
+        : { status: 'skipped', reason: 'Task has no Basecamp to-do.' };
+    return { task, completion, alreadyDone: false };
+}
+
+async function executeComplete(
+    key: BotKeyRecord,
+    actor: BotActor,
+    command: BotCompleteCommand,
+    operation: BotOperationRecord,
+    deps: BotDeps,
+): Promise<{ status: number; body: unknown }> {
+    const task = await deps.getTask(command.taskId, key.organizationId);
+    const notFound = { status: 404, body: errorBody('task_not_found', 'Task not found.') };
+    if (!task || task.organizationId !== key.organizationId) return notFound;
+    if (task.clientId) {
+        const client = await deps.findClient(key.organizationId, { clientId: task.clientId });
+        if (!client || client === 'ambiguous' || client.organizationId !== key.organizationId) return notFound;
+        if (client.status === 'inactive') {
+            return { status: 409, body: errorBody('client_inactive', 'Tasks cannot be completed for an inactive client.') };
+        }
+    }
+    if (await deps.hasOpenTaskTimer(key.organizationId, task.id)) {
+        return {
+            status: 409,
+            body: errorBody('timer_open', 'This task has an open timer. Stop it with complete: true instead.'),
+        };
+    }
+    const result = await completeTask(task, command.completedAt, actor, deps, true);
+    if ('status' in result) return result;
+    await deps.saveOperation(operation.id, { taskId: task.id });
+    return {
+        status: 200,
+        body: {
+            idempotencyKey: command.idempotencyKey,
+            bot: key.name,
+            actor: actorBody(actor),
+            task: taskBody(result.task),
+            completion: result.completion,
+            alreadyDone: result.alreadyDone,
         },
     };
 }
@@ -1150,29 +1296,13 @@ async function executeStop(
         }
     }
     const primary = await refreshLog(finalized.logs[0], deps, steps[0]);
-    let task = await deps.getTask(timer.taskId);
+    let task = await deps.getTask(timer.taskId, key.organizationId);
+    if (task?.organizationId !== key.organizationId) task = null;
     let completion: BasecampStep | null = null;
     if (command.complete && command.completedAt && task) {
-        const write = taskStatusUpdate({
-            previousStatus: task.status,
-            status: 'done',
-            now: deps.now().toISOString(),
-            completedAt: command.completedAt,
-            by: actor.userId,
-        });
-        if (!write.ok) return { status: 400, body: errorBody('completion_date', write.error) };
-        if (write.changed) {
-            const saved = await deps.saveTask(task.id, {
-                status: write.columns.status,
-                completedAt: write.columns.completed_at,
-                statusHistory: [...task.statusHistory, write.historyEntry],
-            });
-            if (!saved) return { status: 500, body: errorBody('internal', 'Task could not be completed.') };
-            task = saved;
-        }
-        completion = task.basecampTodoId
-            ? await deps.completeTodo(task.id, actor)
-            : { status: 'skipped', reason: 'Task has no Basecamp to-do.' };
+        const result = await completeTask(task, command.completedAt, actor, deps, false);
+        if ('status' in result) return result;
+        ({ task, completion } = result);
     }
     await deps.saveOperation(operation.id, { timeLogId: primary.id, taskId: timer.taskId });
     const timesheet = closed.capped && maxMs != null
@@ -1188,6 +1318,7 @@ async function executeStop(
             review: closed.capped,
             timeLog: {
                 id: primary.id,
+                ...(!task ? { taskUrl: taskLinks({ id: timer.taskId }).url } : {}),
                 date: primary.date,
                 hours: primary.hours,
                 minutes: primary.minutes,
@@ -1200,7 +1331,7 @@ async function executeStop(
                 stretches: closed.stretches,
             },
             ...(finalized.logs.length > 1 ? { additionalTimeLogIds: finalized.logs.slice(1).map(log => log.id) } : {}),
-            ...(task ? { task: { id: task.id, title: task.title, status: task.status, completedAt: task.completedAt } } : {}),
+            ...(task ? { task: taskBody(task) } : {}),
             ...(completion ? { completion } : {}),
         },
     };
@@ -1277,6 +1408,10 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     const auth = await authenticateBotRequest(request, token => deps.authenticate(token));
     if ('response' in auth) return auth.response;
     const { key } = auth;
+    if (pathname === BOT_TASKS_COMPLETE_PATH && !SEO_TASK_COMPLETION_BOT_NAMES.has(key.name.trim().toLowerCase())) {
+        await deps.recordKeyUse(key.id);
+        return json(errorBody('forbidden', 'Only SEO bots can complete tasks without a timer.'), 403);
+    }
 
     let payload: unknown;
     try {
@@ -1314,7 +1449,7 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     // Pause and stop apply a configured cap in their own response.
     // With no cap, a long running timer stays open until pause or stop.
     let cappedJustNow: FinalizedBotLog | null = null;
-    if (command.kind !== 'stop' && command.kind !== 'pause' && !(command.kind === 'create' && command.basecampTodoId)) {
+    if (command.kind === 'start' || command.kind === 'resume' || (command.kind === 'create' && !command.basecampTodoId)) {
         try {
             cappedJustNow = await capThisBot(key.id, deps);
         } catch (error) {
@@ -1332,8 +1467,9 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
     }
 
     const nowIso = deps.now().toISOString();
+    const requiresMatchingHash = command.kind === 'create' || command.kind === 'complete';
     if (operation?.status === 'pending') {
-        if (command.kind === 'create' && operation.requestHash !== command.requestHash) {
+        if (requiresMatchingHash && operation.requestHash !== command.requestHash) {
             return json(errorBody('idempotency_conflict', 'This idempotency key was already used with a different request.'), 409);
         }
         const age = deps.now().getTime() - Date.parse(operation.lockedAt);
@@ -1351,7 +1487,7 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
         });
         if (inserted === 'conflict') {
             operation = await deps.findOperation(key.id, command.idempotencyKey);
-            if (command.kind === 'create' && operation && operation.requestHash !== command.requestHash) {
+            if (requiresMatchingHash && operation && operation.requestHash !== command.requestHash) {
                 return json(errorBody('idempotency_conflict', 'This idempotency key was already used with a different request.'), 409);
             }
             if (operation?.status === 'completed' && operation.requestHash === command.requestHash) {
@@ -1372,7 +1508,9 @@ export async function handleBotRequest(request: Request, deps: BotDeps): Promise
                     ? await executePause(key, actor, command, operation, deps)
                     : command.kind === 'resume'
                         ? await executeResume(key, actor, command, operation, deps, cappedJustNow)
-                        : await executeStop(key, actor, command, operation, deps);
+                            : command.kind === 'complete'
+                                ? await executeComplete(key, actor, command, operation, deps)
+                                : await executeStop(key, actor, command, operation, deps);
         if (result.status >= 200 && result.status < 500) {
             await deps.saveOperation(operation.id, {
                 status: 'completed',

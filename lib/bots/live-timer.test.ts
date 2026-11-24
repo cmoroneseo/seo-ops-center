@@ -28,6 +28,7 @@ function pgTime(value: unknown): unknown {
 }
 
 class FakeDb {
+    tasks: Row[] = [];
     timeLogs: Row[] = [];
     segments: Row[] = [];
 
@@ -60,12 +61,18 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: unknown }> {
     insert(row: Row) { this.action = 'insert'; this.payload = row; return this; }
     update(patch: Row) { this.action = 'update'; this.payload = patch; return this; }
     eq(column: string, value: unknown) { this.filters.push(row => row[column] === value); return this; }
+    or(expression: string) {
+        assert.equal(expression, 'status.eq.todo,status.is.null');
+        this.filters.push(row => row.status === 'todo' || row.status == null);
+        return this;
+    }
     in(column: string, values: unknown[]) { this.filters.push(row => values.includes(row[column])); return this; }
     not(column: string) { this.filters.push(row => row[column] != null); return this; }
     order() { return this; }
     limit(count: number) { this.limitTo = count; return this; }
 
     private rows(): Row[] {
+        if (this.table === 'tasks') return this.db.tasks;
         if (this.table === 'time_logs') return this.db.timeLogs;
         if (this.table === 'time_log_segments') return this.db.segments;
         throw new Error(`unexpected table ${this.table}`);
@@ -108,6 +115,37 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: unknown }> {
         return Promise.resolve(this.run()).then(onFulfilled, onRejected);
     }
 }
+
+test('live completion reads open timers across bot keys but within the task and organization', async () => {
+    const db = new FakeDb();
+    const deps = liveBotDeps({ admin: () => db as never });
+    db.timeLogs.push(
+        { id: 'logged', organization_id: ORG, task_id: TASK, status: 'logged' },
+        { id: 'other-task', organization_id: ORG, task_id: 'other', status: 'paused' },
+        { id: 'other-org', organization_id: 'other', task_id: TASK, status: 'in_progress' },
+    );
+    assert.equal(await deps.hasOpenTaskTimer(ORG, TASK), false);
+    db.timeLogs.push({ id: 'another-bot', organization_id: ORG, task_id: TASK, status: 'paused', bot_key_id: 'other' });
+    assert.equal(await deps.hasOpenTaskTimer(ORG, TASK), true);
+    db.timeLogs[3] = { id: 'human-timer', organization_id: ORG, task_id: TASK, status: 'in_progress', bot_key_id: null };
+    assert.equal(await deps.hasOpenTaskTimer(ORG, TASK), true);
+});
+
+test('live task completion scopes the write and lets only one transition win', async () => {
+    const db = new FakeDb();
+    db.tasks.push({ id: TASK, organization_id: ORG, client_id: CLIENT, initiative_id: 'project-a', title: 'Audit', status: null });
+    const deps = liveBotDeps({ admin: () => db as never });
+    assert.equal(await deps.getTask(TASK, 'other-org'), null);
+    const task = await deps.getTask(TASK, ORG);
+    assert.ok(task);
+    assert.equal(task.initiativeId, 'project-a');
+    const completedAt = '2026-11-03T18:00:00.000Z';
+    const patch = { status: 'done', completedAt, statusHistory: [{ status: 'done', at: completedAt }] };
+    assert.equal(await deps.saveTask({ ...task, organizationId: 'other-org' }, patch), null);
+    const results = await Promise.all([deps.saveTask(task, patch), deps.saveTask(task, patch)]);
+    assert.equal(results.filter(Boolean).length, 1);
+    assert.deepEqual(db.tasks[0].status_history, patch.statusHistory);
+});
 
 function world(startedAt: string, row: Row = {}) {
     const db = new FakeDb();

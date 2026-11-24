@@ -13,6 +13,7 @@ test('bot routes use the shared Basecamp handlers and do not log minutes', () =>
     const resumeRoute = readFileSync(new URL('../../app/api/bots/timer/resume/route.ts', import.meta.url), 'utf8');
     const stopRoute = readFileSync(new URL('../../app/api/bots/timer/stop/route.ts', import.meta.url), 'utf8');
     const taskRoute = readFileSync(new URL('../../app/api/bots/tasks/route.ts', import.meta.url), 'utf8');
+    const completeRoute = readFileSync(new URL('../../app/api/bots/tasks/complete/route.ts', import.meta.url), 'utf8');
     const cron = readFileSync(new URL('../../app/api/cron/cap-bot-timers/route.ts', import.meta.url), 'utf8');
 
     assert.match(pushRoute, /createLiveBasecampPushPost/);
@@ -32,6 +33,7 @@ test('bot routes use the shared Basecamp handlers and do not log minutes', () =>
     assert.match(botLive, /botStretchSegmentId/);
     assert.doesNotMatch(botLive, /ended_at: null/);
     assert.match(taskRoute, /handleBotRequest/);
+    assert.match(completeRoute, /handleBotRequest\(request, liveBotDeps\(\)\)/);
     assert.match(startRoute, /liveBotDeps/);
     assert.match(cron, /capOverdueBotTimers/);
     assert.match(cron, /BOT_TIMER_MAX_SECONDS/);

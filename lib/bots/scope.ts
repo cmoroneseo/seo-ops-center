@@ -3,6 +3,7 @@ export const BOT_KEY_PREFIX = 'seo_bot_';
 
 export const BOT_CLIENTS_PATH = '/api/bots/clients';
 export const BOT_TASKS_PATH = '/api/bots/tasks';
+export const BOT_TASKS_COMPLETE_PATH = '/api/bots/tasks/complete';
 export const BOT_TIMER_START_PATH = '/api/bots/timer/start';
 export const BOT_TIMER_STOP_PATH = '/api/bots/timer/stop';
 export const BOT_TIMER_PAUSE_PATH = '/api/bots/timer/pause';
@@ -11,6 +12,7 @@ export const BOT_APPROVALS_PATH = '/api/bots/approvals';
 
 const BOT_POST_PATHS = new Set([
     BOT_TASKS_PATH,
+    BOT_TASKS_COMPLETE_PATH,
     BOT_TIMER_START_PATH,
     BOT_TIMER_STOP_PATH,
     BOT_TIMER_PAUSE_PATH,

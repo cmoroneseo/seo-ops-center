@@ -6,6 +6,7 @@ import {
 } from '../tasks/completion-date.ts';
 import { BOT_ACTOR_TIME_ZONE } from './keys.ts';
 import {
+    BOT_TASKS_COMPLETE_PATH,
     BOT_TASKS_PATH,
     BOT_TIMER_PAUSE_PATH,
     BOT_TIMER_RESUME_PATH,
@@ -18,6 +19,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const DAY = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9:_.-]{7,199}$/;
 const MAX_SUBTASKS = 20;
+const TASK_DESCRIPTION_MAX_LENGTH = 5000;
 
 const FORBIDDEN = new Set([
     'action',
@@ -38,6 +40,7 @@ const FORBIDDEN = new Set([
 
 export interface BotSubtaskDraft {
     title: string;
+    description?: string;
     category?: string;
     dueDate?: string;
 }
@@ -55,10 +58,19 @@ export interface BotCreateCommand extends BotTaskTarget {
     kind: 'create';
     idempotencyKey: string;
     requestHash: string;
+    description?: string;
     category?: string;
     dueDate?: string;
     basecampTodoId?: string;
     subtasks: BotSubtaskDraft[];
+}
+
+export interface BotCompleteCommand {
+    kind: 'complete';
+    idempotencyKey: string;
+    requestHash: string;
+    taskId: string;
+    completedAt: string;
 }
 
 export interface BotTimerStartCommand extends BotTaskTarget {
@@ -102,6 +114,7 @@ export interface BotTimerStopCommand {
 
 export type BotCommand =
     | BotCreateCommand
+    | BotCompleteCommand
     | BotTimerStartCommand
     | BotTimerPauseCommand
     | BotTimerResumeCommand
@@ -147,7 +160,7 @@ function text(value: unknown): string | undefined {
 function rejectForbidden(record: Record<string, unknown>): BotRequestParse | null {
     for (const key of Object.keys(record)) {
         if (FORBIDDEN.has(key)) {
-            return fail(403, 'forbidden', 'This key cannot do that. It can create a task or start, pause, resume, and stop a timer.');
+            return fail(403, 'forbidden', 'Bot keys cannot make that change.');
         }
     }
     return null;
@@ -223,12 +236,16 @@ function targetOf(record: Record<string, unknown>, requireTask: boolean): BotReq
     };
 }
 
-function descriptionOf(record: Record<string, unknown>): BotRequestParse | { description?: string } {
-    if (!('description' in record) || record.description == null || record.description === '') return {};
-    if (typeof record.description !== 'string') return fail(400, 'invalid_request', 'description must be text.');
-    const description = record.description.trim();
-    if (description.length > 2000) return fail(400, 'invalid_request', 'description must be 2000 characters or fewer.');
+function descriptionOf(value: unknown, maxLength: number): BotRequestParse | { description?: string } {
+    if (value === undefined) return {};
+    if (typeof value !== 'string') return fail(400, 'invalid_request', 'description must be text.');
+    const description = value.trim();
+    if (description.length > maxLength) return fail(400, 'invalid_request', `description must be ${maxLength} characters or fewer.`);
     return description ? { description } : {};
+}
+
+function timerDescriptionOf(record: Record<string, unknown>) {
+    return descriptionOf(record.description ?? undefined, 2000);
 }
 
 function boolOf(record: Record<string, unknown>, key: 'countsTowardBudget' | 'billable' | 'complete'): BotRequestParse | boolean | undefined {
@@ -248,8 +265,10 @@ function unknownFields(record: Record<string, unknown>, allowed: Set<string>): B
 
 const CREATE_FIELDS = new Set([
     'idempotencyKey', 'clientId', 'clientName', 'taskId', 'taskTitle',
-    'parentTaskId', 'parentTitle', 'category', 'dueDate', 'subtasks', 'basecampTodoId',
+    'parentTaskId', 'parentTitle', 'description', 'category', 'dueDate', 'subtasks', 'basecampTodoId',
 ]);
+
+const COMPLETE_FIELDS = new Set(['idempotencyKey', 'taskId', 'completedOn', 'timeZone']);
 
 const START_FIELDS = new Set([
     'idempotencyKey', 'clientId', 'clientName', 'taskId', 'taskTitle',
@@ -280,7 +299,7 @@ function subtasksOf(value: unknown): BotRequestParse | { subtasks: BotSubtaskDra
         }
         const row = item as Record<string, unknown>;
         for (const key of Object.keys(row)) {
-            if (key !== 'title' && key !== 'category' && key !== 'dueDate') {
+            if (key !== 'title' && key !== 'description' && key !== 'category' && key !== 'dueDate') {
                 return fail(400, 'unknown_field', `Unknown field: subtasks.${key}`);
             }
         }
@@ -289,12 +308,15 @@ function subtasksOf(value: unknown): BotRequestParse | { subtasks: BotSubtaskDra
         if (title.length > 300) return fail(400, 'invalid_request', 'A subtask title is too long.');
         if (seen.has(title)) return fail(400, 'invalid_request', 'Subtask titles in one call must be unique.');
         seen.add(title);
+        const description = descriptionOf(row.description, TASK_DESCRIPTION_MAX_LENGTH);
+        if ('ok' in description) return description;
         const category = categoryOf(row.category);
         if ('ok' in category) return category;
         const dueDate = dueDateOf(row.dueDate);
         if ('ok' in dueDate) return dueDate;
         subtasks.push({
             title,
+            ...description,
             ...(category.category ? { category: category.category } : {}),
             ...(dueDate.dueDate ? { dueDate: dueDate.dueDate } : {}),
         });
@@ -331,6 +353,8 @@ function parseCreate(record: Record<string, unknown>): BotRequestParse {
     if ('ok' in target) return target;
     if (!target.taskTitle && !basecampTodoId) return fail(400, 'invalid_request', 'create requires taskTitle.');
     if (target.taskId) return fail(400, 'invalid_request', 'Creating a task does not take taskId. Send taskTitle.');
+    const description = descriptionOf(record.description, TASK_DESCRIPTION_MAX_LENGTH);
+    if ('ok' in description) return description;
     const category = categoryOf(record.category);
     if ('ok' in category) return category;
     const dueDate = dueDateOf(record.dueDate);
@@ -346,11 +370,52 @@ function parseCreate(record: Record<string, unknown>): BotRequestParse {
             kind: 'create',
             idempotencyKey: key.key,
             ...target,
+            ...description,
             ...(basecampTodoId ? { basecampTodoId } : {}),
             ...(category.category ? { category: category.category } : {}),
             ...(dueDate.dueDate ? { dueDate: dueDate.dueDate } : {}),
             subtasks: subtasks.subtasks,
         }),
+    };
+}
+
+function completionDateOf(completedOn: string | undefined, timeZone: string, now: Date): BotRequestParse | { completedAt: string } {
+    const resolved = resolveCompletionInstant({
+        choice: completedOn ? { kind: 'day', day: completedOn } : { kind: 'today' },
+        now,
+        timeZone,
+    });
+    if (!resolved.ok) return fail(400, 'completion_date', resolved.error || COMPLETION_FUTURE_ERROR);
+    return { completedAt: resolved.completedAt };
+}
+
+function parseComplete(record: Record<string, unknown>, now: Date): BotRequestParse {
+    const unknown = unknownFields(record, COMPLETE_FIELDS);
+    if (unknown) return unknown;
+    const key = idempotencyKeyOf(record);
+    if ('ok' in key) return key;
+    const taskId = text(record.taskId);
+    if (!taskId || !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
+    if ('timeZone' in record && typeof record.timeZone !== 'string') {
+        return fail(400, 'invalid_request', 'timeZone must be an IANA zone such as America/Los_Angeles.');
+    }
+    const zone = timeZoneOf(record);
+    if ('ok' in zone) return zone;
+    const completedOn = text(record.completedOn);
+    if ('completedOn' in record && (!completedOn || !realDay(completedOn))) {
+        return fail(400, 'completion_date', 'Enter a real date.');
+    }
+    const completion = completionDateOf(completedOn, zone.timeZone, now);
+    if ('ok' in completion) return completion;
+    const request = { kind: 'complete' as const, idempotencyKey: key.key, taskId };
+    return {
+        ok: true,
+        command: {
+            ...request,
+            ...completion,
+            // Today resolves to the current instant. Hash the requested day so a retry can replay it.
+            requestHash: hashBotRequest({ ...request, completedOn: completedOn ?? null, timeZone: zone.timeZone }),
+        },
     };
 }
 
@@ -361,7 +426,7 @@ function parseStart(record: Record<string, unknown>): BotRequestParse {
     if ('ok' in key) return key;
     const target = targetOf(record, true);
     if ('ok' in target) return target;
-    const description = descriptionOf(record);
+    const description = timerDescriptionOf(record);
     if ('ok' in description) return description;
     const counts = boolOf(record, 'countsTowardBudget');
     if (counts && typeof counts === 'object') return counts;
@@ -390,7 +455,7 @@ function parsePause(record: Record<string, unknown>): BotRequestParse {
     if ('ok' in key) return key;
     const taskId = text(record.taskId);
     if (taskId && !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
-    const description = descriptionOf(record);
+    const description = timerDescriptionOf(record);
     if ('ok' in description) return description;
     return {
         ok: true,
@@ -410,7 +475,7 @@ function parseResume(record: Record<string, unknown>): BotRequestParse {
     if ('ok' in key) return key;
     const taskId = text(record.taskId);
     if (!taskId || !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
-    const description = descriptionOf(record);
+    const description = timerDescriptionOf(record);
     if ('ok' in description) return description;
     return {
         ok: true,
@@ -430,7 +495,7 @@ function parseStop(record: Record<string, unknown>, now: Date): BotRequestParse 
     if ('ok' in key) return key;
     const taskId = text(record.taskId);
     if (taskId && !UUID.test(taskId)) return fail(400, 'invalid_request', 'taskId must be a UUID.');
-    const description = descriptionOf(record);
+    const description = timerDescriptionOf(record);
     if ('ok' in description) return description;
     const counts = boolOf(record, 'countsTowardBudget');
     if (counts && typeof counts === 'object') return counts;
@@ -443,13 +508,8 @@ function parseStop(record: Record<string, unknown>, now: Date): BotRequestParse 
     if ('ok' in zone) return zone;
     let completedAt: string | undefined;
     if (complete) {
-        const completedOn = text(record.completedOn);
-        const resolved = resolveCompletionInstant({
-            choice: completedOn ? { kind: 'day', day: completedOn } : { kind: 'today' },
-            now,
-            timeZone: zone.timeZone,
-        });
-        if (!resolved.ok) return fail(400, 'completion_date', resolved.error || COMPLETION_FUTURE_ERROR);
+        const resolved = completionDateOf(text(record.completedOn), zone.timeZone, now);
+        if ('ok' in resolved) return resolved;
         completedAt = resolved.completedAt;
     } else if ('completedOn' in record && record.completedOn != null && record.completedOn !== '') {
         return fail(400, 'invalid_request', 'completedOn is only used when complete is true.');
@@ -478,6 +538,7 @@ export function parseBotRequest(pathname: string, body: unknown, now: Date): Bot
     const forbidden = rejectForbidden(record);
     if (forbidden) return forbidden;
     if (pathname === BOT_TASKS_PATH) return parseCreate(record);
+    if (pathname === BOT_TASKS_COMPLETE_PATH) return parseComplete(record, now);
     if (pathname === BOT_TIMER_START_PATH) return parseStart(record);
     if (pathname === BOT_TIMER_PAUSE_PATH) return parsePause(record);
     if (pathname === BOT_TIMER_RESUME_PATH) return parseResume(record);
