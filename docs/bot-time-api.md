@@ -382,3 +382,21 @@ A new start key, while the same task's timer is still running, is not a replay. 
 | 500 | `client_lookup_failed` | The client lookup could not be read. |
 | 500 | `timer_lookup_failed` | The timer could not be read. This is not a missing timer. Retry the same request. |
 | 503 | `trim_unavailable` | Migration 143 is needed to stop with `hours`. |
+
+## Create an internal GBP review link
+
+`POST /api/bots/approvals/internal-link` requires a live key whose name is in the SEO bot allowlist. Other bot keys receive **403**.
+
+Send exactly one of `requestId` for a GBP draft batch or `clientId` for that client's current GBP draft batches. The target must belong to the key's organization. Include `idempotencyKey` (8–200 letters, numbers, `:`, `_`, `.`, or `-`) and optionally `expiresInDays` (integer 1–30, default 7).
+
+```json
+{
+  "requestId": "<GBP draft request UUID>",
+  "idempotencyKey": "december-gbp-internal-review",
+  "expiresInDays": 7
+}
+```
+
+The first successful call returns **201** with `url` and `expiresAt`. Save the URL when you receive it. A retry with the same key and parameters returns **200** with `expiresAt` and `idempotent: true`. Reusing the same key for different parameters returns **409**. Staff can revoke links from the approval detail page.
+
+The URL opens an internal review without sign-in. Feedback stays in the internal review record. Client links are issued separately through the staff send flow.

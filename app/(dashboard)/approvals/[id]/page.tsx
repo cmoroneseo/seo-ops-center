@@ -18,6 +18,8 @@ import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
 import { RevisionEditor } from '@/components/gbp-approvals/TaskApprovalsPanel';
 import { type GbpPostPayload } from '@/lib/gbp-approvals/registry';
 import { approvalGroup } from '@/lib/approvals-v2/list';
+import { InternalLinkControls } from '@/components/internal-review/InternalLinkControls';
+import { feedbackLabel, type StaffInternalFeedback } from '@/lib/internal-review/model';
 import { StatusChip, TypeChip } from '@/components/approvals-v2/Shared';
 interface Version {
   id: string;
@@ -68,6 +70,8 @@ interface Data {
   };
   items: Item[];
   comments?: AgencyComment[];
+  internalFeedback?: (StaffInternalFeedback & { itemId: string })[];
+  internalFeedbackUnavailable?: boolean;
   versions: Version[];
   questions: {
     id: string;
@@ -276,8 +280,12 @@ export default function Page({
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
       <aside className={`${draft ? 'lg:order-2' : 'order-first lg:order-2'} space-y-4`}>
         {share}
+        {data.request.item_type === 'gbp_post' && data.canWrite && (
+          <InternalLinkControls key={id} requestId={id} canCreate={draft && editable} />
+        )}
       </aside>
       <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1">
+        {data.internalFeedbackUnavailable && <p role="status" className="text-sm text-muted-foreground">Internal feedback could not be loaded.</p>}
         {draft && editable && <details className="rounded-xl border bg-card p-4">
           <summary>Edit request details</summary>
           <form className="mt-3 space-y-3" onSubmit={e => {
@@ -313,6 +321,7 @@ export default function Page({
           const version = (!draft ? item.releasedVersion : item.version) ?? item.version;
           const p = version?.payload;
           if (!p) return null;
+          const internalFeedback = data.internalFeedback?.filter(entry => entry.itemId === item.id) ?? [];
           return <article key={item.id} className="space-y-4 rounded-xl border border-border bg-card p-4">
             <ItemErrorBoundary title={p.title}>
             <header className="space-y-2">
@@ -399,6 +408,15 @@ export default function Page({
                   items: [entry]
                 })} />}
             </>}
+            {internalFeedback.length > 0 && <section className="space-y-2 rounded-lg border border-border p-3 text-sm">
+              <h4 className="font-semibold">Internal feedback</h4>
+              <ul className="space-y-3">
+                {internalFeedback.map(entry => <li key={entry.id} className="wrap-break-word">
+                  <p><strong>{entry.reviewerName}</strong> · {feedbackLabel(entry.decision)}{entry.versionNo !== null && ` · Version ${entry.versionNo}`}</p>
+                  {entry.comment && <p className="whitespace-pre-wrap text-muted-foreground">{entry.comment}</p>}
+                </li>)}
+              </ul>
+            </section>}
             {item.response && <div className="rounded-lg bg-muted p-3 text-sm">
               <strong>
                 {item.response.decision.replaceAll('_', ' ')}

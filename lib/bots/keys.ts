@@ -62,3 +62,22 @@ export function resolveBotActorLookup(env: NodeJS.ProcessEnv = process.env): { k
     }
     return { kind: 'email', value: env.BOT_ACTOR_EMAIL?.trim() || BOT_ACTOR_EMAIL };
 }
+
+export const SEO_BOT_NAMES = new Set([
+    'seo-manager',
+    'technical-seo',
+    'on-page-seo',
+    'content-writer',
+    'copy-humanizer',
+    'web-design-cro',
+    'seo-strategist',
+    'seo-revenue-framework',
+    'seo-aeo-desk',
+    'aeo-seo-bot',
+    'ai-search-visibility',
+    'performance-watch',
+]);
+
+export function isSeoBot(name: string): boolean {
+    return SEO_BOT_NAMES.has(name.trim().toLowerCase());
+}

@@ -61,6 +61,37 @@ test('a public review drops other requests, paths, and org data', () => {
     assert.equal(view.posts[0]?.scheduledDate, '2026-11-23');
 });
 
+test('a public update post keeps null offer dates and empty terms', () => {
+    const view = projectPublicReview({
+        ok: true,
+        state: 'active',
+        items: [{
+            id: 'update-item',
+            position: 1,
+            version: {
+                id: 'update-version',
+                versionNo: 1,
+                payload: {
+                    title: 'Holiday hours',
+                    postType: 'update',
+                    scheduledDate: '2026-12-15',
+                    offerStart: null,
+                    offerEnd: null,
+                    terms: '',
+                },
+            },
+        }],
+    });
+    assert.ok('posts' in view);
+    assert.equal(view.posts.length, 1);
+    const [post] = view.posts;
+    assert.equal(post.postType, 'update');
+    assert.equal(post.scheduledDate, '2026-12-15');
+    assert.equal(post.offerStart, null);
+    assert.equal(post.offerEnd, null);
+    assert.equal(post.terms, '');
+});
+
 test('an expired link does not include the posts', () => {
     const view = projectPublicReview({
         ok: true,
