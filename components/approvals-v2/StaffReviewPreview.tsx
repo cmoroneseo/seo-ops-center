@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState, type ReactNode, type Ref } from 'react';
-import { AlertTriangle, Check, Clock, ExternalLink, FileText, Image as ImageIcon, Maximize2, Pencil, Send } from 'lucide-react';
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Clock, ExternalLink, FileText, Image as ImageIcon, Maximize2, Pencil, Send } from 'lucide-react';
 import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
 import { monthDay, offerRange, weekday } from '@/components/gbp-approvals/sample';
 import { nodeText, safeUrl, sanitizeDoc, type PageNode } from '@/lib/approvals-v2/page-doc';
@@ -137,6 +137,7 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
     const body = payload.body ?? '';
     const cta = payload.ctaLabel ?? '';
     const planned = weekday(payload.scheduledDate);
+    const stepPhoto = (delta: number) => setPhotoIndex(index => (index + delta + photoPaths.length) % photoPaths.length);
     const photoPreview = !photoUnavailable ? <button type="button" className="ar-google-photo" ref={photoTrigger} onClick={() => setEnlarge(true)}
       aria-label={`Enlarge ${photoName} for item ${position}`}>
       {/* eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL. */}
@@ -147,6 +148,16 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
       <strong>{photoPaths.length ? 'Photo unavailable' : 'Photo needed'}</strong>
       {photo && <a className="ar-button ar-compact" href={photo} target="_blank" rel="noopener noreferrer">Open photo</a>}
       {!photoPaths.length && canEdit && draft && <button type="button" className="ar-button ar-compact" onClick={event => edit(event.currentTarget)}>Add photo</button>}
+    </div>;
+    const photoNavigation = photoPaths.length > 1 && <div className="ar-google-photo-nav" role="group" aria-label="Preview photos" onKeyDown={event => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      stepPhoto(event.key === 'ArrowRight' ? 1 : -1);
+    }}>
+      <button type="button" aria-label="Previous photo" onClick={() => stepPhoto(-1)}><ChevronLeft size={18} aria-hidden /></button>
+      <span aria-live="polite">{photoIndex + 1} / {photoPaths.length}</span>
+      <button type="button" aria-label="Next photo" onClick={() => stepPhoto(1)}><ChevronRight size={18} aria-hidden /></button>
     </div>;
     const picker = photoPaths.length > 1 && <div className="ar-google-photo-picker" role="group" aria-label="Post photos">
         {photoPaths.map((path, index) => <button type="button" key={index} className="ar-google-thumb"
@@ -170,7 +181,7 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
     preview = <>
       <GbpPostPreview clientName={client?.name ?? 'Client'} logoSrc={client?.logo_url ?? undefined}
         post={{ ...payload, position, scheduled: payload.scheduledDate, photo, status: item.status }}
-        staff={{ photo: photoPreview }} />
+        staff={{ photo: <div className="ar-google-gallery">{photoPreview}{photoNavigation}</div> }} />
       <Meter length={characterCount(body)} limit={gbpCharacterLimit} />
     </>;
     detail = <Facts rows={[
