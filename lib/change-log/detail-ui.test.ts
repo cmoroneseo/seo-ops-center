@@ -47,7 +47,8 @@ test('detail shows selected control pages, overlapping windows and an editor for
     });
     const controls = container.querySelector('[aria-label="Control pages"]');
     assert.match(controls?.textContent ?? '', /Compared with selected control pages/);
-    assert.ok(controls?.textContent?.includes(controlUrl));
+    const renderedControlUrls = Array.from(controls?.querySelectorAll('ul > li') ?? [], item => item.textContent);
+    assert.deepEqual(renderedControlUrls, [controlUrl]);
     const warning = container.querySelector('[aria-label="Overlapping changes"]');
     assert.match(warning?.textContent ?? '', /Homepage link edit.*Nov 2, 2026.*Baseline window.*Touched a test page/);
     assert.match(warning?.textContent ?? '', /Pavers heading.*Nov 16, 2026.*After window.*Touched a control page/);
