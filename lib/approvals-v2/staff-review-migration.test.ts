@@ -17,7 +17,7 @@ test('147 records isolated staff decisions and enforces grants, draft status, ro
   await db.exec(commentOnlyNotificationsMigration);
   await db.exec(migration);
   const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
-  assert.ok(schema.endsWith(commentOnlyNotificationsMigration + '\n' + migration));
+  assert.ok(schema.includes(commentOnlyNotificationsMigration + '\n' + migration));
 
   const grants = await db.query(`select relrowsecurity, roles.role,
     has_table_privilege(roles.role, 'public.approval_staff_reviews', 'SELECT') can_read,

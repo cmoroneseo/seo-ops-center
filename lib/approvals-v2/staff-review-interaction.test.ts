@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import React, { act, createElement, useState } from 'react';
-import type { SaveStaffReview, StaffReviewData, StaffReviewItem } from '@/components/approvals-v2/StaffReviewTypes';
+import type { ReviewAction, SaveStaffReview, StaffReviewData, StaffReviewItem } from '@/components/approvals-v2/StaffReviewTypes';
 
 const dom = new JSDOM('<!doctype html><div id="review"></div>', { url: 'https://example.test/approvals/example', pretendToBeVisual: true });
 Object.assign(globalThis, {
@@ -73,6 +73,82 @@ function get<T extends Element>(selector: string): T {
   assert.ok(element, `Missing ${selector}`);
   return element;
 }
+
+test('request actions offer return to draft only on editable sent requests', async () => {
+  const root = createRoot(get('#review'));
+  try {
+    for (const [stage, archived_at, canWrite, busy, expected] of [
+      ['sent', null, true, false, 'enabled'],
+      ['sent', null, true, true, 'disabled'],
+      ['draft', null, true, false, 'hidden'],
+      ['sent', '2026-11-24', true, false, 'hidden'],
+      ['sent', null, false, false, 'hidden'],
+    ] as const) {
+      const data = draftData();
+      Object.assign(data.request, { stage, archived_at });
+      data.canWrite = canWrite;
+      await act(async () => root.render(createElement(StaffReviewView, { data, busy })));
+      const trigger = get<HTMLButtonElement>('button[aria-label="Request actions"]');
+      await act(async () => trigger.click());
+      const menu = get('[role="menu"][aria-label="Request actions"]');
+      const item = [...menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')]
+        .find(button => button.textContent === 'Move back to draft');
+      assert.equal(item ? item.disabled ? 'disabled' : 'enabled' : 'hidden', expected);
+      await act(async () => trigger.click());
+    }
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('return to draft explains client link revocation, cancels with focus restored, and confirms the action', async () => {
+  const root = createRoot(get('#review'));
+  const data = draftData();
+  data.request.stage = 'sent';
+  const writes: Parameters<ReviewAction>[] = [];
+  let succeed = false;
+  const reviewAction: ReviewAction = async (...args) => { writes.push(args); return succeed; };
+  const render = (busy = false, error = '') => act(async () => root.render(createElement(StaffReviewView, { data, act: reviewAction, busy, error })));
+  const open = async () => {
+    await act(async () => get<HTMLButtonElement>('button[aria-label="Request actions"]').click());
+    const button = [...get('[role="menu"]').querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')]
+      .find(item => item.textContent === 'Move back to draft');
+    assert.ok(button);
+    await act(async () => button.click());
+    return get('[role="dialog"]');
+  };
+  const dialogButton = (name: string) => {
+    const button = [...get('[role="dialog"]').querySelectorAll('button')].find(item => item.textContent === name);
+    assert.ok(button);
+    return button;
+  };
+  try {
+    await render();
+    const dialog = await open();
+    assert.equal(document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent, 'Move back to draft?');
+    assert.match(document.getElementById(dialog.getAttribute('aria-describedby') ?? '')?.textContent ?? '', /client review links will stop working immediately/i);
+    await act(async () => dialogButton('Cancel').click());
+    await act(async () => new Promise(resolve => requestAnimationFrame(resolve)));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, get('button[aria-label="Request actions"]'));
+    assert.deepEqual(writes, []);
+
+    await open();
+    await render(true);
+    assert.equal(dialogButton('Move back to draft').disabled, true);
+    await render();
+    await act(async () => dialogButton('Move back to draft').click());
+    assert.deepEqual(writes, [['return-to-draft']]);
+    await render(false, 'The change could not be saved.');
+    assert.equal(get('[role="dialog"] [role="alert"]').textContent, 'The change could not be saved.');
+    succeed = true;
+    await act(async () => dialogButton('Move back to draft').click());
+    assert.deepEqual(writes, [['return-to-draft'], ['return-to-draft']]);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 
 test('keyboard review announces a blocker, validates a note, advances, and restores focus', async () => {
   const root = createRoot(get('#review'));
