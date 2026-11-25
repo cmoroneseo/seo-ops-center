@@ -625,11 +625,8 @@ begin
     left join public.approval_links l on l.request_id=r.id
     where r.id=a.request_id and (
       r.archived_at < p_now-interval '12 months'
-      or (r.archived_at is null and coalesce(l.revoked_at,l.expires_at) < p_now-interval '12 months'
-        and not exists (select 1 from public.approval_internal_links il
-          where il.organization_id=r.organization_id and il.client_id=r.client_id
-            and il.revoked_at is null and il.expires_at>p_now
-            and exists (select 1 from public.approval_internal_review_requests(il) ir where ir.id=r.id)))
+      or (r.archived_at is null and r.stage='sent'
+        and coalesce(l.revoked_at,l.expires_at) < p_now-interval '12 months')
     )));
   delete from public.approval_assets where object_key=any(v_assets) and object_key=any(p_removed_keys);
   get diagnostics v_deleted = row_count;
@@ -674,14 +671,19 @@ begin
   if not found then
     return public.gbp_approval_fail('not_found');
   end if;
-  select * into v_request from public.approval_requests where id = v_link.request_id;
+  -- Recheck the token after acquiring locks in the same order as send and revoke.
+  select * into v_request from public.approval_requests where id = v_link.request_id for update;
+  select * into v_link from public.approval_links where id = v_link.id and token_hash = p_token_hash for update;
+  if not found then
+    return public.gbp_approval_fail('not_found');
+  end if;
   select name into v_client_name from public.clients where id = v_request.client_id;
   v_had := exists (select 1 from public.approval_submissions where request_id = v_request.id);
 
-  if v_link.revoked_at is not null or v_link.expires_at <= p_now then
+  if v_link.revoked_at is not null or v_request.stage <> 'sent' or v_link.expires_at <= p_now then
     return jsonb_build_object(
       'ok', true,
-      'state', case when v_link.revoked_at is not null then 'revoked' else 'expired' end,
+      'state', case when v_link.revoked_at is not null or v_request.stage <> 'sent' then 'revoked' else 'expired' end,
       'title', v_request.title,
       'clientName', coalesce(v_client_name, 'your account'),
       'expiresAt', v_link.expires_at,

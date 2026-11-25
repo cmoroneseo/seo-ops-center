@@ -31,8 +31,13 @@ export async function prepareGbpVideo(file: File) {
     video.muted = true;
     video.playsInline = true;
     try {
+        const blobPrefix = `blob:${window.origin}/`;
+        const objectId = url.startsWith(blobPrefix) ? url.slice(blobPrefix.length) : '';
+        if (objectId.length !== 36 || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(objectId)) {
+            throw new Error('The browser could not create a local video preview.');
+        }
         const loaded = waitForVideo(video, 'loadedmetadata', 15000);
-        video.src = url;
+        video.setAttribute('src', `${blobPrefix}${encodeURIComponent(objectId)}`);
         await loaded;
         const metadata = { durationSeconds: video.duration, width: video.videoWidth, height: video.videoHeight };
         const error = videoMetadataError(metadata);

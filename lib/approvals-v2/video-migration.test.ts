@@ -4,6 +4,7 @@ import test from 'node:test';
 import { call, client, database, expiry, hash, later, now, org, owner, post, task, viewer } from './test-database';
 
 const read = (file: string) => readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
+const returnToDraftMigration = read('migrations/148_approval_return_to_draft.sql');
 const migration = read('migrations/149_gbp_approval_video.sql');
 
 test('149 enforces scoped, verified, exclusive video media through draft, release, token and retention RPCs', async t => {
@@ -13,8 +14,9 @@ test('149 enforces scoped, verified, exclusive video media through draft, releas
     for (const name of ['144_approval_internal_review_links', '145_gbp_approval_multi_photo', '146_gbp_comment_only_notifications', '147_approval_staff_reviews']) {
         await db.exec(read(`migrations/${name}.sql`));
     }
+    await db.exec(returnToDraftMigration);
     await db.exec(migration);
-    assert.ok(read('schema.sql').includes(migration));
+    assert.ok(read('schema.sql').includes(returnToDraftMigration + '\n' + migration));
     const bucket = (await db.query("select file_size_limit, allowed_mime_types from storage.buckets where id='gbp-approval-uploads'")).rows[0];
     assert.deepEqual(bucket, { file_size_limit: 78643200, allowed_mime_types: [
         'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif', 'video/mp4', 'video/quicktime',
@@ -81,8 +83,10 @@ test('149 enforces scoped, verified, exclusive video media through draft, releas
     const internal = await call(db, 'select get_approval_internal_review($1,$2) result', [internalHash, now]);
     assert.deepEqual((internal.batches as { posts: Record<string, unknown>[] }[])[0].posts.map(p => p.videoPath), [asset.objectKey, external]);
 
-    const clientHash = hash('client video');
-    assert.equal((await call(db, 'select send_approval_request($1,$2,$3,$4,$5) result', [owner, requestId, clientHash, expiry, later])).ok, true);
+    let clientHash = hash('client video');
+    const send = (tokenHash: string) => call(db, 'select send_approval_request($1,$2,$3,$4,$5) result', [owner, requestId, tokenHash, expiry, later]);
+    const firstSend = await send(clientHash);
+    assert.equal(firstSend.ok, true);
     const get = async (rpc: string) => (await call(db, `select ${rpc}($1,$2) result`, [clientHash, later])).items as
         { status: string; version: { videoPath: string | null; videoPosterPath: string | null; previous?: { videoPath: string } } }[];
     for (const rpc of ['get_approval_by_token', 'get_gbp_approval_by_token']) {
@@ -97,6 +101,22 @@ test('149 enforces scoped, verified, exclusive video media through draft, releas
     assert.equal(released.version.videoPath, null);
     assert.equal(released.version.previous?.videoPath, asset.objectKey);
 
+    await db.query('update approval_assets set created_at=$1 where request_id=$2', [now, requestId]);
+    const keys = async (at: string, removed?: unknown[]) => (await call(db, 'select purge_gbp_approval_retention($1,$2) result', [at, removed ?? null])).objectKeys;
+    assert.deepEqual(await keys('2026-12-01T00:00:00Z'), [abandoned.objectKey]);
+    await keys('2026-12-01T00:00:00Z', [abandoned.objectKey]);
+    const expired = '2028-01-01T00:00:00Z';
+    assert.equal((await call(db, 'select return_approval_to_draft($1,$2,$3) result', [owner, requestId, later])).ok, true);
+    const publicView = (tokenHash: string) => call(db, 'select get_approval_by_token($1,$2) result', [tokenHash, later]);
+    assert.equal((await publicView(clientHash)).state, 'revoked');
+    assert.deepEqual(await keys(expired), []);
+    assert.deepEqual(await revise({ videoPath: external }), { ok: true, changed: true });
+    const rotatedHash = hash('resent client video');
+    assert.deepEqual(await send(rotatedHash), { ok: true, linkId: firstSend.linkId, rotated: true });
+    assert.equal((await publicView(clientHash)).code, 'not_found');
+    clientHash = rotatedHash;
+    assert.equal((await get('get_approval_by_token'))[0].version.videoPath, external);
+
     // Stage the previous video-bearing version as a separate revision.
     await db.query("update approval_items set current_version_id=previous_released_version_id,status='approved' where id=$1", [itemId]);
     assert.equal((await call(db, 'select release_approval_revision($1,$2,$3) result', [owner, requestId, later])).ok, true);
@@ -104,11 +124,6 @@ test('149 enforces scoped, verified, exclusive video media through draft, releas
     assert.equal(videoReleased.status, 'pending');
     assert.equal(videoReleased.version.videoPath, asset.objectKey);
 
-    await db.query('update approval_assets set created_at=$1 where request_id=$2', [now, requestId]);
-    const keys = async (at: string, removed?: unknown[]) => (await call(db, 'select purge_gbp_approval_retention($1,$2) result', [at, removed ?? null])).objectKeys;
-    assert.deepEqual(await keys('2026-12-01T00:00:00Z'), [abandoned.objectKey]);
-    await keys('2026-12-01T00:00:00Z', [abandoned.objectKey]);
-    const expired = '2028-01-01T00:00:00Z';
     assert.deepEqual(new Set(await keys(expired) as string[]), new Set([asset.objectKey, poster.objectKey]));
     await keys(expired, [asset.objectKey, poster.objectKey]);
     assert.deepEqual(await keys(expired), []);
