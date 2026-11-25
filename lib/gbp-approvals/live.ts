@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { hashToken } from '@/lib/approvals/token';
 
-import { hashIp, projectPublicReview, publicReviewPhotoPaths, type PublicReviewView } from './public-view';
+import { hashIp, projectPublicReview, publicReviewMediaPaths, type PublicReviewView } from './public-view';
 
 const PEPPER = process.env.APPROVAL_IP_PEPPER || 'seo-ops-gbp-approval-ip';
 
@@ -12,7 +12,7 @@ export async function loadPublicReview(token: string, photoSrcFor?: (path: strin
         p_now: new Date().toISOString(),
     });
     if (error || !data) return null;
-    const sources = new Map(await Promise.all(publicReviewPhotoPaths(data).map(async path => {
+    const sources = new Map(await Promise.all(publicReviewMediaPaths(data).map(async path => {
         if (path.startsWith('https://')) return [path, path] as const;
         const stored = path.startsWith('gbp-approvals/') || path.startsWith('approval-assets/');
         return [path, stored && photoSrcFor ? await photoSrcFor(path) : null] as const;

@@ -32,6 +32,8 @@ export interface InternalReviewPost {
     ctaLabel: string;
     photoSrc: string | null;
     photoSrcs?: (string | null)[];
+    videoSrc?: string | null;
+    videoPosterSrc?: string | null;
     feedback: InternalFeedback[];
 }
 

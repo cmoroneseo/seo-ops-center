@@ -21,6 +21,8 @@ export interface ReviewPost extends Omit<SamplePost, 'offerStart' | 'offerEnd'> 
     offerStart: string | null;
     offerEnd: string | null;
     photoSrcs?: (string | null)[];
+    videoSrc?: string | null;
+    videoPosterSrc?: string | null;
     photoComments?: GbpPhotoComment[];
     itemId?: string;
     versionId?: string;
@@ -231,7 +233,7 @@ export function PublicReview({
                                 <li>Answer the questions</li>
                                 <li>Add your name and send</li>
                             </ol>
-                            <div className="notice"><span><b>Happy with all of them?</b> Approve all {posts.length} at once. You can still change any post before you send. Posts without a photo still need one.</span></div>
+                            <div className="notice"><span><b>Happy with all of them?</b> Approve all {posts.length} at once. You can still change any post before you send. Posts need a photo or a video.</span></div>
                             <button className="btn btn-secondary" style={{ marginTop: 12 }} type="button" onClick={approveAll}><Check />Approve all {posts.length} posts</button>
                         </section>
                     )}
@@ -408,7 +410,7 @@ function PostCard({
             <div className="ri-body">
                 <div className="ri-grid">
                     <div>
-                        <GbpPostPreview post={post} clientName={clientName} logoSrc={logoSrc} sources={sources}
+                        <GbpPostPreview post={post} clientName={clientName} logoSrc={logoSrc} sources={sources} videoSrc={post.videoSrc} videoPosterSrc={post.videoPosterSrc}
                             photoIndex={target.photoIndex} onPhotoChange={target.selectSlide} />
                         {post.terms && <details className="post-terms">
                             <summary>Offer terms</summary>
@@ -420,7 +422,9 @@ function PostCard({
                         {range && <><dt>Offer runs</dt><dd>{range}</dd></>}
                         <dt>Button</dt><dd>{post.ctaLabel ?? 'View offer'}</dd>
                         <dt>Opens</dt><dd>{post.ctaUrl}</dd>
-                        <dt>Photo</dt><dd>{sources.length > 1 ? `${sources.length} included` : sources[0] ? 'Included' : 'Needed'}</dd>
+                        {post.videoSrc !== undefined
+                            ? <><dt>Video</dt><dd>{post.videoSrc ? 'Included' : 'Unavailable'}</dd></>
+                            : <><dt>Photo</dt><dd>{sources.length > 1 ? `${sources.length} included` : sources[0] ? 'Included' : 'Needed'}</dd></>}
                     </dl>
                 </div>
             </div>
@@ -474,7 +478,7 @@ function ApprovedPost({ post, clientName, logoSrc, drafts, onComment }: {
         <div className="collapsed"><div className="t">Post {post.position} <span>{post.title}</span></div><span className="chip chip-approved">Approved</span></div>
         <details className="ch-panel">
             <summary className="cursor-pointer">View post</summary>
-            <GbpPostPreview post={post} sources={sources} clientName={clientName} logoSrc={logoSrc}
+            <GbpPostPreview post={post} sources={sources} clientName={clientName} logoSrc={logoSrc} videoSrc={post.videoSrc} videoPosterSrc={post.videoPosterSrc}
                 photoIndex={target.photoIndex} onPhotoChange={target.selectSlide} />
             <PhotoComments post={post} sources={sources} target={target} drafts={drafts} onChange={onComment} />
         </details>

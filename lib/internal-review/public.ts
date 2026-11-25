@@ -37,6 +37,8 @@ const rawView = z.object({
             ctaLabel: z.string().nullable(),
             photoPath: z.string().nullable(),
             photoPaths: z.array(z.string()).max(MAX_GBP_PHOTOS).optional(),
+            videoPath: z.string().nullish(),
+            videoPosterPath: z.string().nullish(),
             feedback: z.array(feedback),
         })).min(1),
     })).min(1),
@@ -77,7 +79,7 @@ export function createInternalReviewLoader(admin = createAdminClient, sign = sig
                 clientName,
                 batches: await Promise.all(batches.map(async ({ title, requestId, posts }) => ({
                     title,
-                    posts: await Promise.all(posts.map(async ({ photoPath, photoPaths, ...post }) => {
+                    posts: await Promise.all(posts.map(async ({ photoPath, photoPaths, videoPath, videoPosterPath, ...post }) => {
                         const photoSrcs = await Promise.all(versionPhotoPaths(photoPaths, photoPath)
                             .map(path => photoSource(requestId, path, sign)));
                         return {
@@ -91,6 +93,10 @@ export function createInternalReviewLoader(admin = createAdminClient, sign = sig
                             ctaLabel: post.ctaLabel ?? '',
                             photoSrc: photoSrcs[0] ?? null,
                             photoSrcs,
+                            ...(videoPath ? {
+                                videoSrc: await photoSource(requestId, videoPath, sign),
+                                videoPosterSrc: await photoSource(requestId, videoPosterPath ?? null, sign),
+                            } : {}),
                         };
                     })),
                 }))),

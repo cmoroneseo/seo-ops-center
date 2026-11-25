@@ -50,13 +50,13 @@ export const characterCount = (value: string) => Array.from(value).length;
 export const isPhoneCta = (label: string) => /^call(?: now)?$/i.test(label.trim());
 
 export type ReviewBlocker = { label: string; reason: string };
-export function staffReviewBlockers(itemType: string, pageKind: string | null, payload: unknown, photoPaths: readonly string[]): ReviewBlocker[] {
+export function staffReviewBlockers(itemType: string, pageKind: string | null, payload: unknown, photoPaths: readonly string[], videoPath?: string | null): ReviewBlocker[] {
   if (!payload || typeof payload !== 'object') return [{ label: 'Preview unavailable', reason: 'This item has no current version.' }];
   const fields = payload as Record<string, unknown>;
   const get = (key: string) => typeof fields[key] === 'string' ? fields[key].trim() : '';
   const blockers: ReviewBlocker[] = [];
   if (itemType === 'gbp_post') {
-    if (!photoPaths.length) blockers.push({ label: 'Photo needed', reason: 'Add a photo before approving.' });
+    if (!photoPaths.length && !videoPath) blockers.push({ label: 'Photo needed', reason: 'Add a photo or video before approving.' });
     const length = typeof fields.body === 'string' ? characterCount(fields.body) : 0;
     if (length > gbpCharacterLimit) blockers.push({ label: 'Over character limit', reason: 'Shorten the post to 1,500 characters before approving.' });
     const label = get('ctaLabel');

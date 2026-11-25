@@ -96,7 +96,7 @@ export function createStaffDetail(dependencies = {
     if ([items, versions, responses, questions, events, link, comments, uploads].some(v => v.error)) return json({
       error: 'Approvals could not be loaded.'
     }, 503);
-    const paths = [...new Set([...(versions.data ?? []).flatMap(v => versionPhotoPaths(v.photo_paths, v.photo_path)), ...(responses.data ?? []).map(response => response.replacement_photo_path)].filter((path): path is string => Boolean(path)))];
+    const paths = [...new Set([...(versions.data ?? []).flatMap(v => [...versionPhotoPaths(v.photo_paths, v.photo_path), v.video_path, v.video_poster_path]), ...(responses.data ?? []).map(response => response.replacement_photo_path)].filter((path): path is string => Boolean(path)))];
     if (r.item_type === 'page') {
       for (const version of versions.data ?? []) {
         try {

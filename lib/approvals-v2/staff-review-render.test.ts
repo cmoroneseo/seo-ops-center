@@ -80,3 +80,16 @@ test('Option B shows the empty request message without an add-items action', () 
   assert.match(html, /This request has no items yet/);
   assert.doesNotMatch(html, /Add items/);
 });
+
+test('staff preview renders a video with a poster and enables approval and enlargement', () => {
+  const fixture = data(update);
+  const video = 'https://media.test/video.mp4';
+  const poster = 'https://media.test/poster.jpg';
+  fixture.items[0].version = { ...fixture.items[0].version!, photo_path: null, photo_paths: [], video_path: video, video_poster_path: poster };
+  fixture.photos = { [video]: video, [poster]: poster };
+  const html = renderToStaticMarkup(createElement(StaffReviewView, { data: fixture, initialSelection: 'item-1', saveReview: async () => {} }));
+  assert.match(html, /<video[^>]+src="https:\/\/media.test\/video.mp4"[^>]+poster="https:\/\/media.test\/poster.jpg"[^>]+controls=""/);
+  assert.match(html, /Enlarge video for item 1/);
+  assert.match(html, /class="ar-button ar-approve" aria-disabled="false"/);
+  assert.doesNotMatch(html, /Photo needed|<img[^>]+video.mp4/);
+});

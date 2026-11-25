@@ -375,3 +375,52 @@ test('swiping changes one slide and More expands the copy in place', async () =>
         dom.window.close();
     }
 });
+
+test('client review details report video availability for a video post', () => {
+    for (const [videoSrc, status] of [['/dev/video.mp4', 'Included'], [null, 'Unavailable']] as const) {
+        const html = renderToStaticMarkup(createElement(PublicReview, {
+            mode: 'review', clientName: 'Client', questions: [], posts: [{ ...post, videoSrc }],
+        }));
+        assert.ok(html.includes(`<dt>Video</dt><dd>${status}</dd>`));
+        assert.doesNotMatch(html, /<dt>Photo<\/dt><dd>Needed<\/dd>/);
+    }
+});
+
+test('client review plays video in the media frame and shows a link if playback fails', async () => {
+    const { JSDOM } = await import('jsdom');
+    const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
+    const saved = { window: globalThis.window, document: globalThis.document };
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
+    const { createRoot } = await import('react-dom/client');
+    const { act } = await import('react');
+    const root = createRoot(document.getElementById('root')!);
+    const videoSrc = '/dev/video.mp4';
+    const videoPosterSrc = '/dev/poster.jpg';
+    try {
+        await act(async () => root.render(createElement(PublicReview, {
+            mode: 'review', clientName: 'Client', questions: [], posts: [{ ...post, videoSrc, videoPosterSrc }],
+        })));
+        const video = document.querySelector<HTMLVideoElement>('.gbp-post-slide video')!;
+        assert.equal(video.getAttribute('src'), videoSrc);
+        assert.equal(video.getAttribute('poster'), videoPosterSrc);
+        assert.equal(video.getAttribute('preload'), 'metadata');
+        assert.ok(video.controls && video.muted && video.playsInline);
+        assert.equal(document.querySelector('.gbp-post-slide img, .gbp-post-dots'), null);
+        assert.doesNotMatch(document.body.textContent!, /Photo needed/);
+        await act(async () => video.dispatchEvent(new dom.window.Event('error')));
+        assert.equal(document.querySelector('.gbp-post-slide a')?.getAttribute('href'), videoSrc);
+        assert.match(document.querySelector('.gbp-post-slide')!.textContent!, /Video unavailable/);
+
+        await act(async () => root.render(createElement(GbpPostPreview, { post, clientName: 'Client', sources: ['/first.jpg'], videoSrc })));
+        const carousel = document.querySelector('.gbp-post-carousel')!;
+        assert.equal(carousel.querySelector('img')?.getAttribute('src'), '/first.jpg');
+        await act(async () => carousel.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+        assert.equal(carousel.querySelector('video')?.getAttribute('src'), videoSrc);
+        await act(async () => carousel.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })));
+        assert.equal(carousel.querySelector('img')?.getAttribute('src'), '/first.jpg');
+    } finally {
+        await act(async () => root.unmount());
+        Object.assign(globalThis, saved);
+        dom.window.close();
+    }
+});

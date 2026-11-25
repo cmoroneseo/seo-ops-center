@@ -327,3 +327,36 @@ test('Preview as client opens a three-photo GBP carousel', async () => {
     await act(async () => root.unmount());
   }
 });
+
+test('staff can enlarge and preview a video as a client without rendering it as a photo', async () => {
+  const root = createRoot(get('#review'));
+  const data = draftData();
+  const video = 'https://media.test/video.mp4';
+  const poster = 'https://media.test/poster.jpg';
+  data.items[0].version = { ...data.items[0].version!, video_path: video, video_poster_path: poster };
+  data.photos = { ...data.photos, [video]: video, [poster]: poster };
+  try {
+    await act(async () => root.render(createElement(StaffReviewView, {
+      data, initialSelection: 'item-1', saveReview: async () => {},
+    })));
+    const inline = get<HTMLVideoElement>('.gbp-post video');
+    assert.equal(inline.getAttribute('src'), video);
+    assert.ok(inline.controls && inline.muted && inline.playsInline);
+    const enlarge = get<HTMLButtonElement>('[aria-label="Enlarge video for item 1"]');
+    enlarge.focus();
+    await act(async () => enlarge.click());
+    assert.equal(get('[role="dialog"] video').getAttribute('poster'), poster);
+    assert.equal(document.querySelector('[role="dialog"] img'), null);
+    await act(async () => key(get('[role="dialog"]'), 'Escape'));
+    await act(async () => new Promise(resolve => requestAnimationFrame(resolve)));
+    assert.ok(document.activeElement === enlarge, 'Focus returns to Enlarge video');
+
+    const preview = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Preview as client'))!;
+    await act(async () => preview.click());
+    const clientVideo = get('[role="dialog"] .gbp-post video');
+    assert.equal(clientVideo.getAttribute('src'), video);
+    assert.equal(clientVideo.closest('.gbp-post-slide')?.querySelector('img'), null);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

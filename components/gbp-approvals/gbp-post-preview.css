@@ -24,6 +24,7 @@
 .gbp-post-carousel[data-multiple="true"] .gbp-post-slide { touch-action: pan-y pinch-zoom; user-select: none; }
 .gbp-post-slide img, .gbp-post-slide .gbp-post-photo { display: block; width: 100%; height: 100%; }
 .gbp-post-slide img { object-fit: cover; }
+.gbp-post-slide video { display: block; width: 100%; height: 100%; object-fit: contain; background: #171717; }
 .gbp-post .gbp-post-photo { cursor: zoom-in; }
 .gbp-post .gbp-post-placeholder {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;

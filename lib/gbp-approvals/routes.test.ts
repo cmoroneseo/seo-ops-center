@@ -37,6 +37,35 @@ function headers(response: Response) {
     assert.equal(response.headers.get('X-Robots-Tag'), 'noindex, nofollow');
 }
 
+test('middleware allows the GBP video showcase and its sample without a session only in development', async t => {
+    const originalEnv = process.env;
+    t.after(() => { process.env = originalEnv; });
+    process.env = {
+        ...originalEnv,
+        NODE_ENV: 'development',
+        NEXT_PUBLIC_SUPABASE_URL: 'https://supabase.example.test',
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fixture',
+    };
+    t.mock.method(globalThis, 'fetch', () => assert.fail('The middleware test must stay offline'));
+
+    const request = (path: string) => new NextRequest('https://seo.test' + path);
+    const showcase = '/dev/gbp-approvals?screen=video';
+    const sample = '/dev/gbp-approvals/sample.mp4';
+    for (const path of [showcase, sample]) {
+        const response = await middleware(request(path));
+        assert.equal(response.headers.get('x-middleware-next'), '1');
+        assert.equal(response.headers.get('location'), null);
+    }
+    assert.equal((await middleware(request('/dev/gbp-approvals/other.mp4'))).status, 307);
+
+    process.env.NODE_ENV = 'production';
+    for (const path of [showcase, sample]) {
+        const response = await middleware(request(path));
+        assert.equal(response.status, 307);
+        assert.equal(response.headers.get('location'), 'https://seo.test/login');
+    }
+});
+
 for (const state of ['active', 'expired', 'revoked'] as const) {
     test(`public GET, submit and upload enforce ${state} token state and privacy headers`, async () => {
         let storageCalls = 0;

@@ -299,3 +299,16 @@ test('internal feedback forwards a numbered photo target through the existing RP
     assert.equal((await submit(request('POST', { ...body, photoPosition: 2 }), publicCtx(token))).status, 200);
     assert.equal((await submit(request('POST', { ...body, photoPosition: 11 }), publicCtx(token))).status, 400);
 });
+
+test('internal review renders a scoped video and poster in the shared card', async () => {
+    const videoPath = `approval-assets/${requestId}/${itemId}`;
+    const videoPosterPath = `approval-assets/${requestId}/${versionId}`;
+    const load = createInternalReviewLoader(rpcAdmin(() => ({
+        ...raw, batches: [{ ...raw.batches[0], posts: [{ ...rawPost, photoPath: null, videoPath, videoPosterPath }] }],
+    })), async path => path === videoPath ? 'https://storage.example.com/video.mp4' : 'https://storage.example.com/poster.jpg');
+    const view = await load(token);
+    assert.ok(view);
+    const html = renderToStaticMarkup(createElement(InternalReview, { view, token }));
+    assert.match(html, /<video[^>]+src="https:\/\/storage.example.com\/video.mp4"[^>]+poster="https:\/\/storage.example.com\/poster.jpg"/);
+    assert.doesNotMatch(html, /Photo needed|<img[^>]+video.mp4/);
+});

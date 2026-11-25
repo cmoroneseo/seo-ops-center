@@ -21,7 +21,7 @@ export async function GET(httpRequest: Request, context: { params: Promise<{ tas
     const items = await admin.from('approval_items').select('id, position, status, decision_lock_reason, current_version_id').eq('request_id', requestId).order('position');
     const link = await admin.from('approval_links').select('expires_at, revoked_at, view_count, last_viewed_at').eq('request_id', requestId).maybeSingle();
     const [versions, responses, events] = await Promise.all([
-        admin.from('approval_item_versions').select('id, item_id, version_no, payload, photo_path, photo_paths, change_note, source, created_at').eq('request_id', requestId).order('version_no', { ascending: false }),
+        admin.from('approval_item_versions').select('id, item_id, version_no, payload, photo_path, photo_paths, video_path, video_poster_path, change_note, source, created_at').eq('request_id', requestId).order('version_no', { ascending: false }),
         admin.from('approval_responses').select('id, item_id, version_id, decision, comment, suggested_title, suggested_body, replacement_photo_path, created_at').eq('request_id', requestId).order('created_at', { ascending: false }),
         admin.from('approval_events').select('id, item_id, kind, detail, created_at').eq('request_id', requestId).order('created_at', { ascending: false }),
     ]);
@@ -29,7 +29,7 @@ export async function GET(httpRequest: Request, context: { params: Promise<{ tas
         return Response.json({ error: 'Approvals could not be loaded.' }, { status: 503 });
     }
     const paths = [...new Set([
-        ...(versions.data ?? []).flatMap(version => versionPhotoPaths(version.photo_paths, version.photo_path)),
+        ...(versions.data ?? []).flatMap(version => [...versionPhotoPaths(version.photo_paths, version.photo_path), version.video_path, version.video_poster_path]),
         ...(responses.data ?? []).map(response => response.replacement_photo_path),
     ].filter((path): path is string => typeof path === 'string' && (path.startsWith('https://')
         || path.startsWith(`gbp-approvals/${requestId}/`) || path.startsWith(`approval-assets/${requestId}/`))))];

@@ -28,9 +28,11 @@ export interface PublicPostView {
     terms: string;
     photoSrc: string | null;
     photoSrcs: (string | null)[];
+    videoSrc?: string | null;
+    videoPosterSrc?: string | null;
     comments: GbpPhotoComment[];
     changeNote: string | null;
-    previous: { body: string; photoSrc: string | null; photoSrcs: (string | null)[] } | null;
+    previous: { body: string; photoSrc: string | null; photoSrcs: (string | null)[]; videoSrc?: string | null; videoPosterSrc?: string | null } | null;
     decision: { decision: string; comment: string | null; suggestedTitle: string | null; suggestedBody: string | null } | null;
 }
 
@@ -131,14 +133,20 @@ export function publicVersionPhotoPaths(value: unknown): readonly string[] {
 }
 
 /** Paths returned by an active review RPC, including the legacy replacement suggestion. */
-export function publicReviewPhotoPaths(raw: unknown): string[] {
+function publicVersionMediaPaths(value: unknown) {
+    const version = asRecord(value);
+    return [...publicVersionPhotoPaths(version), text(version?.videoPath), text(version?.videoPosterPath)]
+        .filter((path): path is string => path !== null);
+}
+
+export function publicReviewMediaPaths(raw: unknown): string[] {
     const review = asRecord(raw);
     if (review?.ok === false || review?.state !== 'active' || !Array.isArray(review.items)) return [];
     return [...new Set(review.items.flatMap(value => {
         const item = asRecord(value);
         const version = asRecord(item?.version);
         const replacement = text(asRecord(item?.decision)?.replacementPhotoPath);
-        return [...publicVersionPhotoPaths(version), ...publicVersionPhotoPaths(version?.previous), ...(replacement ? [replacement] : [])];
+        return [...publicVersionMediaPaths(version), ...publicVersionMediaPaths(version?.previous), ...(replacement ? [replacement] : [])];
     }))];
 }
 
@@ -165,6 +173,11 @@ export function projectPublicReview(
             const previousPayload = asRecord(previous?.payload);
             const decision = asRecord(record.decision);
             const photoSrcs = publicVersionPhotoPaths(version).map(photoSrcFor);
+            const videoSources = (value: Record<string, unknown> | null) => {
+                const path = text(value?.videoPath);
+                const poster = text(value?.videoPosterPath);
+                return path ? { videoSrc: photoSrcFor(path), videoPosterSrc: poster ? photoSrcFor(poster) : null } : {};
+            };
             const previousPhotoSrcs = publicVersionPhotoPaths(previous).map(photoSrcFor);
             const comments = Array.isArray(record.comments) ? record.comments.flatMap<GbpPhotoComment>(value => {
                 const comment = asRecord(value);
@@ -192,14 +205,16 @@ export function projectPublicReview(
                 ctaUrl: text(payload.ctaUrl) ?? '',
                 ctaLabel: text(payload.ctaLabel) ?? 'View offer',
                 terms: text(payload.terms) ?? '',
-                photoSrc: photoSrcs.length ? photoSrcs[0] : replacement ? photoSrcFor(replacement) : null,
+                photoSrc: photoSrcs.length ? photoSrcs[0] : replacement && !version?.videoPath ? photoSrcFor(replacement) : null,
                 photoSrcs,
+                ...videoSources(version),
                 comments,
                 changeNote: text(version.changeNote),
                 previous: previousPayload ? {
                     body: text(previousPayload.body) ?? '',
                     photoSrc: previousPhotoSrcs[0] ?? null,
                     photoSrcs: previousPhotoSrcs,
+                    ...videoSources(previous),
                 } : null,
                 decision: decision ? {
                     decision: text(decision.decision) ?? '',

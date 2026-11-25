@@ -144,3 +144,12 @@ export function offerRange({ postType, offerStart, offerEnd }: {
     const end = monthDay(offerEnd);
     return start && end ? `${start} – ${end}` : null;
 }
+
+export const SAMPLE_VIDEO_POST = {
+    ...SAMPLE_POSTS[0],
+    position: 1,
+    status: 'pending' as const,
+    photo: null,
+    videoSrc: '/dev/gbp-approvals/sample.mp4',
+    videoPosterSrc: '/dev/gbp-approvals/sample-poster.jpg',
+};

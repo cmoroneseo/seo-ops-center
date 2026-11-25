@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { applySuggestion, type GbpPostPayload } from '@/lib/gbp-approvals/registry';
+import { GBP_VIDEO_ACCEPT, GBP_VIDEO_HINT, prepareGbpVideo, uploadGbpVideo } from '@/lib/gbp-approvals/video-upload';
+import { VideoPreview } from './VideoPreview';
 import { MAX_GBP_PHOTOS, versionPhotoPaths } from '@/lib/gbp-approvals/photos';
 import { PhotoGallery } from './PhotoGallery';
 import { CreateDraftButton } from '@/components/approvals-v2/CreateDraftButton';
@@ -16,6 +18,8 @@ interface Version {
   payload: GbpPostPayload;
   photo_path: string | null;
   photo_paths?: string[] | null;
+  video_path?: string | null;
+  video_poster_path?: string | null;
   change_note: string | null;
   created_at: string;
 }
@@ -120,13 +124,17 @@ export function RevisionEditor({
   const [ctaUrl, setCtaUrl] = useState(version.payload.ctaUrl);
   const [photos, setPhotos] = useState(() => versionPhotoPaths(version.photo_paths, version.photo_path)
     .map(path => ({ path, src: images[path] ?? null })));
-  const [uploading, setUploading] = useState(false);
+  const [video, setVideo] = useState(() => version.video_path ? {
+    path: version.video_path, src: images[version.video_path] ?? null,
+    posterPath: version.video_poster_path ?? null, posterSrc: images[version.video_poster_path ?? ''] ?? null,
+  } : null);
+  const [uploading, setUploading] = useState<'photo' | 'video' | null>(null);
   const [photoError, setPhotoError] = useState('');
   const response = item.response;
   const hasSuggestion = Boolean(response?.suggested_title || response?.suggested_body || response?.replacement_photo_path);
   async function upload(index: number, file: File) {
     if (uploading || busy) return;
-    setUploading(true);
+    setUploading('photo');
     setPhotoError('');
     try {
       if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size < 1 || file.size > 10485760) {
@@ -149,6 +157,7 @@ export function RevisionEditor({
       });
       const result = await preview.json();
       if (!preview.ok) throw new Error(result.error ?? 'Preview unavailable.');
+      setVideo(null);
       setPhotos(current => {
         const next = [...current];
         next[index] = { path: objectKey, src: result.photoUrl };
@@ -157,11 +166,28 @@ export function RevisionEditor({
     } catch (cause) {
       setPhotoError(cause instanceof Error ? cause.message : 'Image upload failed.');
     } finally {
-      setUploading(false);
+      setUploading(null);
+    }
+  }
+
+  async function uploadVideo(file: File) {
+    if (uploading || busy) return;
+    setUploading('video');
+    setPhotoError('');
+    try {
+      const prepared = await prepareGbpVideo(file);
+      setVideo(await uploadGbpVideo(requestId, item.id, prepared));
+      setPhotos([]);
+    } catch (cause) {
+      setPhotoError(cause instanceof Error ? cause.message : 'Video upload failed.');
+    } finally {
+      setUploading(null);
     }
   }
 
   function post(accept: boolean) {
+    if (uploading || busy) return;
+    const replacingWithPhoto = accept && Boolean(response?.replacement_photo_path);
     const photoPaths = photos.map(photo => photo.path);
     if (accept && response?.replacement_photo_path) photoPaths[0] = response.replacement_photo_path;
     return onPost({
@@ -176,6 +202,10 @@ export function RevisionEditor({
         body
       },
       photoPaths,
+      ...(video || version.video_path ? {
+        videoPath: replacingWithPhoto ? null : video?.path ?? null,
+        videoPosterPath: replacingWithPhoto ? null : video?.posterPath ?? null,
+      } : {}),
       changeNote: note,
       source: accept ? 'accepted_suggestion' : 'manual',
       sourceResponseId: accept ? response?.id : null
@@ -191,8 +221,8 @@ export function RevisionEditor({
       maxLength={2000}
       onChange={event => setBody(event.target.value)}
       className="mt-1 min-h-24 w-full rounded-md border border-input bg-background p-2 text-foreground" /></label>
-    <fieldset disabled={busy || uploading} className="space-y-2">
-      <legend className="font-medium">Post photos</legend>
+    <fieldset disabled={busy || Boolean(uploading)} className="space-y-2">
+      <legend className="font-medium">Post media</legend>
       {photos.length > 0 && <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {photos.map(({ path, src }, index) => <li key={`${index}:${path}`} className="min-w-0 space-y-2 rounded-lg border p-3">
           <p className="font-medium">Photo {index + 1}{index === 0 ? ' · Primary' : ''}</p>
@@ -208,14 +238,26 @@ export function RevisionEditor({
             onClick={() => setPhotos(current => current.filter((_, position) => position !== index))}>Remove</Button>
         </li>)}
       </ol>}
-      {photos.length < MAX_GBP_PHOTOS && <label className="block">Add photo
+      {photos.length < MAX_GBP_PHOTOS && <label className="block">{video ? 'Add photo (replaces video)' : 'Add photo'}
         <input className="block w-full" type="file" accept="image/jpeg,image/png,image/webp" onChange={event => {
           const file = event.target.files?.[0];
           event.target.value = '';
           if (file) void upload(photos.length, file);
         }} />
       </label>}
-      {uploading && <p role="status">Uploading photo…</p>}
+      {video && <div className="space-y-2 rounded-lg border p-3">
+        <VideoPreview src={video.src} poster={video.posterSrc} className="max-h-64 w-full bg-black object-contain" />
+        <Button type="button" variant="outline" size="sm" onClick={() => setVideo(null)}>Remove video</Button>
+      </div>}
+      <label className="block">{video ? 'Replace video' : 'Add video'}
+        <input className="block w-full" type="file" accept={GBP_VIDEO_ACCEPT} onChange={event => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file) void uploadVideo(file);
+        }} />
+      </label>
+      <p className="text-xs text-muted-foreground">{GBP_VIDEO_HINT}</p>
+      {uploading && <p role="status">{uploading === 'video' ? 'Checking and uploading video…' : 'Uploading photo…'}</p>}
       {photoError && <p role="alert">{photoError}</p>}
     </fieldset>
     {photos.length > 1 && <p className="text-xs text-muted-foreground">GHL Social Planner supports one image per GBP post. Publish the remaining photos by hand.</p>}
@@ -228,12 +270,12 @@ export function RevisionEditor({
       <Button
         type="button"
         variant="outline"
-        disabled={busy || uploading || (draft ? !title.trim() : !note.trim()) || !body.trim()}
+        disabled={busy || Boolean(uploading) || (draft ? !title.trim() : !note.trim()) || !body.trim()}
         onClick={() => void post(false)}>Post v{version.version_no + 1}</Button>
       {hasSuggestion && <Button
         type="button"
         variant="outline"
-        disabled={busy || uploading || !note.trim()}
+        disabled={busy || Boolean(uploading) || !note.trim()}
         onClick={() => void post(true)}>Accept suggestion into v{version.version_no + 1}</Button>}
     </div>
     {!draft && <p className="text-xs text-muted-foreground">Client suggestions become a revision only when accepted. Re-share the same review link for approval.</p>}

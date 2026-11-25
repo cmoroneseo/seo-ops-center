@@ -3,6 +3,7 @@ import { uuid } from './list';
 import { sqlStatus } from './staff';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { parseGbpPhotoPaths, parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
+import { gbpMediaError } from '@/lib/gbp-approvals/video';
 import { createAdminClient } from '@/lib/supabase/admin';
 export function createStaffApproval(dependencies = {
   agencyActor,
@@ -79,6 +80,8 @@ export function createStaffApproval(dependencies = {
         payload?: unknown;
         photoPath?: string | null;
         photoPaths?: unknown;
+        videoPath?: unknown;
+        videoPosterPath?: unknown;
       };
       const parsed = body.itemType === 'page' ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
       if (!parsed.ok) return Response.json({
@@ -88,8 +91,9 @@ export function createStaffApproval(dependencies = {
         status: 400
       });
       const photoPaths = 'photoPaths' in item ? parseGbpPhotoPaths(item.photoPaths, true) : undefined;
-      if (photoPaths === null || (body.itemType === 'page' && photoPaths)) return Response.json({
-        error: 'A GBP post can include up to 10 HTTPS photo URLs.',
+      const mediaError = gbpMediaError(item, { page: body.itemType === 'page', httpsOnly: true });
+      if (mediaError) return Response.json({
+        error: mediaError,
         code: 'invalid_request'
       }, { status: 400 });
       items.push({
@@ -97,7 +101,9 @@ export function createStaffApproval(dependencies = {
         payload: parsed.payload,
         ...('outline' in parsed ? { outline: parsed.outline } : {}),
         photoPath: item.photoPath ?? null,
-        ...(photoPaths ? { photoPaths } : {})
+        ...(photoPaths ? { photoPaths } : {}),
+        ...(item.videoPath != null ? { videoPath: item.videoPath } : {}),
+        ...(item.videoPosterPath != null ? { videoPosterPath: item.videoPosterPath } : {})
       });
     }
     const created = await admin.rpc('create_approval_request', {
