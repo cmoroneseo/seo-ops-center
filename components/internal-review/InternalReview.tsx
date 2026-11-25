@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useRef, useState, type FormEvent } from 'react';
-import { PhotoGallery } from '@/components/gbp-approvals/PhotoGallery';
-import { isCalendarDate } from '@/lib/gbp-approvals/registry';
+import { GbpPostPreview, previewPhotos } from '@/components/gbp-approvals/GbpPostPreview';
+import { PhotoCommentTarget, usePhotoCommentTarget } from '@/components/gbp-approvals/PhotoCommentTarget';
 import { UNAVAILABLE_REVIEW, feedbackLabel, reviewDecisions, type InternalReviewPost, type InternalReviewView } from '@/lib/internal-review/model';
 
 const field = 'w-full rounded-lg border border-slate-400 bg-white px-3 py-2 text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700';
@@ -29,7 +29,7 @@ export function InternalReview({ view, token }: { view: InternalReviewView | nul
                     <section className="space-y-4" key={batch.posts[0].itemId}>
                         <h2 className="text-xl font-semibold tracking-tight">{batch.title}</h2>
                         {batch.posts.map(post => (
-                            <ReviewPost key={post.versionId} post={post} token={token} reviewerName={reviewerName} onNameChange={setReviewerName} />
+                            <ReviewPost key={post.versionId} post={post} clientName={view.clientName} token={token} reviewerName={reviewerName} onNameChange={setReviewerName} />
                         ))}
                     </section>
                 ))}
@@ -38,37 +38,33 @@ export function InternalReview({ view, token }: { view: InternalReviewView | nul
     );
 }
 
-function ReviewPost({ post, token, reviewerName, onNameChange }: {
+function ReviewPost({ post, clientName, token, reviewerName, onNameChange }: {
     post: InternalReviewPost;
+    clientName: string;
     token?: string;
     reviewerName: string;
     onNameChange: (name: string) => void;
 }) {
     const [decision, setDecision] = useState<keyof typeof reviewDecisions>('approved');
-    const [photoPosition, setPhotoPosition] = useState<number | null>(null);
+    const [comments, setComments] = useState<Record<number, string>>({});
     const [feedback, setFeedback] = useState(post.feedback);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
     const lastAttempt = useRef<{ body: string; key: string } | null>(null);
-    const sources = post.photoSrcs ?? (post.photoSrc ? [post.photoSrc] : []);
+    const sources = previewPhotos({ photo: post.photoSrc, photoSrcs: post.photoSrcs });
+    const target = usePhotoCommentTarget(sources);
+    const { photoPosition } = target;
+    const commentKey = photoPosition ?? 0;
     const commentRequired = decision !== 'approved' || photoPosition !== null;
-    const { scheduledDate, offerStart, offerEnd } = post;
-    const showScheduledDate = Boolean(scheduledDate && isCalendarDate(scheduledDate));
-    const showOfferDates = Boolean(
-        post.postType === 'offer'
-        && offerStart && isCalendarDate(offerStart)
-        && offerEnd && isCalendarDate(offerEnd)
-    );
 
     async function submit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         if (!token || busy) return;
-        const form = event.currentTarget;
         const entry = {
             reviewerName: reviewerName.trim(),
             decision: decision === 'comment' ? null : decision,
-            comment: String(new FormData(form).get('comment') ?? '').trim() || null,
+            comment: comments[commentKey]?.trim() || null,
             photoPosition,
         };
         const body = JSON.stringify(entry);
@@ -89,9 +85,9 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
             }
             setFeedback(previous => [...previous, entry]);
             lastAttempt.current = null;
-            form.reset();
+            setComments(current => ({ ...current, [commentKey]: '' }));
             setDecision('approved');
-            setPhotoPosition(null);
+            target.selectTarget(null);
             setNotice('Feedback saved.');
         } catch {
             setError('Feedback could not be saved. Try again.');
@@ -102,24 +98,17 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
 
     return (
         <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className={`grid gap-5 p-5 sm:p-6 ${sources.length ? 'sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : ''}`}>
-                <div className="min-w-0 space-y-3">
-                    <p className="text-sm font-medium text-teal-800">Post {post.position}{post.postType && <> · <span className="capitalize">{post.postType}</span></>}</p>
-                    <h3 className="text-xl font-semibold wrap-break-word">{post.title}</h3>
-                    {showScheduledDate && <p className="text-sm text-slate-700">Scheduled for <time dateTime={scheduledDate}>{scheduledDate}</time></p>}
-                    <p className="whitespace-pre-wrap wrap-break-word text-slate-800">{post.body}</p>
-                    {showOfferDates && (
-                        <p className="text-sm text-slate-700">Offer dates {offerStart} to {offerEnd}</p>
-                    )}
-                    {post.terms && <p className="text-sm whitespace-pre-wrap wrap-break-word text-slate-700">{post.terms}</p>}
-                    {post.ctaUrl && (
-                        <p className="text-sm">
-                            <a className="font-semibold text-teal-800 underline underline-offset-2" href={post.ctaUrl} rel="noopener noreferrer" target="_blank">{post.ctaLabel || 'Open link'}</a>
-                            <span className="mt-1 block wrap-anywhere text-xs text-slate-600">{post.ctaUrl}</span>
-                        </p>
-                    )}
+            <div className="grid gap-5 p-5 sm:grid-cols-[minmax(0,420px)_minmax(0,1fr)] sm:p-6">
+                <div className="min-w-0 space-y-2">
+                    <p className="text-sm font-medium text-teal-800">Post {post.position}</p>
+                    <GbpPostPreview post={{ ...post, scheduled: post.scheduledDate, ctaLabel: post.ctaLabel || (post.ctaUrl ? 'Open link' : '') }}
+                        sources={sources} clientName={clientName} ctaHref={post.ctaUrl}
+                        photoIndex={target.photoIndex} onPhotoChange={target.selectSlide} />
                 </div>
-                {sources.length > 0 && <PhotoGallery sources={sources} />}
+                {(post.terms || post.ctaUrl) && <div className="min-w-0 space-y-3 text-sm text-slate-700 sm:pt-7">
+                    {post.terms && <p className="whitespace-pre-wrap wrap-break-word">{post.terms}</p>}
+                    {post.ctaUrl && <p className="wrap-anywhere">{post.ctaUrl}</p>}
+                </div>}
             </div>
             <div className="space-y-4 border-t border-slate-200 bg-[#fafcfb] p-5 sm:p-6">
                 {feedback.length > 0 && (
@@ -145,16 +134,15 @@ function ReviewPost({ post, token, reviewerName, onNameChange }: {
                             </select>
                         </label>
                     </div>
-                    {sources.some(Boolean) && <label className="grid gap-1 text-sm font-medium">
-                        Comment on
-                        <select className={field} value={photoPosition ?? ''} onChange={event => setPhotoPosition(Number(event.target.value) || null)}>
-                            <option value="">Whole post</option>
-                            {sources.map((src, index) => <option key={index} value={index + 1} disabled={!src}>Photo {index + 1}</option>)}
-                        </select>
-                    </label>}
+                    {sources.some(Boolean) && <PhotoCommentTarget sources={sources} value={photoPosition} onChange={target.selectTarget}
+                        className="grid gap-1 text-sm font-medium" fieldClassName={field} />}
                     <label className="grid gap-1 text-sm font-medium">
                         {commentRequired ? 'Comment' : 'Comment (optional)'}
-                        <textarea className={field} name="comment" rows={2} maxLength={4000} required={commentRequired} />
+                        <textarea className={field} name="comment" rows={2} maxLength={4000} required={commentRequired}
+                            value={comments[commentKey] ?? ''} onChange={event => {
+                                const value = event.target.value;
+                                setComments(current => ({ ...current, [commentKey]: value }));
+                            }} />
                     </label>
                     <button disabled={!token || busy} className="min-h-10 rounded-lg bg-[#123331] px-4 text-sm font-semibold text-white hover:bg-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50">
                         {busy ? 'Saving…' : 'Save internal feedback'}

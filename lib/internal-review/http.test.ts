@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createRequire } from 'node:module';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { InternalReview } from '@/components/internal-review/InternalReview';
-import { metadata } from '@/app/ir/[token]/page';
 import { hashToken } from '@/lib/approvals/token';
 import { createAgencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { BOT_INTERNAL_REVIEW_PATH, botRequestDecision } from '@/lib/bots/scope';
@@ -11,6 +10,11 @@ import type { createAdminClient } from '@/lib/supabase/admin';
 import { createInternalFeedbackPost, createInternalReviewGet, createInternalReviewLoader } from './public';
 import { createBotInternalLink, createStaffInternalLinks } from './manage';
 import { UNAVAILABLE_REVIEW, publicInternalReviewPath } from './model';
+
+const require = createRequire(import.meta.url);
+require.extensions['.css'] = () => {};
+const { InternalReview } = require('@/components/internal-review/InternalReview') as typeof import('@/components/internal-review/InternalReview');
+const { metadata } = require('@/app/ir/[token]/page') as typeof import('@/app/ir/[token]/page');
 
 type Admin = ReturnType<typeof createAdminClient>;
 const linkId = '11111111-1111-4111-8111-111111111111';

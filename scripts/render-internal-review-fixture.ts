@@ -1,11 +1,15 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import tailwind from '@tailwindcss/postcss';
 import postcss from 'postcss';
-import { InternalReview } from '@/components/internal-review/InternalReview';
 import type { InternalReviewView } from '@/lib/internal-review/model';
+
+const require = createRequire(import.meta.url);
+require.extensions['.css'] = () => {};
+const { InternalReview } = require('@/components/internal-review/InternalReview') as typeof import('@/components/internal-review/InternalReview');
 
 const fixture: InternalReviewView = {
     clientName: 'Oak Street Renovations',
@@ -41,8 +45,8 @@ const fixture: InternalReviewView = {
                 terms: '',
                 ctaUrl: 'https://example.com/projects?utm_source=google',
                 ctaLabel: 'Explore recent projects',
-                photoSrc: 'https://drive.google.com/thumbnail?id=fixture-thumbnail',
-                photoSrcs: ['https://drive.google.com/thumbnail?id=fixture-thumbnail', '../public/dev/gbp-approvals/post1.jpg'],
+                photoSrc: '../public/dev/gbp-approvals/post6.jpg',
+                photoSrcs: ['../public/dev/gbp-approvals/post6.jpg', '../public/dev/gbp-approvals/post1.jpg', '../public/dev/gbp-approvals/post2.jpg'],
                 feedback: [{ reviewerName: 'Jordan Lee', decision: null, comment: 'Use this shot first.', photoPosition: 2 }],
             },
         ],
@@ -52,9 +56,10 @@ const fixture: InternalReviewView = {
 async function render() {
     const html = renderToStaticMarkup(createElement(InternalReview, { view: fixture }));
     const styles = await postcss([tailwind()]).process(
-        '@import "tailwindcss" source(none); @source "./components/internal-review/InternalReview.tsx"; @source "./components/gbp-approvals/PhotoGallery.tsx";',
+        '@import "tailwindcss" source(none); @source "./components/internal-review/InternalReview.tsx";',
         { from: resolve('internal-review-fixture.css') },
     );
+    const cardCss = await readFile('components/gbp-approvals/gbp-post-preview.css', 'utf8');
     const output = '.next-internal-review-fixture/index.html';
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output, `<!doctype html>
@@ -64,7 +69,8 @@ async function render() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="img-src 'self' file:">
 <title>Internal review fixture</title>
-<style>${styles.css}</style>
+<style>${styles.css}
+${cardCss}</style>
 </head>
 <body>${html}</body>
 </html>

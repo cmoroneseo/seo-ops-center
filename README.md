@@ -60,3 +60,9 @@ Local security checks:
 ```bash
 npm run security:all
 ```
+
+### GBP approval preview fixtures
+
+Run `node --import tsx scripts/render-approvals-option-b-fixture.ts /tmp/approvals-option-b` from the repository root. Open `desktop.html` or `mobile-gallery.html` for staff item 6, and `client.html` for the client review of the same three-photo post. The fixtures use compiled CSS and local images. The HTML is static for screenshots.
+
+Run `node --import tsx scripts/render-internal-review-fixture.ts` to render the internal review, including a three-photo update, at `.next-internal-review-fixture/index.html`.

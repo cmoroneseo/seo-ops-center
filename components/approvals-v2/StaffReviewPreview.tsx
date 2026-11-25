@@ -1,8 +1,8 @@
 'use client';
 
-import { useRef, useState, type ReactNode, type Ref } from 'react';
+import { useCallback, useRef, useState, type ReactNode, type Ref } from 'react';
 import { AlertTriangle, Check, Clock, ExternalLink, FileText, Image as ImageIcon, Maximize2, Pencil, Send } from 'lucide-react';
-import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
+import { GbpPostPreview } from '@/components/gbp-approvals/GbpPostPreview';
 import { monthDay, offerRange, weekday } from '@/components/gbp-approvals/sample';
 import { nodeText, safeUrl, sanitizeDoc, type PageNode } from '@/lib/approvals-v2/page-doc';
 import { characterCount, gbpCharacterLimit, isPhoneCta, type ReviewStatus } from '@/lib/approvals-v2/staff-review';
@@ -116,8 +116,16 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
   const isPage = item.item_type === 'page' && 'pageKind' in payload;
   const isGbp = item.item_type === 'gbp_post' && 'postType' in payload;
   const photoPaths = isGbp ? versionPhotoPaths(version.photo_paths, version.photo_path) : [];
-  const photo = data.photos[isGbp ? photoPaths[photoIndex] : version.photo_path ?? ''] ?? null;
+  const sources = photoPaths.map(path => data.photos[path] ?? null);
+  const photo = isGbp ? sources[photoIndex] ?? null : data.photos[version.photo_path ?? ''] ?? null;
   const photoUnavailable = !photo || failedPhoto === photo;
+  const readPhotoDimensions = useCallback((image: HTMLImageElement) => {
+    if (image.naturalWidth && image.naturalHeight) {
+      const src = image.getAttribute('src') ?? image.src;
+      setLoadedPhoto({ src, width: image.naturalWidth, height: image.naturalHeight });
+      setFailedPhoto(failed => failed === src ? null : failed);
+    }
+  }, []);
   const dimensions = photo && loadedPhoto?.src === photo ? loadedPhoto : null;
   const photoName = photoPaths.length > 1 ? `photo ${photoIndex + 1} of ${photoPaths.length}` : 'photo';
   let preview: ReactNode;
@@ -132,22 +140,9 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
     const body = payload.body ?? '';
     const cta = payload.ctaLabel ?? '';
     const planned = weekday(payload.scheduledDate);
-    const gallery = <div role={photoPaths.length > 1 ? 'group' : undefined} aria-label={photoPaths.length > 1 ? 'Post photos' : undefined}>
-      {!photoUnavailable ? <button type="button" className="ar-google-photo" ref={photoTrigger} onClick={() => setEnlarge(true)}
-        aria-label={`Enlarge ${photoName} for item ${position}`}>
-        {/* eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL. */}
-        <img key={photo} src={photo} alt="" referrerPolicy="no-referrer" onLoad={({ currentTarget }) => setLoadedPhoto({
-          src: photo, width: currentTarget.naturalWidth, height: currentTarget.naturalHeight,
-        })} onError={() => setFailedPhoto(photo)} />
-      </button> : <div className={`ar-google-placeholder${photoPaths.length ? ' ar-google-unavailable' : ''}`}>
-        <ImageIcon size={20} aria-hidden />
-        <strong>{photoPaths.length ? 'Photo unavailable' : 'Photo needed'}</strong>
-        {photo && <a className="ar-button ar-compact" href={photo} target="_blank" rel="noopener noreferrer">Open photo</a>}
-        {!photoPaths.length && canEdit && draft && <button type="button" className="ar-button ar-compact" onClick={event => edit(event.currentTarget)}>Add photo</button>}
-      </div>}
-      {photoPaths.length > 1 && <div className="ar-google-photo-picker">
+    const picker = photoPaths.length > 1 && <div className="ar-google-photo-picker" role="group" aria-label="Post photos">
         {photoPaths.map((path, index) => <button type="button" key={index} className="ar-google-thumb"
-          aria-label={`Show photo ${index + 1} of ${photoPaths.length}`} aria-pressed={index === photoIndex}
+          aria-label={`Select photo ${index + 1} of ${photoPaths.length}`} aria-pressed={index === photoIndex}
           onClick={() => setPhotoIndex(index)} onKeyDown={event => {
             if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
             if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -163,21 +158,30 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
           ) : <ImageIcon size={16} aria-hidden />}
           <span>{index + 1}</span>
         </button>)}
-      </div>}
     </div>;
     preview = <>
       <GbpPostPreview clientName={client?.name ?? 'Client'} logoSrc={client?.logo_url ?? undefined}
-        post={{ ...payload, position, scheduled: payload.scheduledDate, photo, status: item.status }}
-        staff={{ photo: gallery }} />
+        post={{ ...payload, title, scheduled: payload.scheduledDate }} sources={sources} photoIndex={photoIndex} onPhotoChange={setPhotoIndex}
+        staff={{
+          enlargeLabel: `Enlarge ${photoName} for item ${position}`,
+          enlargeRef: photoTrigger,
+          onEnlarge: () => setEnlarge(true),
+          onPhotoLoad: readPhotoDimensions,
+          onPhotoError: setFailedPhoto,
+          addPhoto: canEdit && draft && <button type="button" className="ar-button ar-compact" onClick={event => edit(event.currentTarget)}>Add photo</button>,
+        }} />
       <Meter length={characterCount(body)} limit={gbpCharacterLimit} />
     </>;
     detail = <Facts rows={[
-      ['Content type', <span key="type" className="ar-capitalize">{type} · {payload.postType}</span>],
+      ['Content type', <>{type} · <span className="ar-capitalize">{payload.postType}</span></>],
       ['Planned', planned ? `${planned}, ${payload.scheduledDate.slice(0, 4)}` : '—'],
       ...(range ? [['Offer runs', range] as [string, ReactNode]] : []),
       ['Button', cta ? (isPhoneCta(cta) ? `${cta} (business phone)` : cta) : '—'],
-      ['Photo', !photoPaths.length ? 'Photo needed' : photoUnavailable ? 'Preview unavailable' :
-        <span className="ar-positive"><Check size={14} aria-hidden />{dimensions ? `${dimensions.width} × ${dimensions.height}${dimensions.width * 3 === dimensions.height * 4 ? ', 4:3' : ''}` : 'Included'}</span>],
+      ['Photo', <>
+        {!photoPaths.length ? 'Photo needed' : photoUnavailable ? 'Preview unavailable' :
+          <span className="ar-positive"><Check size={14} aria-hidden />{dimensions ? `${dimensions.width} × ${dimensions.height}${dimensions.width * 3 === dimensions.height * 4 ? ', 4:3' : ''}` : 'Included'}</span>}
+        {picker}
+      </>],
       ['Terms', payload.terms ? <span className="ar-positive"><Check size={14} aria-hidden />Included</span> : '—'],
       ['Version', `v${version.version_no}${!draft ? ' · Client preview' : version.version_no === 1 && data.botName ? ` · written by ${data.botName}` : ''}`],
     ]} />;

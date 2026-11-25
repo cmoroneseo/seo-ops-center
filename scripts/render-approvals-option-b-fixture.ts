@@ -13,6 +13,7 @@ import type { PagePayload } from '@/lib/approvals-v2/registry';
 Object.assign(globalThis, { React });
 const require = createRequire(import.meta.url);
 require.extensions['.css'] = () => {};
+const { PublicReview } = require('@/components/gbp-approvals/PublicReview') as typeof import('@/components/gbp-approvals/PublicReview');
 const { StaffReviewView } = require('@/components/approvals-v2/StaffReviewView') as typeof import('@/components/approvals-v2/StaffReviewView');
 
 const titles = [
@@ -105,10 +106,15 @@ async function render() {
     '@import "tailwindcss" source(none); @source "./components/approvals-v2"; @source "./components/gbp-approvals"; @source "./components/ui"; @source "./scripts/render-approvals-option-b-fixture.ts";',
     { from: resolve('approvals-option-b-fixture.css') },
   );
-  const css = [compiled.css, ...await Promise.all(['page-review.css', 'staff-review.css'].map(name => readFile(resolve('components/approvals-v2', name), 'utf8')))].join('\n');
+  const [cardCss, publicCss, pageCss, staffCss] = await Promise.all([
+    'gbp-approvals/gbp-post-preview.css', 'gbp-approvals/public-review.css',
+    'approvals-v2/page-review.css', 'approvals-v2/staff-review.css',
+  ].map(path => readFile(resolve('components', path), 'utf8')));
+  const css = [compiled.css, cardCss, pageCss, staffCss].join('\n');
   const formats = [
     { name: 'desktop', data: gbp, selected: 'item-6', screen: 'list' },
     { name: 'mobile-list', data: gbp, selected: 'item-4', screen: 'list' },
+    { name: 'mobile-gallery', data: gbp, selected: 'item-6', screen: 'detail' },
     { name: 'mobile-detail', data: gbp, selected: 'item-4', screen: 'detail' },
     { name: 'page-item', data: landing, selected: 'item-1', screen: 'detail' },
   ] as const;
@@ -124,7 +130,29 @@ async function render() {
       h('main', { id: 'items', className: 'ar-shell-scroll min-h-0 flex-1 overflow-y-auto', 'data-approval-scroll': '' },
         h(StaffReviewView, { data, initialSelection: selected, initialMobileScreen: screen, saveReview: async () => {} })),
     ));
-    await writeFile(resolve(output, `${name}.html`), `<!doctype html>
+    await writeFixture(output, name, markup, css);
+  }
+
+  const clientLogo = 'assets/logo.webp';
+  await copyFile(resolve('public/dev/gbp-approvals/logo.webp'), resolve(output, clientLogo));
+  const clientMarkup = renderToStaticMarkup(h(PublicReview, {
+    mode: 'review',
+    clientName: gbp.request.clients?.name,
+    logoSrc: clientLogo,
+    token: 'fixture',
+    posts: [{
+      ...(galleryVersion.payload as GbpPostPayload),
+      itemId: galleryVersion.item_id, versionId: galleryVersion.id,
+      position: 1, scheduled: dates[5], photo: galleryVersion.photo_path,
+      photoSrcs: galleryVersion.photo_paths, status: 'pending',
+    }],
+  }));
+  await writeFixture(output, 'client', clientMarkup, [compiled.css, publicCss, cardCss].join('\n'));
+  console.log(output);
+}
+
+function writeFixture(output: string, name: string, markup: string, css: string) {
+  return writeFile(resolve(output, `${name}.html`), `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -138,8 +166,6 @@ body {font-family: "Plus Jakarta Sans", system-ui, sans-serif}
 <body>${markup}</body>
 </html>
 `);
-  }
-  console.log(output);
 }
 
 void render();

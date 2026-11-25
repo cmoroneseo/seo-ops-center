@@ -130,36 +130,10 @@
 .gbp-public .states .body{padding:24px 20px 28px}
 .gbp-public .states h1{font-size:24px;line-height:32px;margin-bottom:8px}
 
-.gbp-public .gbp{background:#fff;color:#202124;border-radius:12px;overflow:hidden;border:1px solid #848A90;font-family:system-ui,sans-serif}
-.gbp-public .g-photo{position:relative;aspect-ratio:4/3;background:#f1f3f4;overflow:hidden}
-.gbp-public .g-photo img{width:100%;height:100%;object-fit:cover;display:block}
-.gbp-public .g-badge{position:absolute;top:8px;left:8px;background:rgba(32,33,36,.86);color:#fff;font-size:12px;font-weight:600;padding:3px 8px;border-radius:6px}
-.gbp-public .g-photo-missing{display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(135deg,#f7f7f5 0 12px,#efefeb 12px 24px);border-bottom:2px dashed #6B7178}
-.gbp-public .miss{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;color:#3F454B;padding:16px;max-width:280px}
-.gbp-public .miss strong{font-size:16px;color:#1A1A1A}
-.gbp-public .miss span{font-size:14px;line-height:20px}
-.gbp-public .g-body{padding:12px 16px 16px}
-.gbp-public .g-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.gbp-public .g-av{width:36px;height:36px;border-radius:50%;border:1px solid #dadce0;overflow:hidden;flex-shrink:0;background:#fff}
-.gbp-public .g-av img{width:100%;height:100%;object-fit:contain;padding:2px}
-.gbp-public .g-av-initial{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-weight:600;color:#3c4043}
-.gbp-public .g-meta{display:flex;flex-direction:column;min-width:0;flex:1}
-.gbp-public .g-biz{font-size:14px;font-weight:600;line-height:18px}
-.gbp-public .g-age{font-size:13px;color:#5F6368;line-height:18px}
-.gbp-public .g-ver{font-size:12px;font-weight:700;color:#0E6670;background:#E6F2F3;border:1px solid #0E6670;border-radius:999px;padding:1px 8px}
-.gbp-public .g-offer{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#5F6368;margin-bottom:4px}
-.gbp-public .g-offer .ic{color:#188038}
-.gbp-public .g-title{font-size:17px;line-height:24px;font-weight:700;margin:0 0 6px;color:#202124}
-.gbp-public .g-date{display:flex;align-items:center;gap:6px;font-size:14px;color:#5F6368;margin-bottom:10px}
-.gbp-public .g-desc{font-size:15px;line-height:22px;margin:0;color:#202124}
-.gbp-public .g-more{color:#1A73E8;font-weight:600}
-.gbp-public .g-terms{margin-top:14px;padding-top:12px;border-top:1px solid #e8eaed}
-.gbp-public .g-terms-l{font-size:12px;font-weight:600;color:#5F6368;letter-spacing:.03em;text-transform:uppercase;margin-bottom:6px}
-.gbp-public .g-terms p{font-size:14px;line-height:20px;color:#5F6368;margin:0}
-.gbp-public .g-cta{margin-top:14px}
-.gbp-public .g-btn{display:inline-flex;align-items:center;height:36px;padding:0 20px;border:1px solid #dadce0;border-radius:18px;color:#1A73E8;font-size:14px;font-weight:600}
+.gbp-public .post-terms { margin-top: 8px; }
+.gbp-public .post-terms summary { color: var(--ac); cursor: pointer; }
+.gbp-public .photo-comment-target select { display: block; margin: 4px 0 8px; }
 
-.gbp-public .gbp{max-width:100%}
 @media (max-width:600px){
  .gbp-public .band-in{padding:0 16px;height:56px}
  .gbp-public .band .lock span{display:none}
@@ -177,8 +151,6 @@
  .gbp-public .actions{padding:12px 16px}
  .gbp-public .actions .btn{flex:1 1 100%}
  .gbp-public .ch-panel{padding:16px}
- .gbp-public .g-desc{font-size:16px;line-height:24px}
- .gbp-public .g-terms p, .gbp-public .g-date, .gbp-public .g-biz{font-size:15px}
  .gbp-public .mbar{display:flex;position:sticky;bottom:0;z-index:4;background:var(--sf);border-top:1px solid var(--edge);padding:12px 16px;gap:12px;align-items:center;box-shadow:0 -8px 24px rgba(0,0,0,.08)}
  .gbp-public .mbar .t{flex:1;font-size:15px;line-height:20px}
  .gbp-public .mbar .t b{display:block;font-size:16px}

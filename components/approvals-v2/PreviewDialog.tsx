@@ -3,7 +3,7 @@
 import { Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { GbpPostPreview } from '@/components/gbp-approvals/PublicReview';
+import { GbpPostPreview } from '@/components/gbp-approvals/GbpPostPreview';
 import type { GbpPostPayload } from '@/lib/gbp-approvals/registry';
 import type { PagePayload } from '@/lib/approvals-v2/registry';
 import { ItemErrorBoundary } from './ItemErrorBoundary';
@@ -40,20 +40,11 @@ export function PreviewDialog({
         payload,
         photoUrl,
         images
-      }, index) => <article key={id} className="space-y-3 rounded-lg border p-4">
+      }) => <article key={id} className="space-y-3 rounded-lg border p-4">
           <ItemErrorBoundary title={payload.title}>
-          {'pageKind' in payload ? <PagePreview domain={domain} payload={payload} photoUrl={photoUrl} images={images} /> : <div className="gbp-public" style={{
-            minHeight: 0
-          }}>
-            <GbpPostPreview logoSrc={logoSrc} clientName={clientName} post={{
-              ...payload,
-              position: index + 1,
-              photoSrcs: photoUrls,
-              scheduled: payload.scheduledDate,
-              photo: photoUrl,
-              status: 'pending'
-            }} />
-          </div>}
+          {'pageKind' in payload ? <PagePreview domain={domain} payload={payload} photoUrl={photoUrl} images={images} /> :
+            <GbpPostPreview logoSrc={logoSrc} clientName={clientName}
+              post={{ ...payload, scheduled: payload.scheduledDate }} sources={photoUrls?.length ? photoUrls : photoUrl ? [photoUrl] : []} />}
           </ItemErrorBoundary>
         </article>)}
     </DialogContent>
