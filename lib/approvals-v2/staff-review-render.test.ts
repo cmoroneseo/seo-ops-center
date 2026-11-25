@@ -70,6 +70,8 @@ test('Option B uses released page content and client status after sending', () =
   assert.match(html, /Release revision to client/);
   assert.match(html, /Mark final/);
   assert.match(html, /Edit · new version/);
+  assert.match(html, /aria-label="Request actions" aria-haspopup="menu" aria-expanded="false"/);
+  assert.doesNotMatch(html, /Move back to draft/);
   assert.doesNotMatch(html, /Unreleased title|ar-button ar-approve/);
 });
 

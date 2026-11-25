@@ -125,7 +125,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   const [selection, setSelection] = useState(initialSelection ?? nextUnreviewed(data.items, '')?.id ?? data.items[0]?.id);
   const [screen, setScreen] = useState(initialMobileScreen);
   const [completion, setCompletion] = useState(draft && !initialSelection && !!data.items.length && !nextUnreviewed(data.items, ''));
-  const [dialog, setDialog] = useState<'shortcuts' | 'request' | 'edit' | null>(null);
+  const [dialog, setDialog] = useState<'shortcuts' | 'request' | 'edit' | 'returnToDraft' | null>(null);
   const [singleKeysOff, setSingleKeysOff] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [announcement, setAnnouncement] = useState({ id: 0, text: '' });
@@ -532,6 +532,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
             {draft && editable && <button className="ar-mobile-menu-action" role="menuitem" onClick={event => openDialog('request', event.currentTarget.closest('.ar-menu')?.querySelector('button') ?? undefined)}>Edit details</button>}
             <p role="presentation">Owner: {data.owner?.full_name ?? data.botName ?? 'Unassigned'}</p>
             {editable && <button role="menuitem" disabled={busy} onClick={() => void act('owner', { ownerId: 'me' })}>Take ownership</button>}
+            {data.request.stage === 'sent' && editable && <button role="menuitem" disabled={busy} onClick={event => openDialog('returnToDraft', event.currentTarget.closest('.ar-menu')?.querySelector('button') ?? undefined)}>Move back to draft</button>}
             {data.canWrite && <button role="menuitem" disabled={busy} onClick={() => void act(data.request.archived_at ? 'unarchive' : 'archive')}>
               {data.request.archived_at ? 'Unarchive' : 'Archive'}{draft ? ' draft' : ''}
             </button>}
@@ -650,6 +651,16 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
     {dialog === 'request' && <ReviewDialog title="Edit request details" onClose={closeDialog}>
       {error && <p role="alert" className="ar-error">{error}</p>}
       <RequestEditForm data={data} busy={busy} act={act} onClose={closeDialog} />
+    </ReviewDialog>}
+    {dialog === 'returnToDraft' && <ReviewDialog title="Move back to draft?" onClose={closeDialog}
+      description="Active client review links will stop working immediately. Existing items, versions, the current round, and feedback are kept. The client will receive no notification.">
+      {error && <p role="alert" className="ar-error">{error}</p>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button className="ar-button" type="button" onClick={closeDialog}>Cancel</button>
+        <button className="ar-button" type="button" disabled={busy} onClick={async () => {
+          if (await act('return-to-draft')) closeDialog();
+        }}>Move back to draft</button>
+      </div>
     </ReviewDialog>}
     {dialog === 'edit' && selected && <ReviewDialog title={draft ? `Edit ${itemTypeName(selected, selected.version).toLowerCase()}` : 'Edit as a new version'}
       onClose={closeDialog} className="sm:max-w-3xl">

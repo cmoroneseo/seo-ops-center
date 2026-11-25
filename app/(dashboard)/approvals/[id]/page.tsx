@@ -49,9 +49,10 @@ function RequestReview({ id }: { id: string }) {
         throw new Error(result.code === 'forbidden' ? 'You do not have permission to make this change.' : result.error);
       }
       if (result.url) setUrl(result.url);
-      if (path === 'link/revoke') setUrl('');
+      if (path === 'link/revoke' || path === 'return-to-draft') setUrl('');
       setNotice(path === 'send' || path === 'link/issue' ? 'Link created. Nothing was sent to the client.'
-        : path === 'link/extend' ? 'Extended 14 days on the same link.' : 'Saved. Nothing was sent to the client.');
+        : path === 'link/extend' ? 'Extended 14 days on the same link.'
+        : path === 'return-to-draft' ? 'Moved back to draft. Client links no longer work.' : 'Saved. Nothing was sent to the client.');
       await load();
       window.dispatchEvent(new Event('approvals:changed'));
       return true;

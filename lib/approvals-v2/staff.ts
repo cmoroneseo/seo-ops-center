@@ -13,7 +13,7 @@ export const json = (body: unknown, status = 200) => Response.json(body, {
   }
 });
 export function sqlStatus(code?: string) {
-  return code === 'forbidden' ? 403 : code === 'not_found' ? 404 : ['already_sent', 'not_draft', 'archived', 'link_exists', 'refresh_required', 'idempotency_conflict', 'conflict'].includes(code ?? '') ? 409 : 400;
+  return code === 'forbidden' ? 403 : code === 'not_found' ? 404 : ['already_sent', 'not_sent', 'not_draft', 'archived', 'link_exists', 'refresh_required', 'idempotency_conflict', 'conflict'].includes(code ?? '') ? 409 : 400;
 }
 export async function staffContext(request: Request, dependencies = {
   agencyActor,
@@ -198,6 +198,7 @@ export function mutation(action: string, dependencies = {
     const names: Record<string, string> = {
       draft: 'update_approval_draft',
       send: 'send_approval_request',
+      'return-to-draft': 'return_approval_to_draft',
       archive: 'archive_approval_request',
       unarchive: 'unarchive_approval_request',
       owner: 'set_approval_owner',

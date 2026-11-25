@@ -25,7 +25,7 @@ test('all new staff mutations reject bot credentials before resolving sessions o
     calls++;
     return 'actor';
   });
-  for (const action of ['draft', 'send', 'versions', 'final', 'archive', 'unarchive', 'owner']) {
+  for (const action of ['draft', 'send', 'return-to-draft', 'versions', 'final', 'archive', 'unarchive', 'owner']) {
     const response = await mutation(action, {
       agencyActor: actor,
       createAdminClient: () => {
@@ -71,6 +71,29 @@ test('send generates a hash and URL once and maps SQL permissions and conflicts'
     const body = await response.json();
     if (code) assert.equal(body.url, undefined); else assert.match(body.url, /^https:\/\/local.test\/r\//);
     assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  }
+});
+test('return to draft calls the staff RPC and maps its result without caching', async () => {
+  assert.equal(sqlStatus('not_sent'), 409);
+  for (const [code, status] of [['not_sent', 409], ['archived', 409], ['forbidden', 403], ['not_found', 404], [null, 200]] as const) {
+    let calls = 0;
+    const handler = mutation('return-to-draft', {
+      agencyActor: async () => 'actor',
+      createAdminClient: () => ({
+        rpc: async (name: string, args: Record<string, unknown>) => {
+          calls++;
+          assert.equal(name, 'return_approval_to_draft');
+          assert.deepEqual(args, { p_actor: 'actor', p_request_id: (await context.params).id, p_now: args.p_now });
+          assert.equal(new Date(String(args.p_now)).toISOString(), args.p_now);
+          return { error: null, data: code ? { ok: false, code } : { ok: true } };
+        },
+      }) as unknown as ReturnType<typeof createAdminClient>,
+    });
+    const response = await handler(new Request('https://local.test/return-to-draft', { method: 'POST' }), context);
+    assert.equal(calls, 1);
+    assert.equal(response.status, status);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+    assert.deepEqual(await response.json(), code ? { error: 'The change could not be saved.', code } : { ok: true });
   }
 });
 test('draft patches reject release fields and non-object bodies', async () => {
