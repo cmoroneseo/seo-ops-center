@@ -32,16 +32,17 @@ export function TopNav({ approvalReview = false }: { approvalReview?: boolean })
       {approvalReview && <Link href="/approvals" className="ar-shell-back"><ChevronLeft size={20} aria-hidden />Approvals</Link>}
       <button
         onClick={() => setIsSearchOpen(true)}
-        className={`flex w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors ${approvalReview ? 'ar-shell-search' : ''}`}
+        className={approvalReview ? 'ar-shell-search' : 'flex w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors'}
       >
         <Search className="h-4 w-4" />
         <span className="flex-1 text-left">Search or jump to…</span>
-        <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium">
+        <kbd className={approvalReview ? undefined : "rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium"}>
           ⌘K
         </kbd>
       </button>
 
       <div className={`ml-auto flex items-center gap-1 ${approvalReview ? 'ar-shell-user-actions' : ''}`}>
+        {approvalReview && <div id="ar-mobile-top-more" />}
         <NotificationBell approvalReview={approvalReview} />
         <UserMenu />
       </div>

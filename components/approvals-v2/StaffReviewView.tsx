@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
-  AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock,
-  Eye, Keyboard, Lock, MessageSquare, MoreHorizontal, Pencil, Send,
+  AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
+  Eye, Lock, MessageSquare, MoreHorizontal, Pencil, Send,
 } from 'lucide-react';
 import { monthDay } from '@/components/gbp-approvals/sample';
 import { typeLabel } from '@/lib/approvals-v2/list';
@@ -15,7 +16,7 @@ import {
 } from '@/lib/approvals-v2/staff-review';
 import { PreviewDialog } from './PreviewDialog';
 import { ItemErrorBoundary } from './ItemErrorBoundary';
-import { StaffItemPreview, ReviewChip, ReviewThumbnail, reviewDate, statusText } from './StaffReviewPreview';
+import { StaffItemPreview, ReviewChip, ReviewThumbnail, reviewDate, reviewTypeName, statusText } from './StaffReviewPreview';
 import { RequestEditForm, ReviewDialog, ReviewItemEditor } from './StaffReviewDialogs';
 import { type StaffReviewData, type StaffReviewItem, type ReviewAction, type SaveStaffReview, displayVersion, itemTypeName } from './StaffReviewTypes';
 
@@ -30,27 +31,30 @@ const mobileQuery = '(max-width: 760px)';
 const noteRequired = 'Add a short note so the writer knows what to change';
 const textInput = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
-function Progress({ counts, compact = false }: { counts: ReturnType<typeof reviewCounts>; compact?: boolean }) {
+function Progress({ counts, items, draft, compact = false }: {
+  counts: ReturnType<typeof reviewCounts>; items: StaffReviewItem[]; draft: boolean; compact?: boolean;
+}) {
   const reviewed = counts.approved + counts.changes_requested;
-  const width = (count: number) => `${counts.all ? count / counts.all * 100 : 0}%`;
-  return <div className={`ar-progress ${compact ? 'ar-progress-compact' : ''}`}>
-    <strong>{reviewed} of {counts.all} reviewed</strong>
-    <div className="ar-progress-track" role="progressbar" aria-label="Review progress" aria-valuemin={0} aria-valuemax={counts.all}
-      aria-valuenow={reviewed} aria-valuetext={`${reviewed} of ${counts.all} reviewed: ${counts.approved} approved, ${counts.changes_requested} changes requested`}>
-      <i className="ar-progress-approved" style={{ width: width(counts.approved) }} />
-      <i className="ar-progress-changes" style={{ width: width(counts.changes_requested) }} />
+  const label = `${reviewed} of ${counts.all} reviewed`;
+  return <div className={compact ? 'ar-progress ar-progress-compact' : 'ar-progress'}>
+    <strong>{label}</strong>
+    <div className="ar-progress-track" data-many={items.length > 16 || undefined} role="progressbar"
+      aria-label={`Progress: ${label}`} aria-valuemin={0} aria-valuemax={counts.all} aria-valuenow={reviewed}
+      aria-valuetext={`${label}: ${counts.approved} approved, ${counts.changes_requested} changes requested`}>
+      {items.map(item => <i key={item.id} data-status={reviewStatus(item, draft)} />)}
     </div>
-    <div className="ar-legend">
-      <span><CheckCircle2 className="ar-positive" size={15} aria-hidden />{counts.approved}<span className={compact ? 'sr-only' : ''}>approved</span></span>
-      <span><Pencil className="ar-amber" size={15} aria-hidden />{counts.changes_requested}<span className={compact ? 'sr-only' : ''}>needs changes</span></span>
-      <span className={compact ? 'sr-only' : ''}><Clock size={15} aria-hidden />{counts.pending} to review</span>
-    </div>
+    {!compact && reviewed > 0 && <div className="ar-legend">
+      {counts.approved > 0 && <span className="ar-positive"><CheckCircle2 size={14} aria-hidden />{counts.approved} approved</span>}
+      {counts.changes_requested > 0 && <span className="ar-amber"><Pencil size={14} aria-hidden />
+        {counts.changes_requested} {counts.changes_requested === 1 ? 'change' : 'changes'}
+      </span>}
+    </div>}
   </div>;
 }
 
-function KeyboardList({ full = false }: { full?: boolean }) {
+function KeyboardList() {
   return <dl className="ar-key-grid">
-    {keyCommands.slice(0, full ? undefined : 6).map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}
+    {keyCommands.map(([key, action]) => <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}
   </dl>;
 }
 
@@ -90,7 +94,7 @@ function ReviewMenu({ label, children }: { label: string; children: ReactNode })
   return <div className="ar-menu" ref={wrapper} onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
-    <button type="button" className="ar-button ar-compact ar-icon-button" ref={trigger} aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <button type="button" className="ar-icon-ghost" ref={trigger} aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
       <MoreHorizontal size={20} aria-hidden />
     </button>
     {open && <div className="ar-menu-content" ref={menu} role="menu" aria-label={label} onKeyDown={onMenuKey}
@@ -122,12 +126,14 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   const editable = data.canWrite && !data.request.archived_at;
   const canSend = !busy && data.canSend && !!data.items.length && !data.request.archived_at;
   const [filter, setFilter] = useState<ReviewFilter>('all');
+  const [pointerTransition, setPointerTransition] = useState<{ previewId?: string; reviewedId?: string }>({});
   const [selection, setSelection] = useState(initialSelection ?? nextUnreviewed(data.items, '')?.id ?? data.items[0]?.id);
   const [screen, setScreen] = useState(initialMobileScreen);
   const [completion, setCompletion] = useState(draft && !initialSelection && !!data.items.length && !nextUnreviewed(data.items, ''));
   const [dialog, setDialog] = useState<'shortcuts' | 'request' | 'edit' | 'returnToDraft' | null>(null);
   const [singleKeysOff, setSingleKeysOff] = useState(false);
   const [mobile, setMobile] = useState(false);
+  const [mobileMenuSlot, setMobileMenuSlot] = useState<HTMLElement | null>(null);
   const [announcement, setAnnouncement] = useState({ id: 0, text: '' });
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState<StaffDecision | null>(null);
@@ -158,6 +164,8 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   const selectedStatus = selected ? reviewStatus(selected, draft) : 'pending';
   const showCompletion = draft && completion && counts.all > 0 && counts.pending === 0;
   const mobileScreen = selected || showCompletion ? screen : 'list';
+  const singleChange = showCompletion && counts.changes_requested === 1
+    ? data.items.find(item => reviewStatus(item, draft) === 'changes_requested') : undefined;
   const next = selected && draft ? nextUnreviewed(data.items, selected.id) : undefined;
   const selectedIndex = selected ? filtered.indexOf(selected) : -1;
   const note = noteDraft?.itemId === selected?.id && noteDraft?.versionId === version?.id ? noteDraft : null;
@@ -181,10 +189,23 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
 
   useEffect(() => {
     const query = window.matchMedia(mobileQuery);
-    const change = () => setMobile(query.matches);
+    const change = () => {
+      setMobile(query.matches);
+      setMobileMenuSlot(query.matches ? document.getElementById('ar-mobile-top-more') : null);
+    };
     change();
     query.addEventListener('change', change);
     return () => query.removeEventListener('change', change);
+  }, []);
+
+  useEffect(() => {
+    const html = document.documentElement;
+    const pointer = () => html.removeAttribute('data-keys');
+    document.addEventListener('pointerdown', pointer, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('pointerdown', pointer, true);
+      html.removeAttribute('data-keys');
+    };
   }, []);
 
   useEffect(() => {
@@ -258,10 +279,11 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
     if (discardNote()) requestAnimationFrame(() => (noteReturnFocus.current?.isConnected ? noteReturnFocus.current : noteButton.current)?.focus());
   }
 
-  function select(item: StaffReviewItem, source: 'click' | 'list' | 'nav') {
+  function select(item: StaffReviewItem, source: 'click' | 'list' | 'nav', pointer = false) {
     if (item.id !== selected?.id && !discardNote()) return;
     setSaveError('');
     setCompletion(false);
+    setPointerTransition(pointer && item.id !== selected?.id ? { previewId: item.id } : {});
     setSelection(item.id);
     if (mobile && (source === 'click' || screen === 'detail')) {
       if (screen === 'list') savedListScroll.current = scroller()?.scrollTop ?? 0;
@@ -286,6 +308,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   function chooseFilter(nextFilter: ReviewFilter) {
     if (!discardNote()) return false;
     const matching = filterReviewItems(data.items, nextFilter, draft);
+    setPointerTransition({});
     setSelection(matching.find(item => item.id === selected?.id)?.id ?? matching[0]?.id);
     setFilter(nextFilter);
     setCompletion(false);
@@ -310,7 +333,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
     focusAfter.current = 'note';
   }
 
-  async function decide(decision: StaffDecision, source: 'button' | 'keyboard' | 'note') {
+  async function decide(decision: StaffDecision, source: 'button' | 'keyboard' | 'note', pointer = false) {
     if (!saveReview || !selected || !version || unavailable || busy || savingRef.current) return;
     if (broken || decision === 'approved' && blockers.length) {
       announce(`Can’t ${decision === 'approved' ? 'approve' : 'save'}: ${reason}`);
@@ -331,6 +354,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
       await saveReview({ itemId: selected.id, versionId: version.id, decision,
         ...(decision === 'changes_requested' && note ? { note: note.text.trim(), tags: note.tags } : {}) });
       setNoteDraft(null);
+      setPointerTransition(pointer ? { previewId: next?.id, reviewedId: selected.id } : {});
       if (next) {
         if (filter !== 'all' && filter !== 'pending') setFilter('pending');
         setSelection(next.id);
@@ -363,6 +387,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
       const step = { next: selectedIndex + 1, previous: selectedIndex - 1, first: 0, last: filtered.length - 1 };
       if (action in step) {
         event.preventDefault();
+        document.documentElement.dataset.keys = '1';
         const targetItem = filtered[step[action as keyof typeof step]];
         if (targetItem) select(targetItem, inList ? 'list' : 'nav');
       } else if (action === 'help') {
@@ -373,9 +398,11 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
         cancelNote();
       } else if (action === 'submitNote') {
         event.preventDefault();
+        document.documentElement.dataset.keys = '1';
         void decide('changes_requested', 'note');
       } else if ((!mobile || screen === 'detail') && !showCompletion) {
         event.preventDefault();
+        if (action === 'approve' || action === 'changes') document.documentElement.dataset.keys = '1';
         if (action === 'approve') void decide('approved', 'keyboard');
         if (action === 'changes') openNote();
         if (action === 'edit') edit();
@@ -388,17 +415,17 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   function navButtons() {
     return <div className="ar-prev-next">
       {[
-        { label: 'Previous item', text: 'Prev', key: 'K', Icon: ChevronUp, item: filtered[selectedIndex - 1] },
-        { label: 'Next item', text: 'Next', key: 'J', Icon: ChevronDown, item: filtered[selectedIndex + 1] },
-      ].map(({ label, text, key, Icon, item }) => <button key={key} type="button" className="ar-button ar-compact ar-nav"
-        aria-label={label} aria-disabled={!item || !!saving} onClick={() => { if (item && !saving) select(item, 'nav'); }}>
-        <Icon size={16} aria-hidden /><span>{text}</span>{!singleKeysOff && <kbd>{key}</kbd>}
+        { label: 'Previous item', Icon: ChevronUp, item: filtered[selectedIndex - 1] },
+        { label: 'Next item', Icon: ChevronDown, item: filtered[selectedIndex + 1] },
+      ].map(({ label, Icon, item }) => <button key={label} type="button" className="ar-icon-ghost"
+        aria-label={label} aria-disabled={!item || !!saving} onClick={event => { if (item && !saving) select(item, 'nav', event.detail > 0); }}>
+        <Icon size={18} aria-hidden />
       </button>)}
     </div>;
   }
 
   function sendButton() {
-    return <button className="ar-button ar-send" type="button" disabled={!canSend} aria-busy={sending}
+    return <button className={`ar-button ar-send ${counts.approved > 0 ? 'ar-send-hot' : 'ar-send-ink'}`} type="button" disabled={!canSend} aria-busy={sending}
       aria-describedby={data.canSend ? undefined : 'ar-send-permission'} onClick={() => void act('send')}>
       <Send size={18} aria-hidden />{sending ? 'Creating link…' : 'Send and create link'}
     </button>;
@@ -407,7 +434,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   function previewButton() {
     return <PreviewDialog logoSrc={data.request.clients?.logo_url ?? undefined} domain={data.request.clients?.domain}
       clientName={data.request.clients?.name ?? 'Client'}
-      trigger={<button type="button" className="ar-button"><Eye size={18} aria-hidden /><span>Preview as client</span></button>}
+      trigger={<button type="button" className="ar-button ar-button-ghost"><Eye size={16} aria-hidden /><span>Preview as client</span></button>}
       items={data.items.flatMap(item => {
         const current = displayVersion(item, draft);
         return current ? [{
@@ -420,7 +447,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
       })} />;
   }
 
-  const noteForm = note && <form className="ar-note-form" noValidate onSubmit={event => { event.preventDefault(); void decide('changes_requested', 'note'); }}>
+  const noteForm = note && <form className="ar-note-form" noValidate onSubmit={event => { event.preventDefault(); void decide('changes_requested', 'note', !document.documentElement.hasAttribute('data-keys')); }}>
     <label htmlFor="ar-review-note">What should change?</label>
     <textarea ref={textarea} id="ar-review-note" rows={3} required value={note.text} aria-invalid={!!noteError}
       aria-describedby={noteError ? 'ar-note-error' : undefined} onChange={event => {
@@ -459,28 +486,53 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
     return <div className="ar-footer-wrap">
       {saveError && <p role="alert" className="ar-error ar-save-error"><AlertTriangle size={16} aria-hidden />{saveError}</p>}
       <div className="ar-pane-footer">
-        <button type="button" ref={noteButton} className="ar-button" aria-disabled={unavailable || previewBroken || busy || !!saving} onClick={event => { if (!previewBroken) openNote(false, event.currentTarget); }}>
+        <button type="button" ref={noteButton} className="ar-button ar-button-ghost" aria-disabled={unavailable || previewBroken || busy || !!saving} onClick={event => { if (!previewBroken) openNote(false, event.currentTarget); }}>
           <MessageSquare size={18} aria-hidden />Request changes{!singleKeysOff && <kbd>R</kbd>}
         </button>
         {selectedStatus === 'approved' ? <span className="ar-footer-approved"><Check size={18} aria-hidden />Approved</span> :
           <button type="button" ref={approveButton} className="ar-button ar-approve" aria-disabled={disabled} aria-busy={saving === 'approved'}
-            aria-describedby={disabledReason ? 'ar-approve-reason' : undefined} onClick={() => { if (!previewBroken) void decide('approved', 'button'); }}>
+            aria-describedby={disabledReason ? 'ar-approve-reason' : undefined} onClick={event => { if (!previewBroken) void decide('approved', 'button', event.detail > 0); }}>
             <Check size={18} aria-hidden />{saving === 'approved' ? 'Approving…' : 'Approve'}{!singleKeysOff && saving !== 'approved' && <kbd>A</kbd>}
           </button>}
         {disabledReason ? <span id="ar-approve-reason" className="ar-fine ar-footer-reason"><AlertTriangle size={15} aria-hidden />{disabledReason}</span> :
           selectedStatus !== 'approved' && <span className="ar-fine ar-next-hint">{next ? `Approving moves you to item ${data.items.indexOf(next) + 1}` : 'Approving completes review'}</span>}
         {!singleKeysOff && <div className="ar-shortcut-hint"><span><kbd>J</kbd> <kbd>K</kbd> move</span><span><kbd>A</kbd> approve</span><span><kbd>R</kbd> changes</span>
-          <button className="ar-help-inline" type="button" onClick={event => openDialog('shortcuts', event.currentTarget)}><kbd>?</kbd> all</button></div>}
+          <button className="ar-help-inline" type="button" aria-label="Keyboard shortcuts" onClick={event => openDialog('shortcuts', event.currentTarget)}><kbd>?</kbd></button></div>}
       </div>
     </div>;
   }
 
   const numberText = `${number} of ${counts.all}`;
-  const stage = draft ? 'ready' : counts.changes_requested ? 'changes_requested' : counts.all && !counts.pending ? 'approved' : 'pending';
+  const stage = counts.changes_requested ? 'changes_requested' : counts.all && !counts.pending ? 'approved' : 'pending';
+  const type = typeLabel({ itemType: data.request.item_type, pageKinds: [...new Set(data.items.flatMap(item => item.page_kind ?? []))] });
+  const itemLabel = counts.all === 1 && ['GBP posts', 'Pages'].includes(type) ? type.slice(0, -1)
+    : counts.all !== 1 && !['GBP posts', 'Pages'].includes(type) ? `${type}s` : type;
+  const dates = data.items.map(item => reviewDate(displayVersion(item, draft))).filter(date => !!date && !!monthDay(date)).sort();
+  const firstDate = monthDay(dates[0]);
+  const lastDate = monthDay(dates.at(-1));
+  const dateRange = dates[0] === dates.at(-1) ? firstDate : `${firstDate} – ${lastDate}`;
+  const meta = [
+    data.request.clients?.name,
+    `${counts.all} ${itemLabel}`,
+    dateRange,
+    draft ? <span className="ar-lock"><Lock size={13} aria-hidden />Draft — the client can’t see this yet</span> : statusText(stage, false),
+    data.request.archived_at && 'Archived',
+  ].filter(Boolean);
   const statusChips = selected ? <>
-    <ReviewChip kind={selectedStatus}>{statusText(selectedStatus, draft)}</ReviewChip>
+    {(!draft || selectedStatus !== 'pending') && <ReviewChip kind={selectedStatus}>{statusText(selectedStatus, draft)}</ReviewChip>}
     {blockers.map(blocker => <ReviewChip key={blocker.label} kind={blocker.label === 'Photo needed' ? 'photo' : 'blocker'}>{blocker.label}</ReviewChip>)}
   </> : null;
+
+  const requestMenu = <ReviewMenu label="Request actions">
+    {draft && editable && <button className="ar-mobile-menu-action" role="menuitem" onClick={event => openDialog('request', event.currentTarget.closest('.ar-menu')?.querySelector('button') ?? undefined)}>Edit details</button>}
+    <p role="presentation">Owner: {data.owner?.full_name ?? data.botName ?? 'Unassigned'}</p>
+    {editable && <button role="menuitem" disabled={busy} onClick={() => void act('owner', { ownerId: 'me' })}>Take ownership</button>}
+    {data.request.stage === 'sent' && editable && <button role="menuitem" disabled={busy} onClick={event => openDialog('returnToDraft', event.currentTarget.closest('.ar-menu')?.querySelector('button') ?? undefined)}>Move back to draft</button>}
+    {data.canWrite && <button role="menuitem" disabled={busy} onClick={() => void act(data.request.archived_at ? 'unarchive' : 'archive')}>
+      {data.request.archived_at ? 'Unarchive' : 'Archive'}{draft ? ' draft' : ''}
+    </button>}
+    <button role="menuitem" onClick={event => openDialog('shortcuts', event.currentTarget.closest('.ar-menu')?.querySelector('button') ?? undefined)}>Keyboard shortcuts</button>
+  </ReviewMenu>;
 
   const itemMenu = draft && editable && selected && <ReviewMenu label="Item actions">
     {([-1, 1] as const).map(direction => <button key={direction} role="menuitem" disabled={busy || number + direction < 1 || number + direction > counts.all} onClick={() => {
@@ -518,42 +570,37 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
           <Link className="ar-crumb" href="/approvals"><ChevronLeft size={14} aria-hidden />Approvals</Link>
           <h1>{data.request.title}</h1>
           <div className="ar-meta">
-            <ReviewChip kind={stage}>{draft ? 'Ready to send' : statusText(stage as 'pending' | 'approved' | 'changes_requested', false)}</ReviewChip>
-            <span className="ar-type-chip">{typeLabel({ itemType: data.request.item_type, pageKinds: [...new Set(data.items.flatMap(item => item.page_kind ?? []))] })} · {counts.all}</span>
-            <span className="ar-client-name">{data.request.clients?.name}</span>
-            <span className="ar-created">· Created {monthDay(data.request.created_at.slice(0, 10))}{data.botName ? ` by ${data.botName}` : ''}</span>
-            {draft && <span className="ar-lock"><Lock size={14} aria-hidden />Internal draft: the client can’t see this yet</span>}
-            {data.request.archived_at && <span>Archived</span>}
+            {meta.map((entry, index) => <span className="ar-meta-entry" key={index}>{entry}</span>)}
           </div>
         </div>
         <div className="ar-header-actions">
-          {draft && editable && <button className="ar-button ar-compact" onClick={event => openDialog('request', event.currentTarget)}><Pencil size={16} aria-hidden />Edit details</button>}
-          <ReviewMenu label="Request actions">
-            {draft && editable && <button className="ar-mobile-menu-action" role="menuitem" onClick={event => openDialog('request', event.currentTarget.closest('.ar-menu')?.querySelector('button') ?? undefined)}>Edit details</button>}
-            <p role="presentation">Owner: {data.owner?.full_name ?? data.botName ?? 'Unassigned'}</p>
-            {editable && <button role="menuitem" disabled={busy} onClick={() => void act('owner', { ownerId: 'me' })}>Take ownership</button>}
-            {data.request.stage === 'sent' && editable && <button role="menuitem" disabled={busy} onClick={event => openDialog('returnToDraft', event.currentTarget.closest('.ar-menu')?.querySelector('button') ?? undefined)}>Move back to draft</button>}
-            {data.canWrite && <button role="menuitem" disabled={busy} onClick={() => void act(data.request.archived_at ? 'unarchive' : 'archive')}>
-              {data.request.archived_at ? 'Unarchive' : 'Archive'}{draft ? ' draft' : ''}
-            </button>}
-            <button role="menuitem" onClick={event => openDialog('shortcuts', event.currentTarget.closest('.ar-menu')?.querySelector('button') ?? undefined)}>Keyboard shortcuts</button>
-          </ReviewMenu>
+          {previewButton()}
+          {draft && editable && <button className="ar-button ar-text-button" onClick={event => openDialog('request', event.currentTarget)}>Edit details</button>}
+          {mobileMenuSlot ? createPortal(requestMenu, mobileMenuSlot) : requestMenu}
+          {draft && !!counts.all && sendButton()}
+          {!draft && <a className="ar-button ar-button-soft" href="#ar-share">Share link</a>}
         </div>
       </header>
       <div role="status" aria-live="polite" className="sr-only"><span key={announcement.id}>{announcement.text}</span></div>
       {data.staffReviewUnavailable && <p className="ar-message">Staff review history could not be loaded.</p>}
       {data.internalFeedbackUnavailable && <p className="ar-message">Internal feedback could not be loaded.</p>}
-      <div className="ar-action-bar ar-mobile-list">
-        <div className="ar-card ar-action-inner">
-          {!!counts.all && <Progress counts={counts} />}
-          <div className="ar-actions">
-            {previewButton()}
-            {draft && !!counts.all && sendButton()}
-            {!draft && <a className="ar-button" href="#ar-share">Share link</a>}
-          </div>
+      <div className="ar-tools ar-mobile-list">
+        {!!counts.all && <Progress counts={counts} items={data.items} draft={draft} />}
+        <div className="ar-tabs" role="tablist" aria-label="Filter items">
+          {reviewFilters.map((key, index) => <button key={key} id={`ar-tab-${key}`} role="tab" aria-selected={key === filter}
+            aria-controls="ar-items" tabIndex={key === filter ? 0 : -1} onClick={() => chooseFilter(key)}
+            onKeyDown={event => {
+              const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+              if (!offset) return;
+              event.preventDefault();
+              const target = reviewFilters[(index + offset + reviewFilters.length) % reviewFilters.length];
+              if (chooseFilter(target)) root.current?.querySelector<HTMLElement>(`#ar-tab-${target}`)?.focus();
+            }}>{tabNames[key]} <span>{counts[key]}</span></button>)}
         </div>
+      </div>
+      <div className="ar-mobile-list">
         {draft && !!counts.all && <div className="ar-mobile-send">
-          <Progress counts={counts} compact />
+          <Progress counts={counts} items={data.items} draft={draft} compact />
           {sendButton()}
         </div>}
         {error && <p className="ar-error ar-message" role="alert"><AlertTriangle size={16} aria-hidden />{error}</p>}
@@ -563,17 +610,6 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
       <div className="ar-grid">
         <div className="ar-list-column ar-mobile-list">
           <section className="ar-list-card ar-card" aria-label="Items">
-            <div className="ar-tabs" role="tablist" aria-label="Filter items">
-              {reviewFilters.map((key, index) => <button key={key} id={`ar-tab-${key}`} role="tab" aria-selected={key === filter}
-                aria-controls="ar-items" tabIndex={key === filter ? 0 : -1} onClick={() => chooseFilter(key)}
-                onKeyDown={event => {
-                  const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-                  if (!offset) return;
-                  event.preventDefault();
-                  const target = reviewFilters[(index + offset + reviewFilters.length) % reviewFilters.length];
-                  if (chooseFilter(target)) root.current?.querySelector<HTMLElement>(`#ar-tab-${target}`)?.focus();
-                }}>{tabNames[key]} <span>{counts[key]}</span></button>)}
-            </div>
             <div ref={list} id="ar-items" role="tabpanel" aria-labelledby={`ar-tab-${filter}`}>
               {filtered.length ? <ol>
                 {filtered.map(item => {
@@ -587,19 +623,21 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
                   const rowBlockers = draft && rowVersion ? staffReviewBlockers(item.item_type, item.page_kind, rowVersion.payload, photoPaths, rowVersion.video_path) : [];
                   const photoNeeded = rowBlockers.some(blocker => blocker.label === 'Photo needed');
                   return <li key={item.id}>
-                    <button type="button" className="ar-row" data-review-row={item.id} data-status={status} aria-current={active || undefined}
+                    <button type="button" className="ar-row" data-review-row={item.id} data-status={status} data-animate-review={pointerTransition.reviewedId === item.id || undefined} aria-current={active || undefined}
                       aria-label={[`Item ${index}: ${title}`, statusText(status, draft), ...rowBlockers.map(blocker => blocker.label), date].filter(Boolean).join(', ')}
-                      onClick={() => select(item, 'click')}>
-                      <span className="ar-row-number">{index}</span>
+                      onClick={event => select(item, 'click', event.detail > 0)}>
+                      {status === 'approved'
+                        ? <span className="ar-row-check" aria-hidden><CheckCircle2 size={18} strokeWidth={2.2} /></span>
+                        : <span className="ar-row-number">{index}</span>}
                       <ReviewThumbnail item={item} version={rowVersion} photo={data.photos[rowVersion?.video_poster_path ?? photoPaths[0]] ?? null} blocked={photoNeeded} />
                       <span className="ar-row-copy"><span className="ar-row-title">{title}</span>
                         <span className="ar-row-meta">
-                          <ReviewChip kind={status}>{statusText(status, draft)}</ReviewChip>
+                          {status !== 'pending' && <ReviewChip kind={status}>{status === 'approved' ? 'Approved' : 'Changes'}</ReviewChip>}
                           {rowBlockers.map(blocker => <ReviewChip key={blocker.label} kind={blocker.label === 'Photo needed' ? 'photo' : 'blocker'}>{blocker.label}</ReviewChip>)}
                           {date && <span>{date}</span>}
                         </span>
                       </span>
-                      <ChevronRight className="ar-chevron" size={20} aria-hidden />
+                      <ChevronRight className="ar-chevron" size={16} aria-hidden />
                     </button>
                   </li>;
                 })}
@@ -608,26 +646,36 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
               </div>}
             </div>
           </section>
-          {draft && !!counts.all && <div className="ar-mobile-list-tools">{previewButton()}</div>}
-          <section className="ar-card ar-key-card" aria-label="Keyboard shortcuts">
-            <button type="button" className="ar-button ar-text-button" onClick={event => openDialog('shortcuts', event.currentTarget)}><Keyboard size={16} aria-hidden />Keyboard</button>
-            <KeyboardList />
-          </section>
+          {(!!counts.all || !draft) && <div className="ar-mobile-list-tools">
+            {!!counts.all && previewButton()}
+            {!draft && <a className="ar-button ar-button-soft" href="#ar-share">Share link</a>}
+          </div>}
         </div>
-        {(showCompletion || selected) && <section ref={pane} className="ar-card ar-pane ar-mobile-detail" aria-labelledby={showCompletion ? 'ar-review-complete' : 'ar-item-title'}>
+        {(showCompletion || selected) && <section ref={pane} className="ar-card ar-pane ar-mobile-detail" data-animate-preview={Boolean(selected && pointerTransition.previewId === selected.id) || undefined} aria-labelledby={showCompletion ? 'ar-review-complete' : 'ar-item-title'}>
           {showCompletion ? <div className="ar-complete">
-            <CheckCircle2 size={48} className="ar-positive" aria-hidden />
+            <span className="ar-complete-mark"><Check size={32} aria-hidden /></span>
             <h2 tabIndex={-1} ref={completeTitle} id="ar-review-complete">All {counts.all} items reviewed</h2>
-            <p>{counts.approved} approved · {counts.changes_requested} changes requested</p>
-            <div className="ar-actions">{sendButton()}{counts.changes_requested > 0 && <button className="ar-button" onClick={() => {
-              chooseFilter('changes_requested');
-              if (mobile && screen === 'list') setScreen('detail');
-              focusAfter.current = 'title';
-            }}>Review changes requested ({counts.changes_requested})</button>}</div>
+            <p className="ar-complete-summary">{counts.approved} approved{counts.changes_requested > 0 && ` · ${counts.changes_requested} needs changes`}</p>
+            <div className="ar-actions">
+              {sendButton()}
+              {counts.changes_requested > 0 && <button className="ar-button ar-button-soft" onClick={event => {
+                if (singleChange) {
+                  setFilter('all');
+                  select(singleChange, 'click', event.detail > 0);
+                  focusAfter.current = 'title';
+                } else if (chooseFilter('changes_requested')) {
+                  if (mobile) setScreen('list');
+                  focusAfter.current = mobile ? 'row' : 'title';
+                }
+              }}><Pencil size={16} aria-hidden />{singleChange
+                ? `Review the change on item ${data.items.indexOf(singleChange) + 1}`
+                : `Review changes (${counts.changes_requested})`}</button>}
+            </div>
+            <p className="ar-complete-fine">Private link · nothing is emailed · expires in 14 days</p>
           </div> : selected && <>
             <header className="ar-pane-header">
+              <span>Item {numberText} · {reviewTypeName(selected, version)}{version && ` · v${version.version_no}`}</span>
               <div className="ar-pane-status">{statusChips}</div>
-              <span>Item {numberText} · {itemTypeName(selected, version)}{version && ` · v${version.version_no}`}</span>
               <div className="ar-pane-nav">{navButtons()}</div>
             </header>
             {version ? <ItemErrorBoundary key={version.id} onError={() => setFailedVersion(version.id)} fallback={previewError}>
@@ -642,7 +690,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
       <div className="ar-mobile-list">{children}</div>
     </div>
     {dialog === 'shortcuts' && <ReviewDialog title="Keyboard shortcuts" onClose={closeDialog}>
-      <KeyboardList full />
+      <KeyboardList />
       <label className="ar-shortcut-toggle"><input type="checkbox" role="switch" checked={singleKeysOff} onChange={event => {
         setSingleKeysOff(event.currentTarget.checked);
         try { localStorage.setItem(shortcutStorageKey, String(event.currentTarget.checked)); } catch { /* Preference remains active for this view. */ }

@@ -18,6 +18,7 @@ export type GbpPostContent = {
 };
 
 type StaffPhoto = {
+    expanded?: boolean;
     enlargeLabel: string;
     enlargeRef: Ref<HTMLButtonElement>;
     onEnlarge: () => void;
@@ -57,6 +58,9 @@ export function GbpPostPreview({ post, clientName, logoSrc, sources = [], videoS
     const kind = post.postType || 'offer';
     const range = offerRange(post);
     const cta = post.ctaLabel ?? (staff ? '' : 'View offer');
+    const initials = staff
+        ? clientName.trim().split(/\s+/).slice(0, 2).map(word => word.charAt(0)).join('').toUpperCase()
+        : clientName.charAt(0).toUpperCase();
     const ctaContent = <>{isPhoneCta(cta) && <Phone size={16} aria-hidden />}{cta}</>;
 
     return <article className={`gbp-post${staff ? ' gbp-post-compact' : ''}`} aria-label="Google Business Profile post preview">
@@ -64,7 +68,7 @@ export function GbpPostPreview({ post, clientName, logoSrc, sources = [], videoS
             <span className="gbp-post-avatar">{logoSrc && failedLogo !== logoSrc
                 // eslint-disable-next-line @next/next/no-img-element -- Client logos can use storage or fixture URLs.
                 ? <img ref={logoRef} src={logoSrc} alt="" onError={() => setFailedLogo(logoSrc)} />
-                : <span aria-hidden="true">{clientName.charAt(0).toUpperCase()}</span>}
+                : <span aria-hidden="true">{initials}</span>}
             </span>
             <div><strong>{clientName}</strong><small><span className="gbp-post-type">{kind}</span>{planned && <> · <time dateTime={post.scheduled}>{planned}, {post.scheduled.slice(0, 4)}</time></>}</small></div>
         </div>
@@ -73,7 +77,9 @@ export function GbpPostPreview({ post, clientName, logoSrc, sources = [], videoS
             <p className="gbp-post-type">{kind}</p>
             <h3>{post.title}</h3>
             {range && <p className="gbp-post-offer-date">{range}</p>}
-            <PostCopy body={post.body ?? ''} />
+            {staff
+                ? <p className="gbp-post-copy" data-expanded={staff.expanded ?? false}>{post.body}</p>
+                : <PostCopy body={post.body ?? ''} />}
             {cta && (ctaHref
                 ? <a className="gbp-post-cta" href={ctaHref} target="_blank" rel="noopener noreferrer">{ctaContent}</a>
                 : <span className="gbp-post-cta">{ctaContent}</span>)}
@@ -176,8 +182,8 @@ function PhotoCarousel({ sources, videoSrc, poster, alt, index, onChange, staff 
                 </div>}
         </div>
         {multiple && <>
-            <button type="button" className="gbp-post-arrow gbp-post-prev" aria-label={`Previous ${mediaLabel}`} onClick={() => step(-1)}><ChevronLeft size={22} aria-hidden /></button>
-            <button type="button" className="gbp-post-arrow gbp-post-next" aria-label={`Next ${mediaLabel}`} onClick={() => step(1)}><ChevronRight size={22} aria-hidden /></button>
+            <button type="button" className="gbp-post-arrow gbp-post-prev" aria-label={`Previous ${mediaLabel}`} onClick={() => step(-1)}><ChevronLeft size={staff ? 18 : 22} aria-hidden /></button>
+            <button type="button" className="gbp-post-arrow gbp-post-next" aria-label={`Next ${mediaLabel}`} onClick={() => step(1)}><ChevronRight size={staff ? 18 : 22} aria-hidden /></button>
             <span className="gbp-post-count" aria-live="polite" aria-atomic="true">{active + 1} / {count}</span>
             <div className="gbp-post-dots" role="group" aria-label={`Choose ${hasVideo ? 'media' : 'a photo'}`}>
                 {Array.from({ length: count }, (_, position) => <button type="button" key={position} aria-label={`Show ${mediaLabel} ${position + 1} of ${count}`}
