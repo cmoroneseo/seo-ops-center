@@ -18,6 +18,7 @@ async function setup(t: TestContext) {
     await db.exec(readFileSync(new URL(`../../migrations/${filename}`, import.meta.url), 'utf8'));
   }
   await db.exec(migration);
+  await db.exec(readFileSync(new URL('../../migrations/149_gbp_approval_video.sql', import.meta.url), 'utf8'));
   return db;
 }
 

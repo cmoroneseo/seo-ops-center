@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useId, useRef, useState, type ReactNode,
 import { ChevronLeft, ChevronRight, Image as ImageIcon, Phone } from 'lucide-react';
 import { isPhoneCta } from '@/lib/approvals-v2/staff-review';
 import { offerRange, weekday } from './sample';
+import { VideoPreview } from './VideoPreview';
 import './gbp-post-preview.css';
 
 export type GbpPostContent = {
@@ -39,11 +40,13 @@ export function previewPhotos(post: { photo: string | null; photoSrcs?: (string 
     return post.photoSrcs?.length ? post.photoSrcs : post.photo ? [post.photo] : [];
 }
 
-export function GbpPostPreview({ post, clientName, logoSrc, sources = [], photoIndex, onPhotoChange, staff, ctaHref }: {
+export function GbpPostPreview({ post, clientName, logoSrc, sources = [], videoSrc, videoPosterSrc, photoIndex, onPhotoChange, staff, ctaHref }: {
     post: GbpPostContent;
     clientName: string;
     logoSrc?: string;
     sources?: readonly (string | null)[];
+    videoSrc?: string | null;
+    videoPosterSrc?: string | null;
     photoIndex?: number;
     onPhotoChange?: (index: number) => void;
     staff?: StaffPhoto;
@@ -65,7 +68,7 @@ export function GbpPostPreview({ post, clientName, logoSrc, sources = [], photoI
             </span>
             <div><strong>{clientName}</strong><small><span className="gbp-post-type">{kind}</span>{planned && <> · <time dateTime={post.scheduled}>{planned}, {post.scheduled.slice(0, 4)}</time></>}</small></div>
         </div>
-        <PhotoCarousel sources={sources} alt={`Photo for ${post.title}`} index={photoIndex} onChange={onPhotoChange} staff={staff} />
+        <PhotoCarousel sources={sources} videoSrc={videoSrc} poster={videoPosterSrc} alt={`Photo for ${post.title}`} index={photoIndex} onChange={onPhotoChange} staff={staff} />
         <div className="gbp-post-body">
             <p className="gbp-post-type">{kind}</p>
             <h3>{post.title}</h3>
@@ -104,8 +107,10 @@ function PostCopy({ body }: { body: string }) {
     </>;
 }
 
-function PhotoCarousel({ sources, alt, index, onChange, staff }: {
+function PhotoCarousel({ sources, videoSrc, poster, alt, index, onChange, staff }: {
     sources: readonly (string | null)[];
+    videoSrc?: string | null;
+    poster?: string | null;
     alt: string;
     index?: number;
     onChange?: (index: number) => void;
@@ -114,10 +119,13 @@ function PhotoCarousel({ sources, alt, index, onChange, staff }: {
     const [localIndex, setLocalIndex] = useState(0);
     const drag = useRef<{ id: number; x: number; y: number } | null>(null);
     const suppressClick = useRef(false);
-    const count = sources.length;
+    const hasVideo = videoSrc !== undefined;
+    const count = sources.length + Number(hasVideo);
     const multiple = count > 1;
     const active = Math.min(index ?? localIndex, Math.max(0, count - 1));
+    const videoActive = hasVideo && active === sources.length;
     const src = sources[active];
+    const mediaLabel = hasVideo ? 'media' : 'photo';
     const select = (next: number) => {
         if (next === active) return;
         if (index === undefined) setLocalIndex(next);
@@ -127,16 +135,16 @@ function PhotoCarousel({ sources, alt, index, onChange, staff }: {
 
     return <div className="gbp-post-carousel" data-multiple={multiple}
         role={multiple ? 'group' : undefined} aria-roledescription={multiple ? 'carousel' : undefined}
-        aria-label={multiple ? 'Preview photos' : undefined} tabIndex={multiple ? 0 : undefined}
+        aria-label={multiple ? (hasVideo ? 'Preview media' : 'Preview photos') : undefined} tabIndex={multiple ? 0 : undefined}
         onKeyDown={multiple ? event => {
-            if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+            if ((event.target as Element).closest('video') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
             if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
             event.preventDefault();
             step(event.key === 'ArrowRight' ? 1 : -1);
         } : undefined}>
         <div className="gbp-post-slide"
             onPointerDown={multiple ? event => {
-                if (!event.isPrimary || event.button !== 0) return;
+                if (videoActive || !event.isPrimary || event.button !== 0) return;
                 suppressClick.current = false;
                 drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
                 // Keep delivery of pointerup while preserving the photo's normal click target.
@@ -154,12 +162,12 @@ function PhotoCarousel({ sources, alt, index, onChange, staff }: {
             } : undefined}
             onPointerCancel={() => { drag.current = null; }}
             onClickCapture={event => {
-                if (!suppressClick.current || event.detail === 0) return;
+                if (videoActive || !suppressClick.current || event.detail === 0) return;
                 event.preventDefault();
                 event.stopPropagation();
                 suppressClick.current = false;
             }}>
-            {count ? <PhotoSlide key={`${active}:${src}`} src={src} alt={multiple ? `${alt} ${active + 1} of ${count}` : alt}
+            {videoActive ? <VideoPreview key={videoSrc} src={videoSrc ?? null} poster={poster} /> : count ? <PhotoSlide key={`${active}:${src}`} src={src} alt={multiple ? `${alt} ${active + 1} of ${count}` : alt}
                 openable={multiple} staff={staff} />
                 : <div className="gbp-post-placeholder">
                     <ImageIcon size={20} aria-hidden />
@@ -168,11 +176,11 @@ function PhotoCarousel({ sources, alt, index, onChange, staff }: {
                 </div>}
         </div>
         {multiple && <>
-            <button type="button" className="gbp-post-arrow gbp-post-prev" aria-label="Previous photo" onClick={() => step(-1)}><ChevronLeft size={22} aria-hidden /></button>
-            <button type="button" className="gbp-post-arrow gbp-post-next" aria-label="Next photo" onClick={() => step(1)}><ChevronRight size={22} aria-hidden /></button>
+            <button type="button" className="gbp-post-arrow gbp-post-prev" aria-label={`Previous ${mediaLabel}`} onClick={() => step(-1)}><ChevronLeft size={22} aria-hidden /></button>
+            <button type="button" className="gbp-post-arrow gbp-post-next" aria-label={`Next ${mediaLabel}`} onClick={() => step(1)}><ChevronRight size={22} aria-hidden /></button>
             <span className="gbp-post-count" aria-live="polite" aria-atomic="true">{active + 1} / {count}</span>
-            <div className="gbp-post-dots" role="group" aria-label="Choose a photo">
-                {sources.map((_, position) => <button type="button" key={position} aria-label={`Show photo ${position + 1} of ${count}`}
+            <div className="gbp-post-dots" role="group" aria-label={`Choose ${hasVideo ? 'media' : 'a photo'}`}>
+                {Array.from({ length: count }, (_, position) => <button type="button" key={position} aria-label={`Show ${mediaLabel} ${position + 1} of ${count}`}
                     aria-pressed={position === active} onClick={() => select(position)}><span /></button>)}
             </div>
         </>}

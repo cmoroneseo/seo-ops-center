@@ -24,6 +24,8 @@ export function PreviewDialog({
     payload: GbpPostPayload | PagePayload;
     photoUrl: string | null;
     photoUrls?: (string | null)[];
+    videoSrc?: string | null;
+    videoPosterSrc?: string | null;
     images?: Record<string, string | null>;
   }[];
 }) {
@@ -36,6 +38,8 @@ export function PreviewDialog({
       <DialogDescription>Internal preview only. No link is created and no review can be submitted here.</DialogDescription>
       {items.map(({
         photoUrls,
+        videoSrc,
+        videoPosterSrc,
         id,
         payload,
         photoUrl,
@@ -44,7 +48,7 @@ export function PreviewDialog({
           <ItemErrorBoundary title={payload.title}>
           {'pageKind' in payload ? <PagePreview domain={domain} payload={payload} photoUrl={photoUrl} images={images} /> :
             <GbpPostPreview logoSrc={logoSrc} clientName={clientName}
-              post={{ ...payload, scheduled: payload.scheduledDate }} sources={photoUrls?.length ? photoUrls : photoUrl ? [photoUrl] : []} />}
+              post={{ ...payload, scheduled: payload.scheduledDate }} videoSrc={videoSrc} videoPosterSrc={videoPosterSrc} sources={photoUrls?.length ? photoUrls : photoUrl ? [photoUrl] : []} />}
           </ItemErrorBoundary>
         </article>)}
     </DialogContent>

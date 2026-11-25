@@ -5,7 +5,7 @@ import { cache } from 'react';
 import { hashToken } from '@/lib/approvals/token';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { signApprovalPhoto } from '@/lib/gbp-approvals/live';
-import { PUBLIC_REVIEW_HEADERS, projectPublicReview, publicReviewPhotoPaths, publicStatus } from '@/lib/gbp-approvals/public-view';
+import { PUBLIC_REVIEW_HEADERS, projectPublicReview, publicReviewMediaPaths, publicStatus } from '@/lib/gbp-approvals/public-view';
 import { uuid } from './list';
 import { imagePaths } from './page-body';
 import { sanitizeDoc } from './page-doc';
@@ -50,20 +50,22 @@ export async function signRequestAsset(requestId: string, path: string, signer =
   if (!uuid.test(requestId) || !['approval-assets', 'gbp-approvals'].some(prefix => path.startsWith(`${prefix}/${requestId}/`))) return null;
   return signer(path);
 }
-export const loadApprovalReview = cache(async (token: string) => {
+export async function loadApprovalReviewForToken(token: string,
+  { createAdminClient: adminFactory, signApprovalPhoto: sign } = { createAdminClient, signApprovalPhoto }) {
   if (token.length < 20 || token.length > 500) return null;
+  const admin = adminFactory();
   const {
     data,
     error
-  } = await createAdminClient().rpc('get_approval_by_token', {
+  } = await admin.rpc('get_approval_by_token', {
     p_token_hash: hashToken(token),
     p_now: new Date().toISOString()
   });
   if (error || !data || data.ok === false) return null;
   if (data.itemType === 'page') {
-    const link = await createAdminClient().from('approval_links').select('request_id').eq('token_hash', hashToken(token)).maybeSingle();
+    const link = await admin.from('approval_links').select('request_id').eq('token_hash', hashToken(token)).maybeSingle();
     if (link.error || !link.data) return null;
-    const request = await createAdminClient().from('approval_requests').select('sent_at,clients!approval_requests_client_id_fkey(domain)').eq('id', link.data.request_id).maybeSingle();
+    const request = await admin.from('approval_requests').select('sent_at,clients!approval_requests_client_id_fkey(domain)').eq('id', link.data.request_id).maybeSingle();
     const client = request.data?.clients as {
       domain?: string;
     } | null;
@@ -75,7 +77,6 @@ export const loadApprovalReview = cache(async (token: string) => {
   }
   let clientLogoUrl = null;
   if (data.state === 'active') {
-    const admin = createAdminClient();
     const link = await admin.from('approval_links').select('request_id').eq('token_hash', hashToken(token)).maybeSingle();
     if (!link.error && link.data) {
       const request = await admin.from('approval_requests').select('clients!approval_requests_client_id_fkey(logo_url)').eq('id', link.data.request_id).maybeSingle();
@@ -83,10 +84,11 @@ export const loadApprovalReview = cache(async (token: string) => {
       if (!request.error) clientLogoUrl = safeClientLogoUrl(client?.logo_url);
     }
   }
-  const paths = new Map(await Promise.all(publicReviewPhotoPaths(data).map(async path =>
-    [path, await signApprovalPhoto(path)] as const)));
+  const paths = new Map(await Promise.all(publicReviewMediaPaths(data).map(async path =>
+    [path, await sign(path)] as const)));
   return projectPublicReview({ ...data, clientLogoUrl }, path => paths.get(path) ?? null);
-});
+}
+export const loadApprovalReview = cache(loadApprovalReviewForToken);
 export function createPublicItem(dependencies = {
   createAdminClient,
   signApprovalPhoto

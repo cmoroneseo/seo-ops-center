@@ -19,6 +19,8 @@ export const GBP_CLIENT_VISIBLE_FIELDS = [
     'ctaLabel',
     'terms',
     'photo',
+    'video',
+    'videoPoster',
 ] as const;
 
 const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -86,7 +88,7 @@ export function applySuggestion(
     };
 }
 
-export function visibleSnapshot(payload: GbpPostPayload, photo: string | readonly string[] | null): Record<string, string> {
+export function visibleSnapshot(payload: GbpPostPayload, photo: string | readonly string[] | null, video?: string | null, videoPoster?: string | null): Record<string, string> {
     return {
         postType: payload.postType,
         title: payload.title,
@@ -97,6 +99,8 @@ export function visibleSnapshot(payload: GbpPostPayload, photo: string | readonl
         ctaUrl: payload.ctaUrl,
         ctaLabel: payload.ctaLabel,
         terms: payload.terms,
+        video: video ?? '',
+        videoPoster: videoPoster ?? '',
         photo: JSON.stringify(typeof photo === 'string' ? [photo] : photo ?? []),
     };
 }

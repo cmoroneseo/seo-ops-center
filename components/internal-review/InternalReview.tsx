@@ -103,6 +103,7 @@ function ReviewPost({ post, clientName, token, reviewerName, onNameChange }: {
                     <p className="text-sm font-medium text-teal-800">Post {post.position}</p>
                     <GbpPostPreview post={{ ...post, scheduled: post.scheduledDate, ctaLabel: post.ctaLabel || (post.ctaUrl ? 'Open link' : '') }}
                         sources={sources} clientName={clientName} ctaHref={post.ctaUrl}
+                        videoSrc={post.videoSrc} videoPosterSrc={post.videoPosterSrc}
                         photoIndex={target.photoIndex} onPhotoChange={target.selectSlide} />
                 </div>
                 {(post.terms || post.ctaUrl) && <div className="min-w-0 space-y-3 text-sm text-slate-700 sm:pt-7">

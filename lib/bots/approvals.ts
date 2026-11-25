@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { gbpMediaError, parseGbpVideoPath } from '@/lib/gbp-approvals/video';
 import { parseGbpPhotoPaths, parseGbpPostPayload, type GbpPostPayload } from '../gbp-approvals/registry.ts';
 import { canonicalJson } from '../approvals-v2/registry.ts';
 import { parsePagePayload } from '../approvals-v2/page-body.ts';
@@ -14,6 +15,8 @@ export interface BotApprovalItem {
   outline?: OutlineSection[];
   photoPath: string | null;
   photoPaths?: string[];
+  videoPath?: string;
+  videoPosterPath?: string;
 }
 export interface BotApprovalQuestion {
   prompt: string;
@@ -101,9 +104,10 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
     const parsed = record.itemType === 'page' ? parsePagePayload(item.payload) : parseGbpPostPayload(item.payload);
     if (!parsed.ok) return fail(400, 'invalid_request', parsed.error);
     const photoPaths = 'photoPaths' in item && record.itemType !== 'page' ? parseGbpPhotoPaths(item.photoPaths, true) : undefined;
-    if (photoPaths === null || (record.itemType === 'page' && 'photoPaths' in item)) {
-      return fail(400, 'invalid_request', 'A GBP post can include up to 10 HTTPS photo URLs.');
-    }
+    const mediaError = gbpMediaError({ ...item, photoPath: item.mockupUrl ?? item.photoPath }, { page: record.itemType === 'page', httpsOnly: true });
+    if (mediaError) return fail(400, 'invalid_request', mediaError);
+    const videoPath = parseGbpVideoPath(item.videoPath, true);
+    const videoPosterPath = parseGbpVideoPath(item.videoPosterPath, true);
     const photoPath = photoPaths ? photoPaths[0] ?? null : item.mockupUrl ?? item.photoPath ?? null;
     if (photoPath !== null && (typeof photoPath !== 'string' || !/^https:\/\/\S+$/.test(photoPath))) {
       return fail(400, 'invalid_request', 'A post photo must be an https URL.');
@@ -113,7 +117,9 @@ export function parseBotApproval(body: unknown): BotApprovalParse {
       payload: parsed.payload,
       ...('outline' in parsed ? { outline: parsed.outline } : {}),
       photoPath,
-      ...(photoPaths ? { photoPaths } : {})
+      ...(photoPaths ? { photoPaths } : {}),
+      ...(videoPath ? { videoPath } : {}),
+      ...(videoPosterPath ? { videoPosterPath } : {})
     });
   }
   const questions: BotApprovalQuestion[] = [];

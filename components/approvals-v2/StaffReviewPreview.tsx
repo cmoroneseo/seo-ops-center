@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useRef, useState, type ReactNode, type Ref } from 'react';
-import { AlertTriangle, Check, Clock, ExternalLink, FileText, Image as ImageIcon, Maximize2, Pencil, Send } from 'lucide-react';
+import { AlertTriangle, Check, Clock, ExternalLink, FileText, Image as ImageIcon, Maximize2, Pencil, Send, Video } from 'lucide-react';
 import { GbpPostPreview } from '@/components/gbp-approvals/GbpPostPreview';
+import { VideoPreview } from '@/components/gbp-approvals/VideoPreview';
 import { monthDay, offerRange, weekday } from '@/components/gbp-approvals/sample';
 import { nodeText, safeUrl, sanitizeDoc, type PageNode } from '@/lib/approvals-v2/page-doc';
 import { characterCount, gbpCharacterLimit, isPhoneCta, type ReviewStatus } from '@/lib/approvals-v2/staff-review';
@@ -34,7 +35,7 @@ export function ReviewThumbnail({ item, version, photo, blocked }: { item: Staff
       {words !== undefined && <span>{words.toLocaleString('en-US')}</span>}
     </span>;
   }
-  const Icon = blocked || item.item_type === 'gbp_post' ? ImageIcon : FileText;
+  const Icon = version?.video_path ? Video : blocked || item.item_type === 'gbp_post' ? ImageIcon : FileText;
   // eslint-disable-next-line @next/next/no-img-element
   return photo ? <img className="ar-thumbnail" src={photo} alt="" /> :
     <span className={`ar-thumbnail ar-thumbnail-icon ${blocked ? 'ar-thumbnail-missing' : ''}`}><Icon size={20} aria-hidden /></span>;
@@ -118,6 +119,9 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
   const photoPaths = isGbp ? versionPhotoPaths(version.photo_paths, version.photo_path) : [];
   const sources = photoPaths.map(path => data.photos[path] ?? null);
   const photo = isGbp ? sources[photoIndex] ?? null : data.photos[version.photo_path ?? ''] ?? null;
+  const hasVideo = isGbp && Boolean(version.video_path);
+  const videoSrc = hasVideo ? data.photos[version.video_path!] ?? null : undefined;
+  const videoPosterSrc = data.photos[version.video_poster_path ?? ''];
   const photoUnavailable = !photo || failedPhoto === photo;
   const readPhotoDimensions = useCallback((image: HTMLImageElement) => {
     if (image.naturalWidth && image.naturalHeight) {
@@ -161,14 +165,14 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
     </div>;
     preview = <>
       <GbpPostPreview clientName={client?.name ?? 'Client'} logoSrc={client?.logo_url ?? undefined}
-        post={{ ...payload, title, scheduled: payload.scheduledDate }} sources={sources} photoIndex={photoIndex} onPhotoChange={setPhotoIndex}
+        post={{ ...payload, title, scheduled: payload.scheduledDate }} sources={sources} videoSrc={videoSrc} videoPosterSrc={videoPosterSrc} photoIndex={photoIndex} onPhotoChange={setPhotoIndex}
         staff={{
           enlargeLabel: `Enlarge ${photoName} for item ${position}`,
           enlargeRef: photoTrigger,
           onEnlarge: () => setEnlarge(true),
           onPhotoLoad: readPhotoDimensions,
           onPhotoError: setFailedPhoto,
-          addPhoto: canEdit && draft && <button type="button" className="ar-button ar-compact" onClick={event => edit(event.currentTarget)}>Add photo</button>,
+          addPhoto: canEdit && draft && <button type="button" className="ar-button ar-compact" onClick={event => edit(event.currentTarget)}>Add media</button>,
         }} />
       <Meter length={characterCount(body)} limit={gbpCharacterLimit} />
     </>;
@@ -177,7 +181,10 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
       ['Planned', planned ? `${planned}, ${payload.scheduledDate.slice(0, 4)}` : '—'],
       ...(range ? [['Offer runs', range] as [string, ReactNode]] : []),
       ['Button', cta ? (isPhoneCta(cta) ? `${cta} (business phone)` : cta) : '—'],
-      ['Photo', <>
+      [hasVideo ? 'Video' : 'Photo', hasVideo ? videoSrc
+        ? <button type="button" className="ar-button ar-compact" ref={photoTrigger} onClick={() => setEnlarge(true)}
+            aria-label={`Enlarge video for item ${position}`}>Enlarge video</button>
+        : 'Preview unavailable' : <>
         {!photoPaths.length ? 'Photo needed' : photoUnavailable ? 'Preview unavailable' :
           <span className="ar-positive"><Check size={14} aria-hidden />{dimensions ? `${dimensions.width} × ${dimensions.height}${dimensions.width * 3 === dimensions.height * 4 ? ', 4:3' : ''}` : 'Included'}</span>}
         {picker}
@@ -297,9 +304,10 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
         </div>}
       </div>
     </div>
-    {enlarge && photo && <ReviewDialog title={title} onClose={() => setEnlarge(false)} restoreFocus={() => photoTrigger.current} className="sm:max-w-4xl">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="max-h-[72dvh] w-full object-contain" src={photo} referrerPolicy="no-referrer" alt={`${photoName} for ${title}`} />
+    {enlarge && (videoSrc || photo) && <ReviewDialog title={title} onClose={() => setEnlarge(false)} restoreFocus={() => photoTrigger.current} className="sm:max-w-4xl">
+      {videoSrc ? <VideoPreview src={videoSrc} poster={videoPosterSrc} className="max-h-[72dvh] w-full bg-black object-contain" />
+        // eslint-disable-next-line @next/next/no-img-element
+        : <img className="max-h-[72dvh] w-full object-contain" src={photo!} referrerPolicy="no-referrer" alt={`${photoName} for ${title}`} />}
     </ReviewDialog>}
   </>;
 }

@@ -8,7 +8,7 @@ export interface ApprovalType<P> {
     clientVisibleFields: readonly string[];
     suggestionFields: readonly string[];
     maxPayloadBytes: number;
-    visibleSnapshot(payload: P, asset: string | null): Record<string, string>;
+    visibleSnapshot(payload: P, asset: string | null, video?: string | null, videoPoster?: string | null): Record<string, string>;
     applySuggestion(payload: P, suggestion: Record<string, string>): P;
 }
 

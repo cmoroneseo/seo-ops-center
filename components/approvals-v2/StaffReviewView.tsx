@@ -23,7 +23,7 @@ const tabNames: Record<ReviewFilter, string> = { all: 'All', pending: 'To review
 const emptyFilters: Record<ReviewFilter, string> = { all: 'This request has no items yet', pending: 'No items to review', changes_requested: 'No items need changes', approved: 'No items approved' };
 const keyCommands = [
   ['J', 'Next item'], ['K', 'Previous item'], ['A', 'Approve + next'],
-  ['R', 'Request changes'], ['E', 'Edit item'], ['Space', 'Enlarge photo'], ['?', 'Open keyboard shortcuts'],
+  ['R', 'Request changes'], ['E', 'Edit item'], ['Space', 'Enlarge media'], ['?', 'Open keyboard shortcuts'],
 ];
 const noAction: ReviewAction = async () => false;
 const mobileQuery = '(max-width: 760px)';
@@ -154,7 +154,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   const version = selected ? displayVersion(selected, draft) : null;
   const number = selected ? data.items.indexOf(selected) + 1 : 0;
   const blockers = selected && draft ? staffReviewBlockers(selected.item_type, selected.page_kind, version?.payload,
-    versionPhotoPaths(version?.photo_paths, version?.photo_path)) : [];
+    versionPhotoPaths(version?.photo_paths, version?.photo_path), version?.video_path) : [];
   const selectedStatus = selected ? reviewStatus(selected, draft) : 'pending';
   const showCompletion = draft && completion && counts.all > 0 && counts.pending === 0;
   const mobileScreen = selected || showCompletion ? screen : 'list';
@@ -413,6 +413,8 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
         return current ? [{
           id: item.id, payload: current.payload, images: data.photos,
           photoUrl: data.photos[current.photo_path ?? ''] ?? null,
+          videoSrc: current.video_path ? data.photos[current.video_path] ?? null : undefined,
+          videoPosterSrc: data.photos[current.video_poster_path ?? ''],
           photoUrls: versionPhotoPaths(current.photo_paths, current.photo_path).map(path => data.photos[path] ?? null),
         }] : [];
       })} />;
@@ -582,14 +584,14 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
                   const date = monthDay(reviewDate(rowVersion));
                   const status = reviewStatus(item, draft);
                   const photoPaths = versionPhotoPaths(rowVersion?.photo_paths, rowVersion?.photo_path);
-                  const rowBlockers = draft && rowVersion ? staffReviewBlockers(item.item_type, item.page_kind, rowVersion.payload, photoPaths) : [];
+                  const rowBlockers = draft && rowVersion ? staffReviewBlockers(item.item_type, item.page_kind, rowVersion.payload, photoPaths, rowVersion.video_path) : [];
                   const photoNeeded = rowBlockers.some(blocker => blocker.label === 'Photo needed');
                   return <li key={item.id}>
                     <button type="button" className="ar-row" data-review-row={item.id} data-status={status} aria-current={active || undefined}
                       aria-label={[`Item ${index}: ${title}`, statusText(status, draft), ...rowBlockers.map(blocker => blocker.label), date].filter(Boolean).join(', ')}
                       onClick={() => select(item, 'click')}>
                       <span className="ar-row-number">{index}</span>
-                      <ReviewThumbnail item={item} version={rowVersion} photo={data.photos[photoPaths[0]] ?? null} blocked={photoNeeded} />
+                      <ReviewThumbnail item={item} version={rowVersion} photo={data.photos[rowVersion?.video_poster_path ?? photoPaths[0]] ?? null} blocked={photoNeeded} />
                       <span className="ar-row-copy"><span className="ar-row-title">{title}</span>
                         <span className="ar-row-meta">
                           <ReviewChip kind={status}>{statusText(status, draft)}</ReviewChip>

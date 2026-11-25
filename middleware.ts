@@ -32,7 +32,9 @@ export async function middleware(request: NextRequest) {
         return NextResponse.next({ headers: PUBLIC_REVIEW_HEADERS })
     }
     if (
-        (pathname === '/dev/gbp-approvals' || pathname === '/dev/agency-approvals')
+        (pathname === '/dev/gbp-approvals'
+            || pathname === '/dev/gbp-approvals/sample.mp4'
+            || pathname === '/dev/agency-approvals')
         && process.env.NODE_ENV !== 'production'
     ) {
         return NextResponse.next()

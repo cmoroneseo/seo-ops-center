@@ -1,9 +1,10 @@
+import { gbpMediaError } from '@/lib/gbp-approvals/video';
 import { parsePagePayload } from './page-body';
 import { agencyActor } from '@/lib/gbp-approvals/agency-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { generateToken, hashToken } from '@/lib/approvals/token';
 import { approvalGroup, embeddedOne, linkState, parseListQuery, summarizeRows, uuid, type ApprovalRow } from './list';
-import { parseGbpPhotoPaths, parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
+import { parseGbpPostPayload } from '@/lib/gbp-approvals/registry';
 import { isBotKeyToken, bearerToken } from '@/lib/bots/scope';
 export const json = (body: unknown, status = 200) => Response.json(body, {
   status,
@@ -161,9 +162,9 @@ export function mutation(action: string, dependencies = {
       error: 'Choose an item.',
       code: 'invalid_request'
     }, 400);
-    if (action === 'versions' && Buffer.byteLength(JSON.stringify(body)) > 4194304) return json({ error: 'Request exceeds 4 MB.', code: 'invalid_request' }, 400);
-    if (action === 'versions') {
-      if (!Array.isArray(body.items) || !body.items.length || body.items.length > 30) return json({
+    if ((action === 'versions' || action === 'draft') && Buffer.byteLength(JSON.stringify(body)) > 4194304) return json({ error: 'Request exceeds 4 MB.', code: 'invalid_request' }, 400);
+    if (action === 'versions' || (action === 'draft' && 'items' in body)) {
+      if (!Array.isArray(body.items) || (action === 'versions' && !body.items.length) || body.items.length > 30) return json({
         error: 'Choose items to revise.',
         code: 'invalid_request'
       }, 400);
@@ -178,8 +179,9 @@ export function mutation(action: string, dependencies = {
           error: parsed.error,
           code: 'invalid_request'
         }, 400);
-        if ('photoPaths' in item && ('outline' in parsed || !parseGbpPhotoPaths(item.photoPaths))) return json({
-          error: 'A GBP post can include up to 10 valid photos.',
+        const mediaError = gbpMediaError(item, { page: 'outline' in parsed });
+        if (mediaError) return json({
+          error: mediaError,
           code: 'invalid_request'
         }, 400);
         items.push({
@@ -204,7 +206,7 @@ export function mutation(action: string, dependencies = {
       final: 'mark_gbp_approval_final',
       release: 'release_approval_revision'
     };
-    if (action === 'draft' && Object.keys(body).some(k => !['title', 'dueAt', 'questions', 'removeItemIds', 'itemOrder'].includes(k))) return json({
+    if (action === 'draft' && Object.keys(body).some(k => !['title', 'dueAt', 'questions', 'items', 'removeItemIds', 'itemOrder'].includes(k))) return json({
       error: 'Invalid draft patch.',
       code: 'invalid_request'
     }, 400);

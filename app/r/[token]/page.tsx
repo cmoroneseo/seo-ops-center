@@ -40,6 +40,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
         body: post.body,
         photo: post.photoSrc,
         photoSrcs: post.photoSrcs,
+        videoSrc: post.videoSrc,
+        videoPosterSrc: post.videoPosterSrc,
         photoComments: post.comments,
         status: post.status === 'pending' ? 'pending' : post.status,
         comment: post.decision?.comment ?? undefined,

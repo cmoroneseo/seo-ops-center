@@ -6,7 +6,41 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useOrganization } from '@/components/providers/organization-provider';
 import { getTasks } from '@/lib/supabase/tasks';
+import { GBP_VIDEO_ACCEPT, GBP_VIDEO_HINT, prepareGbpVideo, uploadGbpVideo } from '@/lib/gbp-approvals/video-upload';
 import type { Task } from '@/lib/types';
+
+type DraftVideos = {
+  requestId: string;
+  reviewUrl: string;
+  videos: { position: number; prepared: Awaited<ReturnType<typeof prepareGbpVideo>> }[];
+};
+
+async function attachDraftVideos({ requestId, videos }: DraftVideos) {
+  if (!videos.length) return;
+  const endpoint = `/api/approval-requests/${requestId}`;
+  const response = await fetch(endpoint);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error ?? 'The draft could not be loaded.');
+  const items = [];
+  for (const { position, prepared } of videos) {
+    const item = (data.items as { id: string; position: number; version: { id: string; payload: unknown; video_path?: string } | null }[])
+      .find(item => item.position === position);
+    if (!item?.version) throw new Error(`Post ${position} is unavailable. Open the draft to attach its video.`);
+    if (item.version.video_path) continue;
+    const video = await uploadGbpVideo(requestId, item.id, prepared);
+    items.push({
+      itemId: item.id, expectedVersionId: item.version.id, payload: item.version.payload,
+      videoPath: video.path, videoPosterPath: video.posterPath,
+    });
+  }
+  if (!items.length) return;
+  const saved = await fetch(`${endpoint}/versions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!saved.ok) throw new Error((await saved.json()).error ?? 'The videos could not be attached.');
+}
 
 export function CreateDraftButton({
   taskId,
@@ -24,6 +58,8 @@ export function CreateDraftButton({
   const [error, setError] = useState('');
   const [itemType, setItemType] = useState<'gbp_post' | 'page'>('gbp_post');
   const [postCount, setPostCount] = useState(1);
+  const [videoPosts, setVideoPosts] = useState<Record<number, boolean>>({});
+  const [pendingDraft, setPendingDraft] = useState<DraftVideos | null>(null);
   useEffect(() => {
     if (!open || taskId || !organization) return;
     let cancelled = false;
@@ -39,7 +75,24 @@ export function CreateDraftButton({
   async function create(form: HTMLFormElement) {
     setBusy(true);
     setError('');
-    const values = new FormData(form);
+    try {
+      let draft = pendingDraft;
+      if (!draft) {
+        draft = await createRequest(new FormData(form));
+        setPendingDraft(draft);
+        window.dispatchEvent(new Event('approvals:changed'));
+      }
+      await attachDraftVideos(draft);
+      setOpen(false);
+      window.location.assign(draft.reviewUrl);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The draft could not be created.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createRequest(values: FormData): Promise<DraftVideos> {
     const items = Array.from({
       length: postCount
     }, (_, index) => ({
@@ -69,32 +122,44 @@ export function CreateDraftButton({
         ctaLabel: 'Learn more'
       }
     }));
-    try {
-      const response = await fetch('/api/approval-requests', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          itemType,
-          taskId: taskId ?? values.get('task'),
-          title: values.get('title'),
-          items
-        })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? 'The draft could not be created.');
-      window.dispatchEvent(new Event('approvals:changed'));
-      setOpen(false);
-      window.location.assign(result.reviewUrl);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The draft could not be created.');
-    } finally {
-      setBusy(false);
+    const videos: DraftVideos['videos'] = [];
+    if (itemType === 'gbp_post') {
+      for (const item of items) {
+        if (!videoPosts[item.position - 1]) continue;
+        const file = values.get(`video-${item.position - 1}`);
+        if (!(file instanceof File) || !file.size) throw new Error(`Choose a video for post ${item.position}.`);
+        try {
+          videos.push({ position: item.position, prepared: await prepareGbpVideo(file) });
+        } catch (cause) {
+          throw new Error(`Post ${item.position}: ${cause instanceof Error ? cause.message : 'Video could not be read.'}`);
+        }
+      }
     }
+    const response = await fetch('/api/approval-requests', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        itemType,
+        taskId: taskId ?? values.get('task'),
+        title: values.get('title'),
+        items
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? 'The draft could not be created.');
+    return { requestId: result.requestId, reviewUrl: result.reviewUrl, videos };
   }
   const input = 'mt-1 block min-h-11 w-full rounded-md border border-input bg-background p-2';
-  return <Dialog open={open} onOpenChange={setOpen}>
+  return <Dialog open={open} onOpenChange={next => {
+    if (busy) return;
+    setOpen(next);
+    if (!next) {
+      setPendingDraft(null);
+      setError('');
+    }
+  }}>
     <DialogTrigger asChild>
       <Button className="min-h-11 w-full sm:w-auto bg-[#DB0A8B] text-white hover:bg-[#b90875]"><Plus size={16} />Request approval</Button>
     </DialogTrigger>
@@ -105,7 +170,8 @@ export function CreateDraftButton({
         event.preventDefault();
         void create(event.currentTarget);
       }}>
-        <label className="block">Content type<select className={input} value={itemType} onChange={event => { setItemType(event.target.value as 'gbp_post' | 'page'); setPostCount(1); }}><option value="gbp_post">GBP posts</option><option value="page">Pages</option></select></label>
+        <fieldset className="space-y-4" disabled={busy || !!pendingDraft}>
+        <label className="block">Content type<select className={input} value={itemType} onChange={event => { setItemType(event.target.value as 'gbp_post' | 'page'); setPostCount(1); setVideoPosts({}); }}><option value="gbp_post">GBP posts</option><option value="page">Pages</option></select></label>
         {!taskId && <label className="block">Task<select
           name="task"
           className={input}
@@ -153,11 +219,20 @@ export function CreateDraftButton({
             required
             className={input}
             placeholder="https://" /></label>}
-          {itemType === 'gbp_post' ? <label className="block">Photo URLs (optional)<textarea
-            name={`photo-${index}`}
-            className={input}
-            rows={2}
-            placeholder="One HTTPS URL per line, up to 10" /></label> : <label className="block">Photo URL (optional)<input
+          {itemType === 'gbp_post' ? <>
+            <label className="block">Post media<select className={input} value={videoPosts[index] ? 'video' : 'photos'}
+              onChange={event => setVideoPosts(current => ({ ...current, [index]: event.target.value === 'video' }))}>
+              <option value="photos">Photos (up to 10)</option><option value="video">Video (1 video)</option>
+            </select></label>
+            {videoPosts[index] ? <label className="block">Post video<input
+              name={`video-${index}`} type="file" accept={GBP_VIDEO_ACCEPT} className={input} required />
+              <span className="text-xs text-muted-foreground">{GBP_VIDEO_HINT}</span>
+            </label> : <label className="block">Photo URLs (optional)<textarea
+              name={`photo-${index}`}
+              className={input}
+              rows={2}
+              placeholder="One HTTPS URL per line, up to 10" /></label>}
+          </> : <label className="block">Photo URL (optional)<input
             type="url"
             name={`photo-${index}`}
             pattern="https://.*"
@@ -169,11 +244,13 @@ export function CreateDraftButton({
           variant="outline"
           disabled={postCount >= (itemType === 'page' ? 20 : 30) || busy}
           onClick={() => setPostCount(postCount + 1)}>{itemType === 'page' ? 'Add page' : 'Add post'}</Button>
+        </fieldset>
+        {pendingDraft && !busy && <a className="block underline" href={pendingDraft.reviewUrl}>Open the saved draft</a>}
         {error && <p role="alert" className="text-destructive">
           {error}
         </p>}
         <Button type="submit" disabled={busy}>
-          {busy ? 'Creating…' : 'Create draft'}
+          {busy ? (pendingDraft ? 'Uploading videos…' : 'Creating…') : pendingDraft ? 'Retry video uploads' : 'Create draft'}
         </Button>
       </form>
     </DialogContent>
