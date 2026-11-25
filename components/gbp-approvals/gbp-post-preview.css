@@ -74,3 +74,53 @@
   display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 16px; margin-top: 8px;
   border: 1px solid #0b57d0; border-radius: 18px; color: #0b57d0; font-weight: 600;
 }
+
+/* The staff card is sized independently of the client and internal review cards. */
+.ar-view .gbp-post {
+  font-family: var(--font-plus-jakarta), "Plus Jakarta Sans", Roboto, Arial, sans-serif;
+}
+.ar-view .gbp-post-compact {
+  --gbp-copy-lines: 3;
+  border: 0;
+  border-radius: 14px;
+  box-shadow: var(--ar-shadow-sm);
+}
+.ar-view .gbp-post-compact .gbp-post-avatar {
+  width: 32px; height: 32px; border: 0; background: #1a1612; color: #f6efe6;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em;
+}
+.ar-view .gbp-post-compact .gbp-post-body { padding: 12px 14px 14px; }
+.ar-view .gbp-post-compact .gbp-post-body h3 { margin-top: 1px; letter-spacing: -.015em; }
+.ar-view .gbp-post-compact .gbp-post-body .gbp-post-type { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.ar-view .gbp-post-compact .gbp-post-copy { margin-top: 8px; }
+.ar-view .gbp-post-compact .gbp-post-cta { margin-top: 12px; }
+.ar-view .gbp-post-compact .gbp-post-arrow {
+  width: 36px; height: 36px; background: rgba(16,16,20,.62); backdrop-filter: blur(8px);
+}
+.ar-view .gbp-post-compact .gbp-post-arrow::after { content: ""; position: absolute; inset: -6px; }
+.ar-view .gbp-post-compact .gbp-post-count {
+  display: flex; align-items: center; top: 10px; right: 10px; height: 22px; padding: 0 8px;
+  background: rgba(16,16,20,.72); backdrop-filter: blur(8px); font-size: 11px; font-weight: 700; letter-spacing: .02em;
+}
+.ar-view .gbp-post-compact .gbp-post-dots {
+  bottom: 10px; height: 28px; padding: 0 2px; border-radius: 999px;
+  background: rgba(16,16,20,.55); backdrop-filter: blur(8px);
+}
+.ar-view .gbp-post-compact .gbp-post-dots button { width: 28px; height: 28px; }
+.ar-view .gbp-post-compact .gbp-post-dots button span { border: 0; background: rgba(255,255,255,.45); }
+.ar-view .gbp-post-compact .gbp-post-dots button[aria-pressed="true"] span { background: white; width: 8px; height: 8px; }
+.ar-view .gbp-post-compact :is(.gbp-post-arrow, .gbp-post-dots button, .gbp-post-photo):focus-visible {
+  outline: 3px solid var(--ar-focus); outline-offset: 2px;
+}
+.ar-view .gbp-post-compact :is(.gbp-post-carousel, .gbp-post-photo):focus-visible { outline-offset: -3px; }
+@media (hover: hover) and (pointer: fine) {
+  .ar-view .gbp-post-compact .gbp-post-arrow:hover { background: rgba(16,16,20,.8); }
+}
+@media (max-width: 760px) {
+  .ar-view .gbp-post-compact .gbp-post-arrow { width: 44px; height: 44px; }
+  .ar-view .gbp-post-compact .gbp-post-arrow::after { display: none; }
+  .gbp-post .gbp-post-dots { height: 44px; padding: 0; border-radius: 999px; }
+  .gbp-post .gbp-post-dots button { width: 44px; height: 44px; border-radius: 50%; }
+  .ar-view .gbp-post-compact .gbp-post-dots { height: 44px; padding: 0; }
+  .ar-view .gbp-post-compact .gbp-post-dots button { width: 44px; height: 44px; }
+}

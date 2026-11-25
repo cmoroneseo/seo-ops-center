@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState, type ReactNode, type Ref } from 'react';
-import { AlertTriangle, Check, Clock, ExternalLink, FileText, Image as ImageIcon, Maximize2, Pencil, Send, Video } from 'lucide-react';
+import { AlertTriangle, Check, Clock, ExternalLink, FileText, Image as ImageIcon, Maximize2, Pencil, Video } from 'lucide-react';
 import { GbpPostPreview } from '@/components/gbp-approvals/GbpPostPreview';
 import { VideoPreview } from '@/components/gbp-approvals/VideoPreview';
 import { monthDay, offerRange, weekday } from '@/components/gbp-approvals/sample';
@@ -17,14 +17,22 @@ import { ReviewDialog } from './StaffReviewDialogs';
 export const statusText = (status: ReviewStatus, draft: boolean) => status === 'approved' ? 'Approved'
   : status === 'changes_requested' ? 'Changes requested' : draft ? 'Needs review' : 'Waiting on client';
 
-export function ReviewChip({ kind, children }: { kind: ReviewStatus | 'ready' | 'blocker' | 'photo'; children: ReactNode }) {
-  const Icon = { approved: Check, changes_requested: Pencil, pending: Clock, ready: Send, blocker: AlertTriangle, photo: ImageIcon }[kind];
+export function ReviewChip({ kind, children }: { kind: ReviewStatus | 'blocker' | 'photo'; children: ReactNode }) {
+  const Icon = { approved: Check, changes_requested: Pencil, pending: Clock, blocker: AlertTriangle, photo: ImageIcon }[kind];
   return <span className={`ar-chip ar-chip-${kind}`}><Icon size={14} strokeWidth={2.4} aria-hidden />{children}</span>;
 }
 
 export function reviewDate(version: ReviewVersion | null) {
   return version?.payload && ('pageKind' in version.payload ? version.payload.plannedDate : version.payload.scheduledDate);
 }
+
+export function reviewTypeName(item: StaffReviewItem, version: ReviewVersion | null) {
+  return item.item_type === 'gbp_post' && version && 'postType' in version.payload
+    ? `GBP ${version.payload.postType}`
+    : itemTypeName(item, version);
+}
+
+const plannedDateFormat = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeZone: 'UTC' });
 
 export function ReviewThumbnail({ item, version, photo, blocked }: { item: StaffReviewItem; version: ReviewVersion | null; photo: string | null; blocked: boolean }) {
   const blog = itemTypeName(item, version) === 'Blog draft';
@@ -36,9 +44,12 @@ export function ReviewThumbnail({ item, version, photo, blocked }: { item: Staff
     </span>;
   }
   const Icon = version?.video_path ? Video : blocked || item.item_type === 'gbp_post' ? ImageIcon : FileText;
-  // eslint-disable-next-line @next/next/no-img-element
-  return photo ? <img className="ar-thumbnail" src={photo} alt="" /> :
-    <span className={`ar-thumbnail ar-thumbnail-icon ${blocked ? 'ar-thumbnail-missing' : ''}`}><Icon size={20} aria-hidden /></span>;
+  if (photo) {
+    // eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL.
+    const image = <img className="ar-thumbnail" src={photo} alt="" />;
+    return version?.video_path ? <span className="ar-video-thumb">{image}<Video size={19} aria-hidden /></span> : image;
+  }
+  return <span className={`ar-thumbnail ar-thumbnail-icon ${blocked ? 'ar-thumbnail-missing' : ''}`}><Icon size={20} aria-hidden /></span>;
 }
 
 function Meter({ length, limit, unit = 'characters' }: { length: number; limit: number; unit?: string }) {
@@ -143,7 +154,7 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
     const range = offerRange(payload);
     const body = payload.body ?? '';
     const cta = payload.ctaLabel ?? '';
-    const planned = weekday(payload.scheduledDate);
+    const planned = weekday(payload.scheduledDate) ? plannedDateFormat.format(new Date(payload.scheduledDate)) : '—';
     const picker = photoPaths.length > 1 && <div className="ar-google-photo-picker" role="group" aria-label="Post photos">
         {photoPaths.map((path, index) => <button type="button" key={index} className="ar-google-thumb"
           aria-label={`Select photo ${index + 1} of ${photoPaths.length}`} aria-pressed={index === photoIndex}
@@ -160,13 +171,13 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
             // eslint-disable-next-line @next/next/no-img-element -- The source can be a signed or local fixture URL.
             <img src={data.photos[path]} alt="" referrerPolicy="no-referrer" />
           ) : <ImageIcon size={16} aria-hidden />}
-          <span>{index + 1}</span>
         </button>)}
     </div>;
     preview = <>
       <GbpPostPreview clientName={client?.name ?? 'Client'} logoSrc={client?.logo_url ?? undefined}
         post={{ ...payload, title, scheduled: payload.scheduledDate }} sources={sources} videoSrc={videoSrc} videoPosterSrc={videoPosterSrc} photoIndex={photoIndex} onPhotoChange={setPhotoIndex}
         staff={{
+          expanded: full,
           enlargeLabel: `Enlarge ${photoName} for item ${position}`,
           enlargeRef: photoTrigger,
           onEnlarge: () => setEnlarge(true),
@@ -177,22 +188,27 @@ export function StaffItemPreview({ data, item, version, position, draft, canEdit
       <Meter length={characterCount(body)} limit={gbpCharacterLimit} />
     </>;
     detail = <Facts rows={[
-      ['Content type', <>{type} · <span className="ar-capitalize">{payload.postType}</span></>],
-      ['Planned', planned ? `${planned}, ${payload.scheduledDate.slice(0, 4)}` : '—'],
+      ['Type', reviewTypeName(item, version)],
+      ['Planned', planned],
       ...(range ? [['Offer runs', range] as [string, ReactNode]] : []),
       ['Button', cta ? (isPhoneCta(cta) ? `${cta} (business phone)` : cta) : '—'],
       [hasVideo ? 'Video' : 'Photo', hasVideo ? videoSrc
-        ? <button type="button" className="ar-button ar-compact" ref={photoTrigger} onClick={() => setEnlarge(true)}
-            aria-label={`Enlarge video for item ${position}`}>Enlarge video</button>
-        : 'Preview unavailable' : <>
+        ? <div className="ar-media-fact">
+            <span className="ar-positive"><Check size={14} aria-hidden />Included</span>
+            <button type="button" className="ar-button ar-text-button" ref={photoTrigger} onClick={() => setEnlarge(true)}
+              aria-label={`Enlarge video for item ${position}`}>Enlarge video</button>
+          </div>
+        : 'Preview unavailable' : <div className="ar-media-fact">
         {!photoPaths.length ? 'Photo needed' : photoUnavailable ? 'Preview unavailable' :
-          <span className="ar-positive"><Check size={14} aria-hidden />{dimensions ? `${dimensions.width} × ${dimensions.height}${dimensions.width * 3 === dimensions.height * 4 ? ', 4:3' : ''}` : 'Included'}</span>}
+          <span className="ar-positive"><Check size={14} aria-hidden />
+            {dimensions ? `${dimensions.width} × ${dimensions.height} · ${photoPaths.length} ${photoPaths.length === 1 ? 'photo' : 'photos'}` : 'Included'}
+          </span>}
         {picker}
-      </>],
-      ['Terms', payload.terms ? <span className="ar-positive"><Check size={14} aria-hidden />Included</span> : '—'],
+      </div>],
+      ...(payload.terms?.trim() ? [['Terms', <span key="terms" className="ar-positive"><Check size={14} aria-hidden />Included</span>]] as [string, ReactNode][] : []),
       ['Version', `v${version.version_no}${!draft ? ' · Client preview' : version.version_no === 1 && data.botName ? ` · written by ${data.botName}` : ''}`],
     ]} />;
-    extra = <section className="ar-full-copy">
+    extra = <section className="ar-full-copy ar-post-copy">
       <h3>Full post text</h3>
       <p className={full ? '' : 'ar-clamp-copy'}>{body}</p>
       {full && payload.terms && <><h3 className="mt-3">Offer terms</h3><p>{payload.terms}</p></>}

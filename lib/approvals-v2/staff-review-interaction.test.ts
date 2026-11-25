@@ -243,7 +243,7 @@ test('Option B shows the dimensions of a photo that has already loaded', async (
     await act(async () => root.render(createElement(StaffReviewView, {
       data: draftData(), initialSelection: 'item-2', saveReview: async () => {},
     })));
-    assert.match(get('.ar-facts').textContent ?? '', /1200 × 900, 4:3/);
+    assert.match(get('.ar-facts').textContent ?? '', /1200 × 900 · 1 photo/);
   } finally {
     await act(async () => root.unmount());
     for (const property of Object.keys(dimensions)) {
@@ -343,7 +343,7 @@ test('Option B selects gallery photos by keyboard, shows versioned comments, and
       Object.defineProperties(image, { naturalWidth: { value: 1200 }, naturalHeight: { value: 900 } });
       image.dispatchEvent(new dom.window.Event('load'));
     });
-    assert.match(get('.ar-facts').textContent ?? '', /1200 × 900, 4:3/);
+    assert.match(get('.ar-facts').textContent ?? '', /1200 × 900 · 3 photos/);
     const enlarge = get<HTMLButtonElement>('[aria-label="Enlarge photo 2 of 3 for item 2"]');
     enlarge.focus();
     await act(async () => enlarge.click());
@@ -358,6 +358,13 @@ test('Option B selects gallery photos by keyboard, shows versioned comments, and
     assert.equal(get('.gbp-post-slide img').getAttribute('src'), third);
     assert.equal(get('.ar-approve').getAttribute('aria-disabled'), 'false');
     assert.doesNotMatch(get('.ar-facts').textContent ?? '', /1200 × 900/);
+
+    const fullItem = get<HTMLButtonElement>('.ar-item-tools button[aria-expanded]');
+    await act(async () => fullItem.click());
+    assert.equal(get('.gbp-post-copy').getAttribute('data-expanded'), 'true');
+    assert.equal(document.querySelector('.ar-post-copy .ar-clamp-copy'), null);
+    await act(async () => fullItem.click());
+    assert.equal(get('.gbp-post-copy').getAttribute('data-expanded'), 'false');
 
     await act(async () => get<HTMLButtonElement>('.ar-item-tools button').click());
     const editor = get('[role="dialog"]');
@@ -432,6 +439,79 @@ test('staff can enlarge and preview a video as a client without rendering it as 
     const clientVideo = get('[role="dialog"] .gbp-post video');
     assert.equal(clientVideo.getAttribute('src'), video);
     assert.equal(clientVideo.closest('.gbp-post-slide')?.querySelector('img'), null);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('keyboard item gestures suppress motion until the next pointer press', async () => {
+  const root = createRoot(get('#review'));
+  const writes: Parameters<SaveStaffReview>[0][] = [];
+  const html = document.documentElement;
+  try {
+    await act(async () => root.render(createElement(Harness, { writes })));
+    const first = get<HTMLElement>('[data-review-row="item-1"]');
+    first.focus();
+    for (const shortcut of ['J', 'K', 'End', 'Home', 'ArrowDown', 'ArrowUp']) {
+      html.removeAttribute('data-keys');
+      await act(async () => key(document.activeElement!, shortcut));
+      assert.equal(html.dataset.keys, '1', shortcut);
+    }
+    await act(async () => key(document.activeElement!, 'J'));
+    html.removeAttribute('data-keys');
+    await act(async () => key(document.activeElement!, 'A'));
+    assert.equal(html.dataset.keys, '1');
+    assert.equal(writes[0]?.decision, 'approved');
+    await act(async () => document.activeElement?.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+    assert.equal(html.dataset.keys, undefined);
+    await act(async () => key(document.activeElement!, 'R'));
+    assert.equal(html.dataset.keys, '1');
+    assert.equal(document.activeElement, get('textarea'));
+  } finally {
+    await act(async () => root.unmount());
+  }
+  assert.equal(html.dataset.keys, undefined);
+});
+
+test('mobile Request actions use the top bar and completion opens the one changed item', async () => {
+  const slot = document.createElement('div');
+  slot.id = 'ar-mobile-top-more';
+  document.body.append(slot);
+  const root = createRoot(get('#review'));
+  const fixture = draftData();
+  fixture.items.forEach((item, index) => {
+    item.staffReview = { decision: index === 1 ? 'changes_requested' : 'approved', note: null, tags: [],
+      reviewer_id: 'reviewer', reviewer_name: 'Reviewer', created_at: '2026-11-24', version_id: item.current_version_id! };
+  });
+  isMobile = true;
+  try {
+    await act(async () => root.render(createElement(StaffReviewView, { data: fixture, initialMobileScreen: 'detail' })));
+    assert.ok(slot.querySelector('[aria-label="Request actions"]'));
+    await act(async () => get<HTMLButtonElement>('.ar-complete .ar-button-soft').click());
+    assert.equal(get('.ar-view').getAttribute('data-mobile-screen'), 'detail');
+    assert.equal(get('[aria-current="true"]').getAttribute('data-review-row'), 'item-2');
+    assert.equal(document.activeElement, get('#ar-item-title'));
+    assert.equal(get('[role="tab"][aria-selected="true"]').id, 'ar-tab-all');
+  } finally {
+    await act(async () => root.unmount());
+    slot.remove();
+    isMobile = false;
+  }
+});
+
+test('a pointer approval animates only the reviewed row and next preview', async () => {
+  const root = createRoot(get('#review'));
+  const writes: Parameters<SaveStaffReview>[0][] = [];
+  try {
+    await act(async () => root.render(createElement(Harness, { writes })));
+    const row = get('[data-review-row="item-2"]');
+    await act(async () => row.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 })));
+    const approve = get('.ar-approve');
+    await act(async () => approve.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 })));
+    assert.equal(writes[0]?.itemId, 'item-2');
+    assert.equal(get('[data-animate-review="true"]'), row);
+    assert.equal(get('[data-animate-preview="true"] #ar-item-title').textContent, 'Three');
+    assert.equal(document.activeElement, get('.ar-approve'));
   } finally {
     await act(async () => root.unmount());
   }
