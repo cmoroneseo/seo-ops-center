@@ -80,7 +80,6 @@
   font-family: var(--font-plus-jakarta), "Plus Jakarta Sans", Roboto, Arial, sans-serif;
 }
 .ar-view .gbp-post-compact {
-  --gbp-copy-lines: 3;
   border: 0;
   border-radius: 14px;
   box-shadow: var(--ar-shadow-sm);

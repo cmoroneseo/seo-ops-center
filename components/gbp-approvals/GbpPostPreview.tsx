@@ -78,7 +78,7 @@ export function GbpPostPreview({ post, clientName, logoSrc, sources = [], videoS
             <h3>{post.title}</h3>
             {range && <p className="gbp-post-offer-date">{range}</p>}
             {staff
-                ? <p className="gbp-post-copy" data-expanded={staff.expanded ?? false}>{post.body}</p>
+                ? <p className="gbp-post-copy" data-expanded={staff.expanded ? 'true' : 'false'}>{post.body}</p>
                 : <PostCopy body={post.body ?? ''} />}
             {cta && (ctaHref
                 ? <a className="gbp-post-cta" href={ctaHref} target="_blank" rel="noopener noreferrer">{ctaContent}</a>
