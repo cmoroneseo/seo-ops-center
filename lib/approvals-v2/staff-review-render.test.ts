@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { StaffReviewData } from '@/components/approvals-v2/StaffReviewTypes';
+import type { StaffDecision } from './staff-review';
 import type { GbpPostPayload } from '@/lib/gbp-approvals/registry';
 import type { PagePayload } from './registry';
 
@@ -144,6 +145,7 @@ test('reviewed statuses drive progress, quiet row chips, and the Send color', ()
   second.staffReview = { ...review, decision: 'changes_requested' };
   third.staffReview = { ...review, decision: 'changes_requested' };
   doc = render();
+  assert.equal(doc.querySelector('.ar-complete-summary')?.textContent, '3 need changes');
   assert.equal(doc.querySelector('.ar-complete .ar-button-soft')?.textContent, 'Review changes (3)');
   assert.ok(doc.querySelector('.ar-complete .ar-send-ink'));
 
@@ -152,6 +154,32 @@ test('reviewed statuses drive progress, quiet row chips, and the Send color', ()
   assert.equal(doc.querySelector('.ar-complete-summary')?.textContent, '3 approved');
   assert.equal(doc.querySelector('.ar-complete .ar-button-soft'), null);
 });
+
+const completionCases: { decisions: StaffDecision[]; title: string; summary: string }[] = [
+  { decisions: ['approved'], title: '1 item reviewed', summary: '1 approved' },
+  { decisions: ['changes_requested'], title: '1 item reviewed', summary: '1 needs changes' },
+  { decisions: ['changes_requested', 'changes_requested'], title: 'All 2 items reviewed', summary: '2 need changes' },
+  {
+    decisions: ['approved', 'approved', 'changes_requested', 'changes_requested', 'changes_requested'],
+    title: 'All 5 items reviewed', summary: '2 approved · 3 need changes',
+  },
+];
+
+for (const { decisions, title, summary } of completionCases) {
+  test(`review completion shows "${title}" with "${summary}"`, () => {
+    const fixture = data(update);
+    const [first] = fixture.items;
+    fixture.items = decisions.map((decision, index) => ({
+      ...first, id: `item-${index + 1}`, position: index + 1,
+      staffReview: { decision, version_id: first.current_version_id!, note: null, tags: [],
+        reviewer_name: 'Reviewer', reviewer_id: 'staff', created_at: '2026-11-17' },
+    }));
+    const doc = new JSDOM(renderToStaticMarkup(createElement(StaffReviewView, { data: fixture }))).window.document;
+    assert.equal(doc.querySelector('#ar-review-complete')?.textContent, title);
+    assert.equal(doc.querySelector('.ar-complete-summary')?.textContent, summary);
+    if (summary === '1 approved') assert.equal(doc.querySelector('.ar-complete .ar-button-soft'), null);
+  });
+}
 
 test('the Terms fact is available for offers with terms', () => {
   const html = renderToStaticMarkup(createElement(StaffReviewView, { data: data({
@@ -170,7 +198,10 @@ test('premium layout rules keep compact media scoped and short detail views usab
   assert.match(staff, /grid-template-columns: 360px minmax\(0, 1fr\); gap: 18px/);
   assert.match(staff, /height: calc\(100dvh - 240px\); min-height: 0; overflow: hidden/);
   assert.match(staff, /\.ar-view \.gbp-post-compact \.gbp-post-slide \{ height: 200px; aspect-ratio: auto/);
-  assert.match(staff, /@media \(max-width: 760px\) and \(max-height: 640px\) \{\s+\.ar-view \.gbp-post-compact \.gbp-post-slide \{ height: 120px/);
+  const shortViewport = staff.match(/@media \(max-width: 760px\) and \(max-height: 640px\) \{([^]*?)\n\}/)?.[1] ?? '';
+  assert.match(shortViewport, /\.ar-view \.gbp-post-compact \{ --gbp-copy-lines: 2; \}/);
+  assert.match(shortViewport, /\.ar-view \.gbp-post-compact \.gbp-post-slide \{ height: 120px/);
+  assert.match(shortViewport, /\.ar-view \.gbp-post-compact \.gbp-post-copy\[data-expanded="false"\] \{\s+display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;/);
   assert.match(staff, /@media \(prefers-reduced-motion: reduce\)[^]*?animation: none !important/);
   assert.match(staff, /@media \(prefers-reduced-transparency: reduce\)[^]*?background: #fff; backdrop-filter: none/);
   assert.match(gbp, /\.ar-view \.gbp-post-compact \.gbp-post-arrow::after \{ content: ""; position: absolute; inset: -6px/);

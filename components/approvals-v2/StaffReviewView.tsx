@@ -155,6 +155,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
   const savedListScroll = useRef(0);
   const focusAfter = useRef<'approve' | 'row' | 'title' | 'completion' | 'note' | null>(null);
   const counts = reviewCounts(data.items, draft);
+  const completionTitle = counts.all === 1 ? '1 item reviewed' : `All ${counts.all} items reviewed`;
   const filtered = filterReviewItems(data.items, filter, draft);
   const selected = filtered.find(item => item.id === selection) ?? filtered[0];
   const version = selected ? displayVersion(selected, draft) : null;
@@ -366,7 +367,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
       } else {
         setCompletion(true);
         focusAfter.current = 'completion';
-        announce(`All ${counts.all} items reviewed.`);
+        announce(`${completionTitle}.`);
       }
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : 'Couldn’t save. Try again.');
@@ -515,8 +516,7 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
     data.request.clients?.name,
     `${counts.all} ${itemLabel}`,
     dateRange,
-    draft ? <span className="ar-lock"><Lock size={13} aria-hidden />Draft — the client can’t see this yet</span> : statusText(stage, false),
-    data.request.archived_at && 'Archived',
+    !draft && statusText(stage, false),
   ].filter(Boolean);
   const statusChips = selected ? <>
     {(!draft || selectedStatus !== 'pending') && <ReviewChip kind={selectedStatus}>{statusText(selectedStatus, draft)}</ReviewChip>}
@@ -571,6 +571,10 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
           <h1>{data.request.title}</h1>
           <div className="ar-meta">
             {meta.map((entry, index) => <span className="ar-meta-entry" key={index}>{entry}</span>)}
+            {draft && <span className="ar-meta-draft">
+              <span className="ar-lock"><Lock size={13} aria-hidden />Draft — the client can’t see this yet</span>
+            </span>}
+            {data.request.archived_at && <span className="ar-meta-entry">Archived</span>}
           </div>
         </div>
         <div className="ar-header-actions">
@@ -654,8 +658,11 @@ export function StaffReviewView({ data, initialSelection, initialMobileScreen = 
         {(showCompletion || selected) && <section ref={pane} className="ar-card ar-pane ar-mobile-detail" data-animate-preview={Boolean(selected && pointerTransition.previewId === selected.id) || undefined} aria-labelledby={showCompletion ? 'ar-review-complete' : 'ar-item-title'}>
           {showCompletion ? <div className="ar-complete">
             <span className="ar-complete-mark"><Check size={32} aria-hidden /></span>
-            <h2 tabIndex={-1} ref={completeTitle} id="ar-review-complete">All {counts.all} items reviewed</h2>
-            <p className="ar-complete-summary">{counts.approved} approved{counts.changes_requested > 0 && ` · ${counts.changes_requested} needs changes`}</p>
+            <h2 tabIndex={-1} ref={completeTitle} id="ar-review-complete">{completionTitle}</h2>
+            <p className="ar-complete-summary">{[
+              counts.approved > 0 && `${counts.approved} approved`,
+              counts.changes_requested > 0 && `${counts.changes_requested} ${counts.changes_requested === 1 ? 'needs' : 'need'} changes`,
+            ].filter(Boolean).join(' · ')}</p>
             <div className="ar-actions">
               {sendButton()}
               {counts.changes_requested > 0 && <button className="ar-button ar-button-soft" onClick={event => {

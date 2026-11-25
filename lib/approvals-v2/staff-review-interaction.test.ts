@@ -53,8 +53,8 @@ function draftData(): StaffReviewData {
   };
 }
 
-function Harness({ writes }: { writes: Parameters<SaveStaffReview>[0][] }) {
-  const [data, setData] = useState(draftData);
+function Harness({ writes, initialData }: { writes: Parameters<SaveStaffReview>[0][]; initialData?: StaffReviewData }) {
+  const [data, setData] = useState(() => initialData ?? draftData());
   const saveReview: SaveStaffReview = async input => {
     writes.push(input);
     setData(previous => ({ ...previous, items: previous.items.map(item => item.id === input.itemId ? {
@@ -182,8 +182,22 @@ test('keyboard review announces a blocker, validates a note, advances, and resto
     third.focus();
     await act(async () => key(third, 'a'));
     assert.equal(get('#ar-review-complete').textContent, 'All 3 items reviewed');
+    assert.equal(get('.ar-container > .sr-only[aria-live]').textContent, 'All 3 items reviewed.');
     assert.equal(document.activeElement, get('#ar-review-complete'));
     assert.equal(writes.length, 3);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('approving the only item announces singular review completion', async () => {
+  const root = createRoot(get('#review'));
+  const data = draftData();
+  data.items = [data.items[1]];
+  try {
+    await act(async () => root.render(createElement(Harness, { writes: [], initialData: data })));
+    await act(async () => get<HTMLButtonElement>('.ar-approve').click());
+    assert.equal(get('.ar-container > .sr-only[aria-live]').textContent, '1 item reviewed.');
   } finally {
     await act(async () => root.unmount());
   }
